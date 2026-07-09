@@ -37,8 +37,6 @@ use crate::{
 /// Repo-root `.env`, anchored on the manifest so cwd doesn't matter (the crate
 /// lives in `albert/`, the `.env` one level up at the repo root — mirrors octo).
 const DOTENV_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../.env");
-/// Octo connector-manifest root — points at `config/connectors/` (Telegram + calendar).
-const OCTO_TOML: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config/octo.toml");
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -117,7 +115,7 @@ async fn main() -> Result<()> {
         builder = builder
             .register_connector_type("telegram", telegram_factory())
             .register_connector_type("caldav", caldav_factory())
-            .from_config_file(OCTO_TOML)?;
+            .from_config_file(&config.connectors_manifest)?;
     } else {
         eprintln!("[albert] channel: console (set OCTO_TELEGRAM_TOKEN for telegram + calendar)");
         builder = builder.add_connector(ConsoleConnector::new("console"));
