@@ -30,6 +30,15 @@ dotenvy = "0.15"
 toml = "0.8"
 rig-core = "0.35"
 
+# Optimized release profile for the deployed binary (smaller + faster; the target
+# is a small VM). opt-level 3 is the release default; the wins are LTO + a single
+# codegen unit + strip.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
 # cozo (pulled transitively via kaeru-core) needs this patch on rustc 1.85+ /
 # rayon 1.10+ — the same pin kaeru's own workspace carries. Patches are
 # per-workspace-root, so Albert (its own workspace) must repeat it.
