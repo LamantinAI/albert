@@ -16,6 +16,8 @@ deeper reference.
   (`config/octo.toml` + `config/connectors/*/*.toml`) for Telegram and the calendar.
 - **[structure.md](structure.md)** — the code map: what each module owns and where
   a given concern lives.
+- **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
+  the `/opt/albert` layout, the systemd unit, and the per-target config.
 
 ## One-paragraph mental model
 
