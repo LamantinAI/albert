@@ -78,7 +78,7 @@ id        = "telegram"
 type      = "telegram"
 token_env = "OCTO_TELEGRAM_TOKEN"       # token value stays in .env
 acl_path  = "telegram_acl.json"         # runtime allow-list (gitignored; next to this file)
-owner_chat = 000000000                  # <- YOUR real chat id (ask @userinfobot)
+owner_chat = 100000000                  # <- YOUR real chat id (ask @userinfobot); a placeholder locks you out
 ```
 
 `owner_chat` is not optional in practice: the ACL starts **empty and drops every
