@@ -33,6 +33,9 @@ pub struct Config {
     pub soul_path: PathBuf,
     pub system_path: PathBuf,
     pub max_tool_turns: usize,
+    /// Octo connector-manifest root (`from_config_file`). Resolved against the
+    /// config dir so a relocated deployment finds it (default `config/octo.toml`).
+    pub connectors_manifest: PathBuf,
 }
 
 impl Config {
@@ -56,6 +59,10 @@ impl Config {
             soul_path: resolve(dir, &raw.prompt.soul),
             system_path: resolve(dir, &raw.prompt.system),
             max_tool_turns: raw.agent.max_tool_turns,
+            connectors_manifest: resolve(
+                dir,
+                raw.connectors_manifest.as_deref().unwrap_or("config/octo.toml"),
+            ),
         })
     }
 }
@@ -96,6 +103,8 @@ struct Raw {
     base_url: String,
     #[serde(default)]
     openai_key_env: Option<String>,
+    #[serde(default)]
+    connectors_manifest: Option<String>,
     #[serde(default)]
     prompt: RawPrompt,
     #[serde(default)]
