@@ -1,0 +1,13 @@
+[connector]
+id       = "calendar"
+type     = "caldav"
+base_url = "https://caldav.yandex.ru"   # collection is auto-discovered; no URL by hand
+# calendar = "My events"                # optional: narrow to one calendar by display name
+
+auth         = "basic"
+login        = "you@yandex.ru"
+password_env = "OCTO_YANDEX_APP_PASSWORD"   # APP password in env, NOT the account password
+
+# Two calendars later = a second manifest with a different id/login/password_env
+# (e.g. calendar-work / calendar-personal). Same type = "caldav". Google is oauth2
+# only and not wired end-to-end yet.

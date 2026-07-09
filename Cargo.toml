@@ -1,0 +1,37 @@
+[package]
+name = "albert"
+version = "0.1.0"
+edition = "2021"
+description = "Albert — the assembly: an Octo cogitator with kaeru memory and a scheduler connector. Talk to it; it remembers and reminds."
+
+[dependencies]
+# Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
+# tags yet — bump the rev to track octo main). One repo, many crates.
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+
+# kaeru — the Memory substrate, pinned to the v0.4.1 release (adds kaeru_reflect).
+kaeru-core = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.4.1" }
+kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.4.1" }
+
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+toml = "0.8"
+rig-core = "0.35"
+
+# cozo (pulled transitively via kaeru-core) needs this patch on rustc 1.85+ /
+# rayon 1.10+ — the same pin kaeru's own workspace carries. Patches are
+# per-workspace-root, so Albert (its own workspace) must repeat it.
+[patch.crates-io]
+graph_builder = { git = "https://github.com/lawless-m/graph", rev = "790ef623533fa39574ddd11308e3abc3993c0994" }

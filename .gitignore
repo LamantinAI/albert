@@ -1,0 +1,5 @@
+target/
+# scheduler runtime state (alarms persisted at runtime — machine-specific, not source)
+state/
+# runtime ACL allow-list (per-chat, mutated at runtime)
+config/connectors/telegram/telegram_acl.json

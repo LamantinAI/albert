@@ -1,0 +1,28 @@
+# Albert runtime config. Its path is set by ALBERT_CONFIG in .env (default: next
+# to the binary, else this crate dir). Secrets stay in the environment, named here
+# by their env-var name (never the value) — so this file is safe to commit.
+
+model    = "deepseek/deepseek-v4-flash"
+base_url = "https://openrouter.ai/api/v1"
+openai_key_env = "ALBERT_OPENAI_KEY"
+
+[prompt]
+# Persona and operating instructions — hot-reloaded (edit and save; no restart).
+# Paths resolve relative to this file.
+soul   = "soul.md"
+system = "system.md"
+
+[reflection]
+period_secs = 21600   # base memory-reflection routine cadence (6h)
+
+# Connectors (Telegram channel, calendar) are config-driven separately, under
+# config/connectors/*/*.toml (Octo's from_config_file). See those manifests.
+
+[history]
+backend = "memory"    # or "file:<dir>"
+
+[scheduler]
+state_path = "state/scheduler.json"
+
+[agent]
+max_tool_turns = 8
