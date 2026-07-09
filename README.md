@@ -10,8 +10,9 @@ remembers, it reminds, and it keeps a verifiable scratchpad for multi-step work.
 The long-term frame is **PEMRR** — Perception, Experience, Memory, Reflection,
 Reaction — the five layers Albert composes from. Today Albert is the working-first
 cut: a ReAct-style cogitator over Octo, with kaeru as Memory and a scheduler for
-proactive routines. The staged **graph** cogitator (explicit PEMRR nodes, checkpoints,
-steering) is Phase 2.
+proactive routines. Richer cognition is future work — the agent building and reusing
+**its own** task structure (a self-built graph it authors, grown from the per-turn
+scratchpad), **not** a LangGraph-style control-flow engine over fixed stages.
 
 ## Overview
 
@@ -83,23 +84,14 @@ See [`docs/`](docs/) for the architecture and the full configuration reference.
 
 ```
 albert/
-├── albert.toml                  <- Albert-level config (model, prompts, reflection, ...)
-├── soul.md  system.md           <- persona + operating instructions (hot-reloaded)
-├── config/
-│   ├── octo.toml                <- Octo connector-manifest root
-│   └── connectors/
-│       ├── telegram/telegram.toml
-│       └── calendar/calendar.toml
-├── src/
-│   ├── main.rs                  <- wiring: config, kaeru, scheduler, connectors
-│   ├── cogitator.rs             <- the Cogitator: perceive -> tool-loop -> reply
-│   ├── acl.rs  routines.rs      <- owner ACL reflex; proactive routines (seed + run)
-│   ├── scratchpad.rs            <- the loop scratchpad (store + rig tools)
-│   ├── prompt.rs                <- soul/system loader (RAM + mtime hot-reload)
-│   ├── config.rs  error.rs      <- TOML config; crate error type
-│   └── history.rs  console.rs   <- per-channel transcript; console channel
-└── docs/                        <- architecture, configuration, code map
+├── albert.toml         Albert-level config
+├── soul.md system.md   persona + instructions (hot-reloaded)
+├── config/             connector manifests (Telegram, calendar)
+├── src/                the cogitator + wiring
+└── docs/               architecture, configuration, code map
 ```
+
+The per-module code map is in [`docs/structure.md`](docs/structure.md).
 
 ## Built on
 

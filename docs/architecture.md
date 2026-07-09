@@ -10,8 +10,10 @@ The long-term decomposition is five layers — **P**erception (what is happening
 **E**xperience (what it means now), **M**emory (what is stored), **R**eflection (what
 is learned), **R**eaction (what is done). Octo is the Reaction skeleton; kaeru is
 Memory; Experience/Reflection live in the cogitator. Today those middle layers are
-collapsed into one rig tool-loop turn; splitting them into an explicit **graph**
-(with per-stage state) is Phase 2.
+one rig tool-loop turn. Deeper cognition — the agent building and reusing its own
+task structure — is future work: a self-built graph the agent authors (grown from
+the per-turn scratchpad), **not** a LangGraph-style control-flow engine over fixed
+PEMRR nodes.
 
 ## Octo — the skeleton (not the brain)
 
@@ -102,10 +104,14 @@ Telegram and the calendar are assembled from manifests via Octo's `from_config_f
 - **CalDAV calendar** — a generic (RFC 4791) organ: one crate, many calendars (a
   configured instance per account). Commands `calendar.{list,create,delete}_event`.
 
-## Settled vs. Phase 2
+## Settled today; future direction
 
 Settled today: the working-first cogitator, kaeru memory, reminders + the reflection
 routine, the scratchpad, config-driven Telegram (ACL) + calendar, TOML config +
-hot-reloaded prompts. Phase 2: the **graph** cogitator — the Experience/Memory/
-Reflection stages split into explicit `graph-llm` nodes with threaded, checkpointable
-state and steering. The whole non-cognition layer carries over unchanged.
+hot-reloaded prompts.
+
+**Future direction** is *not* a LangGraph-style control-flow graph engine over fixed
+PEMRR stages. It is the agent building — and saving — **its own** task structure:
+growing from the per-turn scratchpad toward reusable, self-authored task graphs
+("this worked; keep it"). The working-first loop stays; the non-cognition layer
+(memory, reminders, scratchpad, connectors) is unchanged.
