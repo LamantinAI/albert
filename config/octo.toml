@@ -1,0 +1,10 @@
+# Octo connector manifests. Points at a directory of per-connector <id>.toml files;
+# each file's `type` is resolved to a registered factory (telegram, caldav). Loaded
+# from src/main.rs via `.from_config_file(...)`. Secrets are named by their env var
+# in each connector manifest; the values live in .env.
+
+[runtime]
+# bus_capacity = 1024   # optional; default is the builder's default
+
+[connectors]
+dir = "connectors"

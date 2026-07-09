@@ -1,0 +1,10 @@
+[connector]
+id        = "telegram"
+type      = "telegram"
+token_env = "OCTO_TELEGRAM_TOKEN"
+acl_path  = "telegram_acl.json"
+
+# owner_chat MUST be your real Telegram chat id (ask @userinfobot). The ACL starts
+# EMPTY and drops every chat — including you — until an owner is seeded. Without a
+# correct owner_chat you lock yourself out of your own bot (better than open).
+owner_chat = 000000000
