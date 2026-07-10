@@ -36,6 +36,10 @@ pub struct Config {
     /// Octo connector-manifest root (`from_config_file`). Resolved against the
     /// config dir so a relocated deployment finds it (default `config/octo.toml`).
     pub connectors_manifest: PathBuf,
+    /// The owner's timezone (IANA name). Used to render the "current time" the
+    /// agent reasons from, so "today", reminders, and shown times are local
+    /// rather than UTC. Defaults to UTC.
+    pub timezone: chrono_tz::Tz,
 }
 
 impl Config {
@@ -48,6 +52,14 @@ impl Config {
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
         let api_key = var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?;
+
+        let timezone = raw
+            .timezone
+            .as_deref()
+            .map(str::parse::<chrono_tz::Tz>)
+            .transpose()
+            .map_err(|e| Error::Config(format!("invalid timezone: {e}")))?
+            .unwrap_or(chrono_tz::UTC);
 
         Ok(Config {
             model: raw.model,
@@ -63,6 +75,7 @@ impl Config {
                 dir,
                 raw.connectors_manifest.as_deref().unwrap_or("config/octo.toml"),
             ),
+            timezone,
         })
     }
 }
@@ -105,6 +118,8 @@ struct Raw {
     openai_key_env: Option<String>,
     #[serde(default)]
     connectors_manifest: Option<String>,
+    #[serde(default)]
+    timezone: Option<String>,
     #[serde(default)]
     prompt: RawPrompt,
     #[serde(default)]
