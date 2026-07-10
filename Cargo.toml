@@ -14,9 +14,9 @@ octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "d
 octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
 octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
 
-# kaeru — the Memory substrate, pinned to the v0.4.1 release (adds kaeru_reflect).
-kaeru-core = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.4.1" }
-kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.4.1" }
+# kaeru — the Memory substrate, pinned by rev (b2a3a08: KaeruMemory::install).
+kaeru-core = { git = "https://github.com/LamantinAI/kaeru", rev = "b2a3a08609fcc7e962ea8a70e787ea0274e8a28a" }
+kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", rev = "b2a3a08609fcc7e962ea8a70e787ea0274e8a28a" }
 
 tokio = { version = "1.40", features = ["full"] }
 async-trait = "0.1"

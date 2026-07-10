@@ -304,7 +304,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "regex",
@@ -1780,15 +1780,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1893,7 +1884,7 @@ dependencies = [
 [[package]]
 name = "kaeru-core"
 version = "0.4.1"
-source = "git+https://github.com/LamantinAI/kaeru?tag=v0.4.1#a6fe6bc3468deb67810f499f1851f1210f08eb5b"
+source = "git+https://github.com/LamantinAI/kaeru?rev=b2a3a08609fcc7e962ea8a70e787ea0274e8a28a#b2a3a08609fcc7e962ea8a70e787ea0274e8a28a"
 dependencies = [
  "chrono",
  "config",
@@ -1907,7 +1898,7 @@ dependencies = [
 [[package]]
 name = "kaeru-rig"
 version = "0.4.1"
-source = "git+https://github.com/LamantinAI/kaeru?tag=v0.4.1#a6fe6bc3468deb67810f499f1851f1210f08eb5b"
+source = "git+https://github.com/LamantinAI/kaeru?rev=b2a3a08609fcc7e962ea8a70e787ea0274e8a28a#b2a3a08609fcc7e962ea8a70e787ea0274e8a28a"
 dependencies = [
  "kaeru-core",
  "rig-core",

@@ -257,20 +257,12 @@ impl AlbertCogitator {
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
-        let agent = client
-            .agent(&self.config.model)
-            .preamble(preamble)
+        // kaeru: the full memory API (parity with the kaeru MCP) in one call,
+        // all scoped to Albert's "albert" initiative. `install` takes a fresh
+        // builder, so it goes before the dispatch/scratchpad tools.
+        let agent = m
+            .install(client.agent(&self.config.model).preamble(preamble))
             .tool(dispatch)
-            .tool(m.awake())
-            .tool(m.recall())
-            .tool(m.read())
-            .tool(m.remember())
-            .tool(m.task())
-            .tool(m.done())
-            .tool(m.recent())
-            .tool(m.reflect())
-            .tool(m.link())
-            .tool(m.synthesise())
             .tool(pad.goal())
             .tool(pad.step())
             .tool(pad.mark())
