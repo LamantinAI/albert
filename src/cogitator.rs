@@ -157,13 +157,12 @@ impl AlbertCogitator {
 
         let base = self.prompt.base();
         let preamble = format!(
-            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}\n\n{}",
+            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}",
             incoming_context(&incoming, &channel_key),
             now_rfc3339(&self.config.timezone),
             active,
             pad,
             self.skills.catalog(),
-            self.skills.active(),
         );
 
         let answer = self
