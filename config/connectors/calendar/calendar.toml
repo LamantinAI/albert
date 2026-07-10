@@ -3,6 +3,7 @@ id       = "calendar"
 type     = "caldav"
 base_url = "https://caldav.yandex.ru"   # collection is auto-discovered; no URL by hand
 # calendar = "My events"                # optional: narrow to one calendar by display name
+timezone = "Europe/Moscow"              # render event start/end in this zone (default UTC)
 
 auth         = "basic"
 login        = "you@yandex.ru"

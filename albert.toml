@@ -6,6 +6,12 @@ model    = "deepseek/deepseek-v4-flash"
 base_url = "https://openrouter.ai/api/v1"
 openai_key_env = "ALBERT_OPENAI_KEY"
 
+# Owner's timezone (IANA name). The agent's "current time" — and thus its sense
+# of "today" and any reminder times it computes — is rendered in this zone rather
+# than UTC. Defaults to UTC if omitted. Set the calendar connector's own
+# `timezone` (config/connectors/calendar) to match, so listed events read local.
+timezone = "Europe/Moscow"
+
 [prompt]
 # Persona and operating instructions — hot-reloaded (edit and save; no restart).
 # Paths resolve relative to this file.

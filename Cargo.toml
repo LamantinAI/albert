@@ -7,12 +7,12 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 [dependencies]
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "94ed6956191f40f8198f7da311684421e748a7ac" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
 
 # kaeru — the Memory substrate, pinned to the v0.4.1 release (adds kaeru_reflect).
 kaeru-core = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.4.1" }
@@ -24,6 +24,7 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
+chrono-tz = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"

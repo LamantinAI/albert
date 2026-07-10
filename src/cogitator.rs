@@ -153,9 +153,9 @@ impl AlbertCogitator {
 
         let base = self.prompt.base();
         let preamble = format!(
-            "{base}\n\n{}\n\nCurrent time (UTC): {}\n\n{}\n\n{}",
+            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}",
             incoming_context(&incoming, &channel_key),
-            now_rfc3339(),
+            now_rfc3339(&self.config.timezone),
             active,
             pad,
         );
@@ -197,8 +197,8 @@ impl AlbertCogitator {
             "{base}\n\nAn internal reminder alarm just fired (alarm_id={alarm_id}) for the \
              memory task \"{task}\". Recall its details from memory if useful, then write a short, \
              friendly reminder to the user and ask them to tell you when it's done (so it can stop \
-             repeating). Do NOT schedule anything now.\n\nCurrent time (UTC): {}",
-            now_rfc3339(),
+             repeating). Do NOT schedule anything now.\n\nCurrent time: {}",
+            now_rfc3339(&self.config.timezone),
         );
         let prompt = Message::user(format!(
             "Reminder due for \"{task}\". Write the reminder message to the user."
@@ -228,8 +228,8 @@ impl AlbertCogitator {
                     "{base}\n\nPERIODIC MEMORY REFLECTION — internal maintenance, NO user \
                      message. Call kaeru_reflect for the maintenance work-list, then act on it: link \
                      orphans, resolve open reviews, synthesise what has settled, prune noise. Keep it \
-                     brief and work silently.\n\nCurrent time (UTC): {}",
-                    now_rfc3339(),
+                     brief and work silently.\n\nCurrent time: {}",
+                    now_rfc3339(&self.config.timezone),
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let out = self
@@ -395,8 +395,11 @@ fn channel_of(env: &Envelope) -> String {
         .unwrap_or_default()
 }
 
-fn now_rfc3339() -> String {
-    Utc::now().to_rfc3339()
+/// Current time as RFC3339 in the owner's configured timezone (offset form,
+/// e.g. `…+03:00`), so the agent's notion of "now" — and thus "today" and any
+/// reminder times it computes — is local rather than UTC.
+fn now_rfc3339(tz: &chrono_tz::Tz) -> String {
+    Utc::now().with_timezone(tz).to_rfc3339()
 }
 
 /// Front-load the incoming envelope's provenance for the model — where the message
