@@ -1,8 +1,9 @@
 //! Declarative skills — a `skills/` folder of `SKILL.md` files (instructions, no
 //! scripts yet). At startup we scan the **catalog** (name + when-to-use, from each
-//! file's frontmatter). A skill's full body is loaded on `skill_apply` into a small
-//! **LRU RAM cache** (default 5) and stays *active* — its instructions render into
-//! the preamble each turn — until evicted. The catalog is always shown; the agent
+//! file's frontmatter). Only the catalog is kept in front of the agent each turn —
+//! the full body would clutter context. `skill_apply` returns a skill's instructions
+//! on demand and caches the body in a small **LRU RAM read-through cache** (default
+//! 5), so re-applying a recent skill is a fast RAM hit, not a disk read. The agent
 //! lists (`skill_list`) and applies (`skill_apply`).
 //!
 //! A `SKILL.md`:
@@ -37,8 +38,8 @@ struct SkillMeta {
 
 struct Inner {
     catalog: Vec<SkillMeta>,
-    /// LRU of loaded `(name, body)`; front = most-recently applied.
-    active: VecDeque<(String, String)>,
+    /// LRU read-through cache of loaded `(name, body)`; front = most-recently applied.
+    cache: VecDeque<(String, String)>,
     cache_cap: usize,
 }
 
@@ -56,7 +57,7 @@ impl SkillStore {
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 catalog,
-                active: VecDeque::new(),
+                cache: VecDeque::new(),
                 cache_cap: cache_cap.max(1),
             }),
         })
@@ -80,20 +81,6 @@ impl SkillStore {
         )
     }
 
-    /// The loaded (active) skills' instructions for the preamble — empty if none.
-    pub fn active(&self) -> String {
-        let inner = self.inner.lock().unwrap();
-        if inner.active.is_empty() {
-            return String::new();
-        }
-        let blocks: Vec<String> = inner
-            .active
-            .iter()
-            .map(|(n, b)| format!("### Skill: {n}\n{b}"))
-            .collect();
-        format!("Active skills (loaded — follow their instructions):\n{}", blocks.join("\n\n"))
-    }
-
     fn list_json(&self) -> Value {
         let inner = self.inner.lock().unwrap();
         let items: Vec<Value> = inner
@@ -106,6 +93,14 @@ impl SkillStore {
 
     fn apply_json(&self, name: &str) -> Value {
         let mut inner = self.inner.lock().unwrap();
+        // Cache hit: return the warm body and move it to the front — no disk read.
+        if let Some(pos) = inner.cache.iter().position(|(n, _)| n == name) {
+            let entry = inner.cache.remove(pos).expect("position just found");
+            let body = entry.1.clone();
+            inner.cache.push_front(entry);
+            return json!({ "ok": true, "applied": name, "cached": true, "instructions": body });
+        }
+        // Miss: locate in the catalog, read from disk, cache it (LRU, evict the back).
         let Some(path) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.path.clone()) else {
             return json!({ "ok": false, "error": format!("no skill '{name}'") });
         };
@@ -113,12 +108,10 @@ impl SkillStore {
             Ok(text) => body_of(&text).trim().to_string(),
             Err(e) => return json!({ "ok": false, "error": format!("read {name}: {e}") }),
         };
-        // Move-to-front LRU: drop any existing copy, push front, evict from the back.
-        inner.active.retain(|(n, _)| n != name);
-        inner.active.push_front((name.to_string(), body.clone()));
+        inner.cache.push_front((name.to_string(), body.clone()));
         let cap = inner.cache_cap;
-        while inner.active.len() > cap {
-            inner.active.pop_back();
+        while inner.cache.len() > cap {
+            inner.cache.pop_back();
         }
         json!({ "ok": true, "applied": name, "instructions": body })
     }
