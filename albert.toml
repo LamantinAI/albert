@@ -32,3 +32,11 @@ state_path = "state/scheduler.json"
 
 [agent]
 max_tool_turns = 8
+
+[skills]
+# Declarative skills: a folder of `<name>/SKILL.md` (frontmatter name/description +
+# instructions). Albert sees the catalog each turn, lists (skill_list) and applies
+# (skill_apply); an applied skill's instructions stay hot in an LRU cache of this
+# many. Path resolves relative to this file; a missing folder just means no skills.
+dir   = "skills"
+cache = 5

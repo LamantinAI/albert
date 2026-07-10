@@ -12,6 +12,7 @@ mod history;
 mod prompt;
 mod routines;
 mod scratchpad;
+mod skills;
 
 use std::{env::var, sync::Arc};
 
@@ -32,6 +33,7 @@ use crate::{
     history::{FileHistory, HistoryStore, InMemoryHistory},
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
+    skills::SkillStore,
 };
 
 /// Repo-root `.env`, anchored on the manifest so cwd doesn't matter (the crate
@@ -93,6 +95,10 @@ async fn main() -> Result<()> {
     // ── Loop scratchpad: super-operational per-task working object ───────────
     let scratchpad = ScratchpadStore::new();
 
+    // ── Declarative skills: a folder Albert lists + applies (LRU-cached) ─────
+    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache);
+    eprintln!("[albert] skills: {}", config.skills_dir.display());
+
     let mut builder = Octo::builder()
         .cogitator(AlbertCogitator::new(
             "albert",
@@ -100,6 +106,7 @@ async fn main() -> Result<()> {
             history,
             memory,
             scratchpad,
+            skills,
             prompt,
         ))
         .add_connector(scheduler);
