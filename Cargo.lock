@@ -304,7 +304,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "regex",
@@ -1884,7 +1884,7 @@ dependencies = [
 [[package]]
 name = "kaeru-core"
 version = "0.4.1"
-source = "git+https://github.com/LamantinAI/kaeru?rev=b2a3a08609fcc7e962ea8a70e787ea0274e8a28a#b2a3a08609fcc7e962ea8a70e787ea0274e8a28a"
+source = "git+https://github.com/LamantinAI/kaeru?rev=adff3db1dc28f5dd6e0cda7b523ee8d2391e6283#adff3db1dc28f5dd6e0cda7b523ee8d2391e6283"
 dependencies = [
  "chrono",
  "config",
@@ -1898,7 +1898,7 @@ dependencies = [
 [[package]]
 name = "kaeru-rig"
 version = "0.4.1"
-source = "git+https://github.com/LamantinAI/kaeru?rev=b2a3a08609fcc7e962ea8a70e787ea0274e8a28a#b2a3a08609fcc7e962ea8a70e787ea0274e8a28a"
+source = "git+https://github.com/LamantinAI/kaeru?rev=adff3db1dc28f5dd6e0cda7b523ee8d2391e6283#adff3db1dc28f5dd6e0cda7b523ee8d2391e6283"
 dependencies = [
  "kaeru-core",
  "rig-core",
