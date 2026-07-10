@@ -219,9 +219,12 @@ impl Tool for SkillApply {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Apply a skill by name: loads its instructions (returned now and kept \
-                          active for the next few turns). Use when a task matches a skill in the \
-                          catalog."
+            description: "Apply a skill by name: loads and returns its full instructions. Follow \
+                          them exactly and literally — a skill is an authoritative recipe to \
+                          execute, not a suggestion to paraphrase; do not invent steps, \
+                          parameters, or rules not written in it, and quote it verbatim if asked \
+                          to show it. The instructions are returned now but not kept in context \
+                          afterward — re-apply if you need them again."
                 .to_string(),
             parameters: json!({
                 "type": "object",
