@@ -36,6 +36,12 @@ pub struct Config {
     /// Octo connector-manifest root (`from_config_file`). Resolved against the
     /// config dir so a relocated deployment finds it (default `config/octo.toml`).
     pub connectors_manifest: PathBuf,
+    /// Declarative skills folder (`skills/<name>/SKILL.md`), resolved against the
+    /// config dir. Optional — a missing folder just means no skills.
+    pub skills_dir: PathBuf,
+    /// How many applied skill bodies stay hot in RAM (LRU); the rest are listed but
+    /// loaded on demand.
+    pub skills_cache: usize,
     /// The owner's timezone (IANA name). Used to render the "current time" the
     /// agent reasons from, so "today", reminders, and shown times are local
     /// rather than UTC. Defaults to UTC.
@@ -75,6 +81,8 @@ impl Config {
                 dir,
                 raw.connectors_manifest.as_deref().unwrap_or("config/octo.toml"),
             ),
+            skills_dir: resolve(dir, &raw.skills.dir),
+            skills_cache: raw.skills.cache,
             timezone,
         })
     }
@@ -130,6 +138,8 @@ struct Raw {
     scheduler: RawScheduler,
     #[serde(default)]
     agent: RawAgent,
+    #[serde(default)]
+    skills: RawSkills,
 }
 
 #[derive(Deserialize)]
@@ -189,6 +199,19 @@ impl Default for RawAgent {
     }
 }
 
+#[derive(Deserialize)]
+struct RawSkills {
+    #[serde(default = "d_skills_dir")]
+    dir: String,
+    #[serde(default = "d_skills_cache")]
+    cache: usize,
+}
+impl Default for RawSkills {
+    fn default() -> Self {
+        Self { dir: d_skills_dir(), cache: d_skills_cache() }
+    }
+}
+
 fn d_soul() -> String {
     "soul.md".into()
 }
@@ -206,4 +229,10 @@ fn d_state() -> String {
 }
 fn d_max_turns() -> usize {
     8
+}
+fn d_skills_dir() -> String {
+    "skills".into()
+}
+fn d_skills_cache() -> usize {
+    5
 }

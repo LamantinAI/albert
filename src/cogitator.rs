@@ -39,6 +39,7 @@ use crate::{
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
+    skills::SkillStore,
 };
 
 pub(crate) const SCHEDULER_ID: &str = "scheduler";
@@ -52,6 +53,7 @@ pub struct AlbertCogitator {
     history: Arc<dyn HistoryStore>,
     kaeru: KaeruMemory,
     scratchpad: Arc<ScratchpadStore>,
+    skills: Arc<SkillStore>,
     prompt: Arc<PromptFiles>,
 }
 
@@ -62,6 +64,7 @@ impl AlbertCogitator {
         history: Arc<dyn HistoryStore>,
         kaeru: KaeruMemory,
         scratchpad: Arc<ScratchpadStore>,
+        skills: Arc<SkillStore>,
         prompt: Arc<PromptFiles>,
     ) -> Arc<Self> {
         let id = id.into();
@@ -72,6 +75,7 @@ impl AlbertCogitator {
             history,
             kaeru,
             scratchpad,
+            skills,
             prompt,
         })
     }
@@ -153,11 +157,13 @@ impl AlbertCogitator {
 
         let base = self.prompt.base();
         let preamble = format!(
-            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}",
+            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}\n\n{}",
             incoming_context(&incoming, &channel_key),
             now_rfc3339(&self.config.timezone),
             active,
             pad,
+            self.skills.catalog(),
+            self.skills.active(),
         );
 
         let answer = self
@@ -268,6 +274,8 @@ impl AlbertCogitator {
             .tool(pad.mark())
             .tool(pad.note())
             .tool(pad.clear())
+            .tool(self.skills.list_tool())
+            .tool(self.skills.apply_tool())
             .build();
         match agent
             .prompt(prompt)
