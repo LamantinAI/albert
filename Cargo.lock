@@ -61,9 +61,12 @@ name = "albert"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
+ "bytes",
  "chrono",
  "chrono-tz 0.10.4",
  "dotenvy",
+ "futures",
  "kaeru-core",
  "kaeru-rig",
  "octo-connector-caldav",
@@ -72,14 +75,18 @@ dependencies = [
  "octo-core",
  "octo-history",
  "octo-rig",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
  "rig-core",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

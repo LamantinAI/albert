@@ -19,10 +19,26 @@ kaeru-core = { git = "https://github.com/LamantinAI/kaeru", rev = "adff3db1dc28f
 kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", rev = "adff3db1dc28f5dd6e0cda7b523ee8d2391e6283" }
 
 tokio = { version = "1.40", features = ["full"] }
+# futures: drain rig's SSE stream (StreamExt::next) in the Codex subscription model.
+futures = "0.3"
+# bytes: rewrite the Codex request/response body in the custom rig HttpClientExt
+# (codex_http). The reqwest client itself comes via rig's `http_client::ReqwestClient`.
+bytes = "1"
+# Subscription login/refresh (openai_login / openai_auth): the OAuth PKCE flow and
+# token-endpoint calls. reqwest reuses rig's already-built TLS (default-features off,
+# just add `json`); sha2 for the PKCE S256 challenge; rand for the verifier/state;
+# url to build the authorize URL safely.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+sha2 = "0.10"
+rand = "0.8"
+url = "2"
 async-trait = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# base64: decode the JWT access-token payload (subscription auth) to read `exp`
+# and the ChatGPT plan claim. URL-safe, no-pad. Already in the tree transitively.
+base64 = "0.22"
 chrono = "0.4"
 chrono-tz = "0.10"
 tracing = "0.1"
