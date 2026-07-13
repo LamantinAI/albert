@@ -26,7 +26,11 @@ Orient by module before changing code. Everything is under `src/`:
 | Module | Owns |
 |--------|------|
 | `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history / scheduler / scratchpad / prompt loader; register connector factories + `from_config_file`, or fall back to console; run Octo. |
-| `cogitator.rs` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset. |
+| `cogitator.rs` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset; picks the LLM client by `Config::auth` (API key vs ChatGPT subscription). |
+| `openai_auth.rs` | ChatGPT-subscription token store: read/write a codex-style `auth.json`; `ensure_fresh` returns the `Subscription` (access token + account id), refreshing the access token in place before it expires. |
+| `openai_login.rs` | `albert login` — the interactive OAuth (PKCE) sign-in: loopback callback server on `:1455` with a stdin paste fallback, code exchange, token save. |
+| `codex_model.rs` | `CodexResponsesModel` — a rig `CompletionModel` for the Codex backend: routes the non-streaming tool-loop through rig's streaming path (the endpoint is streaming-only) and folds the SSE back into a response. |
+| `codex_http.rs` | `CodexHttp` — a rig `HttpClientExt` that rewrites the Codex request/response on the wire (`store:false`, `system`→`developer`, relaxed tool schemas, injected SSE content-type) so rig's serializer + parser stay reused. |
 | `acl.rs` | Owner-only Telegram ACL admin reflex (`/allow` `/deny` `/allowed`) — deterministic, no LLM in a security action. |
 | `routines.rs` | Proactive routines: idempotently seed the base memory-reflection alarm on startup. |
 | `scratchpad.rs` | The loop scratchpad: channel-keyed store + the `scratchpad_*` rig tools. |
@@ -54,6 +58,8 @@ Rules of thumb:
 - `cargo test` — run tests (e.g. the scratchpad store test).
 - `cargo run` — run Albert. Telegram if `OCTO_TELEGRAM_TOKEN` is set, else a
   console channel. Config from `albert.toml`; secrets from `.env`.
+- `cargo run -- login` — sign in with a ChatGPT subscription (writes tokens to the
+  `[subscription] auth_json` path). Only needed when `auth = "subscription"`.
 - `cargo build --release` — the deploy binary (optimized profile: LTO + strip).
 
 Deployment (build here, ship the binary; the target is small): see
