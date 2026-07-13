@@ -24,9 +24,11 @@ use octo_core::{
 };
 use octo_rig::OctoDispatchTool;
 use rig::{
+    agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
-    completion::{Message, Prompt},
-    providers::openrouter::Client,
+    completion::{CompletionModel, Message, Prompt},
+    http_client::{HeaderMap, HeaderValue},
+    providers::{openai, openrouter::Client as OpenRouterClient},
 };
 use serde_json::{json, Value};
 use tokio::{select, spawn};
@@ -34,8 +36,11 @@ use tracing::{info, warn};
 
 use crate::{
     acl::command as acl_command,
-    config::Config,
+    codex_http::CodexHttp,
+    codex_model::CodexResponsesModel,
+    config::{AuthMode, Config},
     history::{to_messages, HistoryStore, Turn},
+    openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -246,7 +251,9 @@ impl AlbertCogitator {
         }
     }
 
-    /// Build the agent (dispatch + kaeru + scratchpad tools) and run one rig tool-loop.
+    /// Build the LLM client per the configured auth mode, then run one rig
+    /// tool-loop. The two modes yield different concrete model types, so the
+    /// build-tools-and-run tail lives in the generic [`Self::drive`].
     async fn run_agent(
         &self,
         ctx: &CogitatorContext,
@@ -255,18 +262,78 @@ impl AlbertCogitator {
         prompt: Message,
         history: Vec<Message>,
     ) -> String {
-        let client = match Client::new(&self.config.api_key) {
-            Ok(c) => c,
-            Err(e) => return format!("(llm client error: {e})"),
-        };
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
+        match self.config.auth {
+            AuthMode::ApiKey => {
+                let Some(key) = self.config.api_key.as_deref() else {
+                    return "(config: api-key auth but no key loaded)".into();
+                };
+                let client = match OpenRouterClient::new(key) {
+                    Ok(c) => c,
+                    Err(e) => return format!("(llm client error: {e})"),
+                };
+                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, channel, prompt, history)
+                    .await
+            }
+            AuthMode::Subscription => {
+                // Load (and, if it's expiring, refresh) the OAuth tokens, then build
+                // the Codex client for this turn.
+                let sub = match ensure_fresh(&self.config.subscription_auth_json).await {
+                    Ok(s) => s,
+                    Err(e) => return format!("(subscription auth: {e})"),
+                };
+                let client = match self.subscription_client(&sub) {
+                    Ok(c) => c,
+                    Err(e) => return format!("(subscription auth: {e})"),
+                };
+                let model = CodexResponsesModel::make(&client, self.config.model.as_str());
+                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, channel, prompt, history)
+                    .await
+            }
+        }
+    }
+
+    /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
+    /// default) pointed at the Codex backend, with the OAuth access token as the
+    /// bearer and the account id in the mandatory `ChatGPT-Account-ID` header.
+    fn subscription_client(&self, sub: &SubscriptionAuth) -> Result<openai::Client<CodexHttp>, String> {
+        if let Some(plan) = &sub.plan {
+            info!(plan, "subscription auth loaded");
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "chatgpt-account-id",
+            HeaderValue::from_str(&sub.account_id).map_err(|e| format!("bad account id: {e}"))?,
+        );
+        headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
+        openai::Client::builder()
+            .base_url(&self.config.subscription_base_url)
+            .api_key(sub.access_token.as_str())
+            .http_headers(headers)
+            .http_client(CodexHttp::default())
+            .build()
+            .map_err(|e| format!("client build: {e}"))
+    }
+
+    /// Attach the toolset (kaeru memory + dispatch + scratchpad + skills) to a
+    /// fresh agent builder and run one bounded tool-loop. Generic over the model
+    /// so both auth modes share it; `install` takes the no-tools-yet builder, so
+    /// it runs before the dispatch/scratchpad tools are chained on.
+    async fn drive<M>(
+        &self,
+        base: AgentBuilder<M, (), NoToolConfig>,
+        dispatch: OctoDispatchTool,
+        channel: &str,
+        prompt: Message,
+        history: Vec<Message>,
+    ) -> String
+    where
+        M: CompletionModel + 'static,
+    {
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
-        // kaeru: the full memory API (parity with the kaeru MCP) in one call,
-        // all scoped to Albert's "albert" initiative. `install` takes a fresh
-        // builder, so it goes before the dispatch/scratchpad tools.
         let agent = m
-            .install(client.agent(&self.config.model).preamble(preamble))
+            .install(base)
             .tool(dispatch)
             .tool(pad.goal())
             .tool(pad.step())

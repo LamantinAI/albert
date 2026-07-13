@@ -4,11 +4,15 @@
 //! it remembers and it reminds.
 
 mod acl;
+mod codex_http;
+mod codex_model;
 mod cogitator;
 mod config;
 mod console;
 mod error;
 mod history;
+mod openai_auth;
+mod openai_login;
 mod prompt;
 mod routines;
 mod scratchpad;
@@ -27,7 +31,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::{
     cogitator::AlbertCogitator,
-    config::Config,
+    config::{AuthMode, Config},
     console::ConsoleConnector,
     error::{Error, Result},
     history::{FileHistory, HistoryStore, InMemoryHistory},
@@ -54,11 +58,24 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::load()?;
-    eprintln!(
-        "[albert] model={} base_url={}",
-        config.model,
-        if config.base_url.is_empty() { "(provider default)" } else { &config.base_url }
-    );
+    match config.auth {
+        AuthMode::Subscription => eprintln!(
+            "[albert] model={} auth=subscription base_url={}",
+            config.model, config.subscription_base_url
+        ),
+        AuthMode::ApiKey => eprintln!(
+            "[albert] model={} auth=api_key base_url={}",
+            config.model,
+            if config.base_url.is_empty() { "(provider default)" } else { &config.base_url }
+        ),
+    }
+
+    // `albert login` — interactive ChatGPT-subscription sign-in, then exit (no
+    // runtime, no memory vault needed). Writes tokens to the subscription store.
+    if std::env::args().nth(1).as_deref() == Some("login") {
+        eprintln!("[albert] login: writing tokens to {}", config.subscription_auth_json.display());
+        return openai_login::run(&config.subscription_auth_json).await;
+    }
 
     // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
     let kcfg = KaeruConfig::from_env().map_err(|e| Error::Kaeru(e.to_string()))?;

@@ -29,6 +29,11 @@ pub enum Error {
     #[error("history: {0}")]
     History(#[from] HistoryError),
 
+    /// OpenAI ChatGPT-subscription auth: reading/parsing the token store,
+    /// an expired access token, or a missing account id.
+    #[error("subscription auth: {0}")]
+    Auth(String),
+
     #[error("llm client: {0}")]
     LlmClient(#[from] HttpError),
 

@@ -21,12 +21,29 @@ use toml::from_str;
 
 use crate::error::{Error, Result};
 
+/// How Albert authenticates to the model backend.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AuthMode {
+    /// An API key against OpenRouter or any OpenAI-compatible endpoint. The default.
+    ApiKey,
+    /// A ChatGPT **subscription**: OAuth tokens routed to the Codex backend.
+    Subscription,
+}
+
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
     pub model: String,
+    /// How the LLM call authenticates — API key (default) or ChatGPT subscription.
+    pub auth: AuthMode,
     pub base_url: String,
-    pub api_key: String,
+    /// The LLM API key — present only in [`AuthMode::ApiKey`]; `None` under a
+    /// subscription (where the bearer comes from the OAuth token store instead).
+    pub api_key: Option<String>,
+    /// Subscription mode: the codex-style `auth.json` to read tokens from, and the
+    /// Codex backend base URL model calls hit (`.../responses` is appended by rig).
+    pub subscription_auth_json: PathBuf,
+    pub subscription_base_url: String,
     pub history: Option<String>,
     pub scheduler_state_path: PathBuf,
     pub reflection_secs: u64,
@@ -57,7 +74,23 @@ impl Config {
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
-        let api_key = var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?;
+        let auth = match raw.auth.as_deref() {
+            None | Some("api_key") => AuthMode::ApiKey,
+            Some("subscription") => AuthMode::Subscription,
+            Some(other) => {
+                return Err(Error::Config(format!(
+                    "unknown auth {other:?}; use \"api_key\" or \"subscription\""
+                )))
+            }
+        };
+        // The API key is required only for the api-key path; a subscription reads
+        // its bearer from the OAuth token store, so the env var may be unset.
+        let api_key = match auth {
+            AuthMode::ApiKey => {
+                Some(var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?)
+            }
+            AuthMode::Subscription => var(key_var).ok(),
+        };
 
         let timezone = raw
             .timezone
@@ -69,8 +102,11 @@ impl Config {
 
         Ok(Config {
             model: raw.model,
+            auth,
             base_url: raw.base_url,
             api_key,
+            subscription_auth_json: resolve_path(dir, &raw.subscription.auth_json),
+            subscription_base_url: raw.subscription.base_url,
             history: Some(raw.history.backend),
             scheduler_state_path: resolve(dir, &raw.scheduler.state_path),
             reflection_secs: raw.reflection.period_secs,
@@ -115,15 +151,37 @@ fn resolve(dir: &Path, p: &str) -> PathBuf {
     }
 }
 
+/// Like [`resolve`], but first expands a leading `~/` (or a bare `~`) to `$HOME` —
+/// so a subscription token path like `~/.codex/auth.json` lands in the real home
+/// directory rather than under the config dir.
+fn resolve_path(dir: &Path, p: &str) -> PathBuf {
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Ok(home) = var("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    if p == "~" {
+        if let Ok(home) = var("HOME") {
+            return PathBuf::from(home);
+        }
+    }
+    resolve(dir, p)
+}
+
 // ── Raw TOML shape (defaults let any table/field be omitted) ─────────────────
 
 #[derive(Deserialize)]
 struct Raw {
     model: String,
+    /// `"api_key"` (default) or `"subscription"`.
+    #[serde(default)]
+    auth: Option<String>,
     #[serde(default)]
     base_url: String,
     #[serde(default)]
     openai_key_env: Option<String>,
+    #[serde(default)]
+    subscription: RawSubscription,
     #[serde(default)]
     connectors_manifest: Option<String>,
     #[serde(default)]
@@ -140,6 +198,19 @@ struct Raw {
     agent: RawAgent,
     #[serde(default)]
     skills: RawSkills,
+}
+
+#[derive(Deserialize)]
+struct RawSubscription {
+    #[serde(default = "d_auth_json")]
+    auth_json: String,
+    #[serde(default = "d_codex_base")]
+    base_url: String,
+}
+impl Default for RawSubscription {
+    fn default() -> Self {
+        Self { auth_json: d_auth_json(), base_url: d_codex_base() }
+    }
 }
 
 #[derive(Deserialize)]
@@ -212,6 +283,12 @@ impl Default for RawSkills {
     }
 }
 
+fn d_auth_json() -> String {
+    "~/.codex/auth.json".into()
+}
+fn d_codex_base() -> String {
+    "https://chatgpt.com/backend-api/codex".into()
+}
 fn d_soul() -> String {
     "soul.md".into()
 }
