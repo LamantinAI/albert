@@ -46,6 +46,48 @@ state_path = "state/scheduler.json"   # where alarms persist (survives restart)
 max_tool_turns = 8       # max rig tool-loop rounds per message
 ```
 
+### Auth: API key vs. ChatGPT subscription
+
+`auth` selects how the LLM call authenticates:
+
+- `auth = "api_key"` (default) — an API key against `base_url` (OpenRouter or any
+  OpenAI-compatible endpoint). The key lives in the env var named by
+  `openai_key_env` (default `ALBERT_OPENAI_KEY`). This is the original behaviour.
+- `auth = "subscription"` — a **ChatGPT subscription** (Plus/Pro/Team/…): model
+  calls go to the OpenAI **Codex backend** using OAuth tokens instead of a metered
+  API key. No `openai_key_env` is needed.
+
+```toml
+model = "gpt-5.4"          # a Codex-backend slug: gpt-5.6-sol, gpt-5.5, gpt-5.4, gpt-5.4-mini, …
+auth  = "subscription"
+
+[subscription]
+auth_json = "~/.codex/auth.json"                    # where the OAuth tokens live (default: reuse the codex CLI login)
+base_url  = "https://chatgpt.com/backend-api/codex" # the Codex backend (default)
+```
+
+Get the tokens either way:
+
+- **`albert login`** — a self-contained sign-in: it opens `auth.openai.com` in your
+  browser (OAuth + PKCE), catches the redirect on `http://localhost:1455`, and writes
+  the tokens to `auth_json`. On a headless / remote box where the browser can't reach
+  that loopback, paste the redirect URL (or the bare code) at the prompt instead.
+- **`codex login`** — since `auth_json` defaults to `~/.codex/auth.json`, an existing
+  codex CLI login is reused as-is.
+
+Either way, the access token becomes the `Authorization: Bearer`, the account id the
+mandatory `ChatGPT-Account-ID` header. Albert **refreshes the access token in place**
+before it expires (via the OAuth refresh token), so a session started days later just
+works; only when the refresh token itself lapses do you re-run `albert login`. The
+Codex `/responses` endpoint is streaming-only and rejects `system` messages / strict
+schemas — Albert reconciles all of that transparently (see [`src/codex_http.rs`]).
+
+[`src/codex_http.rs`]: ../src/codex_http.rs
+
+> Note: driving a ChatGPT subscription from a third-party app uses OpenAI's Codex
+> client credentials outside their officially-supported path — use it with your own
+> subscription, at your own discretion.
+
 ### Prompt files (`soul.md`, `system.md`)
 
 `soul.md` is the persona; `system.md` the operating protocol (memory, reminders,
