@@ -1,0 +1,16 @@
+# Storage connector — a durable object store for artifacts Albert promotes out of
+# the ephemeral code workspace. Reached via the dispatch tool (env-as-tools):
+# storage.put/get/list/delete over string keys, plus storage.promote (shelf a
+# workspace file) / storage.checkout (bring one back). Backend swappable behind
+# StorageBackend — a local directory now, an S3-compatible store later.
+[connector]
+id      = "storage"
+type    = "storage"
+backend = "local"
+# `root` is durable + backed up (NOT the throwaway workspace). It resolves relative
+# to THIS manifest's own directory (config/connectors/storage/), so climb three
+# levels to the deploy root and land in state/ (gitignored), beside the workspace.
+root    = "../../../state/artifacts"
+# `workspace` is deliberately omitted: promote/checkout then fall back to
+# $OCTO_CODE_WORKSPACE — the exact jail octo-code writes to — so the two stay in
+# lockstep with zero path coordination. Set it here only to override that.

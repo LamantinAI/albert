@@ -72,6 +72,7 @@ dependencies = [
  "octo-code",
  "octo-connector-caldav",
  "octo-connector-scheduler",
+ "octo-connector-storage",
  "octo-connector-telegram",
  "octo-core",
  "octo-history",
@@ -2417,6 +2418,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-connector-storage"
+version = "0.0.1"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "octo-core",
+ "octo-workspace",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "octo-connector-telegram"
 version = "0.0.1"
 source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
@@ -4050,7 +4068,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

@@ -43,7 +43,7 @@ backend = "memory"    # or "file:<dir>"
 state_path = "state/scheduler.json"
 
 [agent]
-max_tool_turns = 20
+max_tool_turns = 30
 
 [skills]
 # Declarative skills: a folder of `<name>/SKILL.md` (frontmatter name/description +
