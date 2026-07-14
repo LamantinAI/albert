@@ -18,10 +18,13 @@ services:
     env_file: .env
     volumes:
       - albert-data:/data
-      # Optional: edit config/persona live without a rebuild by bind-mounting them.
-      # - ./albert.toml:/opt/albert/albert.toml:ro
-      # - ../soul.md:/opt/albert/soul.md:ro
-      # - ../system.md:/opt/albert/system.md:ro
+      # Connector manifests (owner_chat, which calendars) — mounted so you can edit
+      # them without rebuilding the image. Read-write so the telegram ACL can persist.
+      - ../config:/opt/albert/config
+      # Persona + operating instructions, mounted so they can be edited live —
+      # they're hot-reloaded by mtime (no rebuild, no restart).
+      - ../soul.md:/opt/albert/soul.md:ro
+      - ../system.md:/opt/albert/system.md:ro
     # `albert login` needs an interactive terminal for the paste fallback.
     stdin_open: true
     tty: true
