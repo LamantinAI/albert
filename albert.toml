@@ -3,22 +3,20 @@
 # by their env-var name (never the value) — so this file is safe to commit.
 
 # LLM backend — two auth modes (details in docs/configuration.md):
-#   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible)
-#   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth)
-auth  = "subscription"
-model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+#   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible). The default.
+#   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth). An option.
+auth  = "api_key"
+model = "deepseek/deepseek-v4-flash"
+base_url = "https://openrouter.ai/api/v1"
+openai_key_env = "ALBERT_OPENAI_KEY"
 
-[subscription]
-# Reuse the OAuth tokens the `codex` CLI already manages: run `codex login` once.
-# Albert reads this file each turn; refreshing the token stays with codex for now
-# (re-run `codex login` when it expires). base_url defaults to the Codex backend.
-auth_json = "~/.codex/auth.json"
+# --- Subscription mode (option) — set auth = "subscription" above to switch ---
+# model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+# [subscription]
+# # Reuse the OAuth tokens the `codex` CLI already manages (run `codex login` once);
+# # Albert reads auth.json each turn. base_url defaults to the Codex backend.
+# auth_json = "~/.codex/auth.json"
 # base_url = "https://chatgpt.com/backend-api/codex"
-
-# --- API-key mode (the previous default) — set auth = "api_key" above to use it ---
-# model    = "deepseek/deepseek-v4-flash"
-# base_url = "https://openrouter.ai/api/v1"
-# openai_key_env = "ALBERT_OPENAI_KEY"
 
 # Owner's timezone (IANA name). The agent's "current time" — and thus its sense
 # of "today" and any reminder times it computes — is rendered in this zone rather
