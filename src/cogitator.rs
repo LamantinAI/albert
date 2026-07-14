@@ -349,7 +349,8 @@ impl AlbertCogitator {
             .tool(pad.note())
             .tool(pad.clear())
             .tool(self.skills.list_tool())
-            .tool(self.skills.apply_tool());
+            .tool(self.skills.apply_tool())
+            .tool(self.skills.file_tool());
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to
         // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
         let agent = code_tools!(with_tools).build();
