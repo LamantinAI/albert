@@ -18,11 +18,11 @@ mod routines;
 mod scratchpad;
 mod skills;
 
-use std::{env::var, sync::Arc};
+use std::{collections::HashMap, env::var, sync::Arc};
 
 use dotenvy::{dotenv, from_path};
 use kaeru_core::{KaeruConfig, Store};
-use kaeru_rig::KaeruMemory;
+use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_scheduler::Scheduler;
 use octo_connector_telegram::factory as telegram_factory;
@@ -78,10 +78,32 @@ async fn main() -> Result<()> {
     }
 
     // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
+    // Local-only by default; if albert.toml declares [clouds.*], build a
+    // CloudRegistry (endpoint URL + bearer from the named env var) and hand it to
+    // kaeru so the share/pull/cloud_recall tools come alive. Which tools get
+    // installed is decided per-turn by the same emptiness check (cogitator::drive).
     let kcfg = KaeruConfig::from_env().map_err(|e| Error::Kaeru(e.to_string()))?;
-    let store = Store::open_with_config(kcfg).map_err(|e| Error::Kaeru(e.to_string()))?;
-    let memory = KaeruMemory::with_initiative(Arc::new(store), "albert");
-    eprintln!("[albert] memory: kaeru (initiative=albert)");
+    let store = Arc::new(Store::open_with_config(kcfg).map_err(|e| Error::Kaeru(e.to_string()))?);
+    let memory = if config.clouds.is_empty() {
+        eprintln!("[albert] memory: kaeru (initiative=albert, local-only)");
+        KaeruMemory::with_initiative(store, "albert")
+    } else {
+        let clients: HashMap<String, CloudClient> = config
+            .clouds
+            .iter()
+            .map(|(name, ep)| {
+                let token = var(&ep.token_env).unwrap_or_default();
+                if token.is_empty() {
+                    eprintln!("[albert] warning: cloud '{name}' token env {} is unset", ep.token_env);
+                }
+                (name.clone(), CloudClient::new(ep.url.clone(), token))
+            })
+            .collect();
+        let names: Vec<&str> = config.clouds.keys().map(String::as_str).collect();
+        eprintln!("[albert] memory: kaeru (initiative=albert) + clouds: {}", names.join(", "));
+        let registry = CloudRegistry::new(clients, config.clouds_default.clone());
+        KaeruMemory::with_clouds(store, "albert", registry)
+    };
 
     // ── Hot context: per-channel transcript backend ──────────────────────────
     const HISTORY_MAX: usize = 30;
