@@ -32,7 +32,7 @@ use std::{
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{debug, info};
 
 /// One skill's catalog entry (parsed frontmatter) + its folder.
 struct SkillMeta {
@@ -104,6 +104,7 @@ impl SkillStore {
             return json!({ "ok": false, "error": format!("no skill '{name}'") });
         };
         let files = bundle_files(&dir);
+        debug!(skill = name, files = files.len(), "skill apply");
         // Cache hit: return the warm body and move it to the front — no disk read.
         if let Some(pos) = inner.cache.iter().position(|(n, _)| n == name) {
             let entry = inner.cache.remove(pos).expect("position just found");
@@ -139,6 +140,7 @@ impl SkillStore {
         {
             return json!({ "ok": false, "error": "path must be relative and stay within the skill" });
         }
+        debug!(skill = name, path = rel, "skill file read");
         match read_to_string(dir.join(rp)) {
             Ok(content) => json!({ "ok": true, "name": name, "path": rel, "content": content }),
             Err(e) => json!({ "ok": false, "error": format!("read {name}/{rel}: {e}") }),

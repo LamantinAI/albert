@@ -33,7 +33,7 @@ use rig::{
 };
 use serde_json::{json, Value};
 use tokio::{select, spawn};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     acl::command as acl_command,
@@ -333,6 +333,12 @@ impl AlbertCogitator {
     {
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
+        debug!(
+            channel,
+            clouds = !self.config.clouds.is_empty(),
+            max_turns = self.config.max_tool_turns,
+            "building agent + running tool-loop"
+        );
         // Variant (b): install the cloud tools only when a cloud is configured, so an
         // unconfigured Albert never shows the model the 7 dead share/pull tools. Both
         // methods return the same builder type, so the tool tail below is shared.
