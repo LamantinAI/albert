@@ -18,6 +18,7 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use chrono::Utc;
 use kaeru_rig::KaeruMemory;
+use octo_code::code_tools;
 use octo_core::{
     ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind, Filter,
     OctoResult, ReplyChannel, Subscription,
@@ -340,7 +341,7 @@ impl AlbertCogitator {
         } else {
             m.install_with_cloud(base)
         };
-        let agent = installed
+        let with_tools = installed
             .tool(dispatch)
             .tool(pad.goal())
             .tool(pad.step())
@@ -348,8 +349,10 @@ impl AlbertCogitator {
             .tool(pad.note())
             .tool(pad.clear())
             .tool(self.skills.list_tool())
-            .tool(self.skills.apply_tool())
-            .build();
+            .tool(self.skills.apply_tool());
+        // octo-code file tools (read/write/edit/list/glob/grep), jailed to
+        // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
+        let agent = code_tools!(with_tools).build();
         match agent
             .prompt(prompt)
             .max_turns(self.config.max_tool_turns)

@@ -7,12 +7,15 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 [dependencies]
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "dbdecb6b91cc1d3987d58f3c089ad100f5562d7a" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
+# octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
+# to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "c69471ef91cb7126bbce23c22843d530e21c5076" }
 
 # kaeru — the Memory substrate, pinned to a release tag (v0.5.0: multi-cloud
 # sharing/recall — the async cloud tools live in kaeru-rig).

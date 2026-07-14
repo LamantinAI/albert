@@ -78,6 +78,9 @@ pub struct Config {
     pub clouds: HashMap<String, CloudEndpoint>,
     /// The default cloud name (`[clouds] default`), if set.
     pub clouds_default: Option<String>,
+    /// Ephemeral workspace root for octo-code file tools (`$OCTO_CODE_WORKSPACE`),
+    /// resolved against the config dir. octo-code jails all file ops to it.
+    pub code_workspace: PathBuf,
 }
 
 impl Config {
@@ -164,6 +167,7 @@ impl Config {
             timezone,
             clouds,
             clouds_default,
+            code_workspace: resolve(dir, &raw.code.workspace),
         })
     }
 }
@@ -244,6 +248,8 @@ struct Raw {
     skills: RawSkills,
     #[serde(default)]
     clouds: Table,
+    #[serde(default)]
+    code: RawCode,
 }
 
 #[derive(Deserialize)]
@@ -329,6 +335,17 @@ impl Default for RawSkills {
     }
 }
 
+#[derive(Deserialize)]
+struct RawCode {
+    #[serde(default = "d_code_workspace")]
+    workspace: String,
+}
+impl Default for RawCode {
+    fn default() -> Self {
+        Self { workspace: d_code_workspace() }
+    }
+}
+
 fn d_auth_json() -> String {
     "~/.codex/auth.json".into()
 }
@@ -358,4 +375,7 @@ fn d_skills_dir() -> String {
 }
 fn d_skills_cache() -> usize {
     5
+}
+fn d_code_workspace() -> String {
+    "state/workspace".into()
 }

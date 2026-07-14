@@ -69,6 +69,7 @@ dependencies = [
  "futures",
  "kaeru-core",
  "kaeru-rig",
+ "octo-code",
  "octo-connector-caldav",
  "octo-connector-scheduler",
  "octo-connector-telegram",
@@ -2364,9 +2365,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-code"
+version = "0.0.1"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
+dependencies = [
+ "glob",
+ "octo-workspace",
+ "regex",
+ "rig-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "octo-connector-caldav"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2388,7 +2404,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-scheduler"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2403,11 +2419,12 @@ dependencies = [
 [[package]]
 name = "octo-connector-telegram"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "async-trait",
  "futures",
  "octo-core",
+ "octo-workspace",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -2420,7 +2437,7 @@ dependencies = [
 [[package]]
 name = "octo-core"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2440,7 +2457,7 @@ dependencies = [
 [[package]]
 name = "octo-history"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "async-trait",
  "serde",
@@ -2452,7 +2469,7 @@ dependencies = [
 [[package]]
 name = "octo-http-auth"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "base64 0.22.1",
  "reqwest 0.12.28",
@@ -2465,13 +2482,22 @@ dependencies = [
 [[package]]
 name = "octo-rig"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=dbdecb6b91cc1d3987d58f3c089ad100f5562d7a#dbdecb6b91cc1d3987d58f3c089ad100f5562d7a"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
 dependencies = [
  "octo-core",
  "rig-core",
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "octo-workspace"
+version = "0.0.1"
+source = "git+https://github.com/LamantinAI/octo?rev=c69471ef91cb7126bbce23c22843d530e21c5076#c69471ef91cb7126bbce23c22843d530e21c5076"
+dependencies = [
+ "libc",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
