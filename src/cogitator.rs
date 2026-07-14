@@ -332,8 +332,15 @@ impl AlbertCogitator {
     {
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
-        let agent = m
-            .install(base)
+        // Variant (b): install the cloud tools only when a cloud is configured, so an
+        // unconfigured Albert never shows the model the 7 dead share/pull tools. Both
+        // methods return the same builder type, so the tool tail below is shared.
+        let installed = if self.config.clouds.is_empty() {
+            m.install(base)
+        } else {
+            m.install_with_cloud(base)
+        };
+        let agent = installed
             .tool(dispatch)
             .tool(pad.goal())
             .tool(pad.step())

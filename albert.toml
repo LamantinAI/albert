@@ -52,3 +52,19 @@ max_tool_turns = 20
 # many. Path resolves relative to this file; a missing folder just means no skills.
 dir   = "skills"
 cache = 5
+
+# --- Cloud memory (option) — kaeru-cloud endpoints Albert can share to / pull from.
+# Absent = local-only (the default): the share/pull/cloud_recall tools are not even
+# shown to the model. Add one [clouds.<name>] per cloud (its URL + the env-var NAME
+# of its bearer token; the value stays in .env). Optional [clouds] default picks the
+# cloud a tool hits when its `cloud` arg is omitted.
+# [clouds]
+# default = "family"
+#
+# [clouds.family]
+# url       = "https://cloud.family.example"
+# token_env = "ALBERT_CLOUD_FAMILY_TOKEN"
+#
+# [clouds.work]
+# url       = "https://kaeru.work.example"
+# token_env = "ALBERT_CLOUD_WORK_TOKEN"
