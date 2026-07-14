@@ -18,11 +18,12 @@ mod routines;
 mod scratchpad;
 mod skills;
 
-use std::{collections::HashMap, env::var, sync::Arc};
+use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
 
 use dotenvy::{dotenv, from_path};
 use kaeru_core::{KaeruConfig, Store};
 use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
+use octo_code::WORKSPACE_ENV;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_scheduler::Scheduler;
 use octo_connector_telegram::factory as telegram_factory;
@@ -76,6 +77,13 @@ async fn main() -> Result<()> {
         eprintln!("[albert] login: writing tokens to {}", config.subscription_auth_json.display());
         return openai_login::run(&config.subscription_auth_json).await;
     }
+
+    // ── Code workspace: the jail octo-code's file tools operate in ───────────
+    // Exported so the tools (which read OCTO_CODE_WORKSPACE at call time) and the
+    // storage/telegram workspace bridge all agree on one directory.
+    let _ = create_dir_all(&config.code_workspace);
+    set_var(WORKSPACE_ENV, &config.code_workspace);
+    eprintln!("[albert] code workspace: {}", config.code_workspace.display());
 
     // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
     // Local-only by default; if albert.toml declares [clouds.*], build a
