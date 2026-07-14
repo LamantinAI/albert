@@ -1,0 +1,30 @@
+# Albert on the server. One volume (`albert-data` -> /data) holds all runtime state:
+# the subscription tokens, the kaeru memory vault, per-channel history, and the
+# scheduler alarms — so restarts and image rebuilds never lose anything.
+#
+#   docker compose build                       # build the image (see README: add swap on 2 GB)
+#   docker compose run --rm albert login       # one-time: sign in with the ChatGPT subscription
+#   docker compose up -d                        # run the service
+#   docker compose logs -f                      # live logs
+
+services:
+  albert:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: albert:latest
+    container_name: albert
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - albert-data:/data
+      # Optional: edit config/persona live without a rebuild by bind-mounting them.
+      # - ./albert.toml:/opt/albert/albert.toml:ro
+      # - ../soul.md:/opt/albert/soul.md:ro
+      # - ../system.md:/opt/albert/system.md:ro
+    # `albert login` needs an interactive terminal for the paste fallback.
+    stdin_open: true
+    tty: true
+
+volumes:
+  albert-data:

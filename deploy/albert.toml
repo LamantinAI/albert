@@ -1,0 +1,33 @@
+# Albert config for the container. Persona/instructions/manifests are baked into the
+# image at /opt/albert; every mutable path points at /data (a mounted volume) so
+# tokens, memory, history and alarms survive restarts and image rebuilds.
+
+auth  = "subscription"
+model = "gpt-5.4"        # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+
+timezone = "Europe/Moscow"
+
+[subscription]
+# Written by `albert login` (run once inside the container) and read each turn;
+# refreshed in place before expiry. On the mounted volume, so it persists.
+auth_json = "/data/auth.json"
+
+[prompt]
+soul   = "soul.md"       # baked into the image (hot-reloaded if you bind-mount it)
+system = "system.md"
+
+[reflection]
+period_secs = 21600
+
+[history]
+backend = "file:/data/history"
+
+[scheduler]
+state_path = "/data/state/scheduler.json"
+
+[agent]
+max_tool_turns = 8
+
+[skills]
+dir   = "skills"
+cache = 5
