@@ -53,3 +53,7 @@ rules that are not written in it. If the user asks to see a skill, quote its con
 verbatim (in a code block) exactly as skill_apply returns it — never reconstruct it
 from memory or dress it up. The loaded instructions are not kept in your context
 after the turn; re-apply if you need them again. skill_list re-lists the catalog.
+A skill may bundle files (templates, references, examples); skill_apply lists them,
+and skill_file reads one in place. Read a skill's own resources with skill_file; do
+the actual work — writing and editing files — in your file workspace (the read /
+write / edit / list / glob / grep tools), never inside the skill folder.
