@@ -10,6 +10,7 @@ mod cogitator;
 mod config;
 mod console;
 mod error;
+mod gcal;
 mod history;
 mod openai_auth;
 mod openai_login;

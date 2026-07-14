@@ -19,7 +19,10 @@ use std::{
 use serde::Deserialize;
 use toml::from_str;
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    gcal::GcalConfig,
+};
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -63,6 +66,9 @@ pub struct Config {
     /// agent reasons from, so "today", reminders, and shown times are local
     /// rather than UTC. Defaults to UTC.
     pub timezone: chrono_tz::Tz,
+    /// Google Calendar reminders — `Some` when `[gcal] enabled` and the OAuth
+    /// secrets are in the environment; enables the `add_calendar_event` tool.
+    pub gcal: Option<GcalConfig>,
 }
 
 impl Config {
@@ -100,6 +106,28 @@ impl Config {
             .map_err(|e| Error::Config(format!("invalid timezone: {e}")))?
             .unwrap_or(chrono_tz::UTC);
 
+        // Google Calendar tool: enabled in the TOML + all three OAuth secrets in the
+        // env (GOOGLE_CLIENT_ID / _SECRET / _REFRESH_TOKEN). Enabled-but-unset is a
+        // soft failure — warn and run without the tool rather than refuse to start.
+        let gcal = match raw.gcal.enabled {
+            false => None,
+            true => match (env_nonempty("GOOGLE_CLIENT_ID"), env_nonempty("GOOGLE_CLIENT_SECRET"), env_nonempty("GOOGLE_REFRESH_TOKEN")) {
+                (Some(client_id), Some(client_secret), Some(refresh_token)) => Some(GcalConfig {
+                    client_id,
+                    client_secret,
+                    refresh_token,
+                    calendar_id: raw.gcal.calendar_id,
+                    timezone: raw.gcal.timezone,
+                    tz_offset: raw.gcal.tz_offset,
+                    reminder_min: raw.gcal.reminder_min,
+                }),
+                _ => {
+                    eprintln!("[albert] gcal enabled but GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN not all set; calendar tool off");
+                    None
+                }
+            },
+        };
+
         Ok(Config {
             model: raw.model,
             auth,
@@ -120,8 +148,14 @@ impl Config {
             skills_dir: resolve(dir, &raw.skills.dir),
             skills_cache: raw.skills.cache,
             timezone,
+            gcal,
         })
     }
+}
+
+/// An env var read as `Some` only when set AND non-empty.
+fn env_nonempty(key: &str) -> Option<String> {
+    var(key).ok().filter(|v| !v.trim().is_empty())
 }
 
 /// Locate the config: `ALBERT_CONFIG`, else `albert.toml` next to the binary, else
@@ -198,6 +232,33 @@ struct Raw {
     agent: RawAgent,
     #[serde(default)]
     skills: RawSkills,
+    #[serde(default)]
+    gcal: RawGcal,
+}
+
+#[derive(Deserialize)]
+struct RawGcal {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default = "d_calendar_id")]
+    calendar_id: String,
+    #[serde(default = "d_gcal_tz")]
+    timezone: String,
+    #[serde(default = "d_gcal_offset")]
+    tz_offset: String,
+    #[serde(default = "d_gcal_reminder")]
+    reminder_min: i64,
+}
+impl Default for RawGcal {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            calendar_id: d_calendar_id(),
+            timezone: d_gcal_tz(),
+            tz_offset: d_gcal_offset(),
+            reminder_min: d_gcal_reminder(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -283,6 +344,18 @@ impl Default for RawSkills {
     }
 }
 
+fn d_calendar_id() -> String {
+    "primary".into()
+}
+fn d_gcal_tz() -> String {
+    "Europe/Moscow".into()
+}
+fn d_gcal_offset() -> String {
+    "+03:00".into()
+}
+fn d_gcal_reminder() -> i64 {
+    10
+}
 fn d_auth_json() -> String {
     "~/.codex/auth.json".into()
 }

@@ -12,6 +12,16 @@ timezone = "Europe/Moscow"
 # refreshed in place before expiry. On the mounted volume, so it persists.
 auth_json = "/data/auth.json"
 
+[gcal]
+# Google Calendar reminders — the `add_calendar_event` tool. Needs GOOGLE_CLIENT_ID /
+# GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN in the env (deploy/.env). Same OAuth
+# client + refresh token as the openclaw reminder-calendar skill.
+enabled     = true
+calendar_id = "primary"
+timezone    = "Europe/Moscow"
+tz_offset   = "+03:00"
+reminder_min = 10
+
 [prompt]
 soul   = "soul.md"       # baked into the image (hot-reloaded if you bind-mount it)
 system = "system.md"

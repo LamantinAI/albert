@@ -39,6 +39,7 @@ use crate::{
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
+    gcal::GcalTool,
     history::{to_messages, HistoryStore, Turn},
     openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
@@ -332,7 +333,7 @@ impl AlbertCogitator {
     {
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
-        let agent = m
+        let mut builder = m
             .install(base)
             .tool(dispatch)
             .tool(pad.goal())
@@ -341,8 +342,12 @@ impl AlbertCogitator {
             .tool(pad.note())
             .tool(pad.clear())
             .tool(self.skills.list_tool())
-            .tool(self.skills.apply_tool())
-            .build();
+            .tool(self.skills.apply_tool());
+        // Google Calendar reminders, only when configured (creds present).
+        if let Some(gcal) = &self.config.gcal {
+            builder = builder.tool(GcalTool::new(gcal.clone()));
+        }
+        let agent = builder.build();
         match agent
             .prompt(prompt)
             .max_turns(self.config.max_tool_turns)
