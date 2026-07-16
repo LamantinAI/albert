@@ -1,14 +1,35 @@
 [connector]
 id       = "calendar"
 type     = "caldav"
-base_url = "https://caldav.yandex.ru"   # collection is auto-discovered; no URL by hand
-# calendar = "My events"                # optional: narrow to one calendar by display name
 timezone = "Europe/Moscow"              # render event start/end in this zone (default UTC)
 
-auth         = "basic"
-login        = "you@yandex.ru"
-password_env = "OCTO_YANDEX_APP_PASSWORD"   # APP password in env, NOT the account password
+# Default popup lead time for events Albert creates; a create_event command may
+# override it with its own `reminder_minutes` (-1 = no reminder for that event).
+reminder_minutes = 10
 
-# Two calendars later = a second manifest with a different id/login/password_env
-# (e.g. calendar-work / calendar-personal). Same type = "caldav". Google is oauth2
-# only and not wired end-to-end yet.
+# Google CalDAV. Three things are required and each fails differently if missing:
+#   1. The FULL `calendar` OAuth scope. The narrower `calendar.events` (enough for
+#      the REST API) makes CalDAV return 403 insufficientPermissions.
+#   2. The CalDAV API enabled in the Cloud project, else 403 accessNotConfigured
+#      (console.developers.google.com/apis/api/caldav.googleapis.com/overview).
+#   3. An EXPLICIT `collection` — do NOT use `base_url` discovery here: Google
+#      answers 404 for the `current-user-principal` property, so the PROPFIND
+#      discovery chain cannot resolve a collection.
+# The collection is `<account address>/events`; swap in the real address.
+collection = "https://apidata.googleusercontent.com/caldav/v2/you@gmail.com/events"
+
+auth              = "oauth2"
+token_url         = "https://oauth2.googleapis.com/token"
+client_id         = "<oauth-client-id>.apps.googleusercontent.com"
+client_secret_env = "GOOGLE_CLIENT_SECRET"   # secrets stay in env, never in the manifest
+refresh_token_env = "GOOGLE_REFRESH_TOKEN"
+
+# Other providers use basic auth with an APP password (never the account password)
+# and can discover their collection, so they need only a base_url:
+#   base_url     = "https://caldav.yandex.ru"
+#   auth         = "basic"
+#   login        = "you@yandex.ru"
+#   password_env = "OCTO_YANDEX_APP_PASSWORD"
+#
+# Two calendars later = a second manifest with a different id (e.g. calendar-work /
+# calendar-personal). Same type = "caldav".
