@@ -13,9 +13,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 COPY . .
-# --locked: build exactly Cargo.lock (reproducible). This is the slow step — cozo and
-# rocksdb dominate; on a 2 GB host add swap first (see deploy/README.md).
-RUN cargo build --release --locked
+# --locked: build exactly Cargo.lock (reproducible). The BuildKit cache mounts keep
+# the cargo registry/git checkouts and the target dir warm across image builds, so
+# only what actually changed recompiles: a source edit → just the albert crate
+# (~1–2 min); an octo rev bump → the octo crates and up. Cold cache (first build,
+# or after `docker builder prune`) is the old full ~15 min — cozo and rocksdb
+# dominate; on a 2 GB host add swap first (see deploy/README.md). The binary is
+# copied out of the mount because cache mounts are not part of the image.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked \
+    && cp target/release/albert /albert
 
 # ---- runtime ----
 FROM debian:bookworm-slim AS runtime
@@ -25,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/albert
-COPY --from=build /src/target/release/albert /usr/local/bin/albert
+COPY --from=build /albert /usr/local/bin/albert
 # Config + persona + connector manifests + skills are baked in; all *runtime* state
 # (tokens, kaeru vault, scheduler alarms) lives under /data via a mounted volume.
 COPY deploy/albert.toml ./albert.toml
@@ -35,6 +44,6 @@ COPY skills ./skills
 
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
-    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_core=warn
+    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_http_auth=info,octo_core=warn
 
 ENTRYPOINT ["albert"]

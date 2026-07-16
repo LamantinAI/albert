@@ -42,8 +42,12 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab      # persist across reboots
 ```sh
 cd albert/deploy
 cp .env.example .env            # edit later for Telegram; not needed for the console check
-docker compose build            # ~10–25 min on a small box (cozo/rocksdb dominate)
+docker compose build            # first build ~10–25 min (cozo/rocksdb dominate)
 ```
+
+Rebuilds are fast: the Dockerfile mounts BuildKit caches for the cargo registry and
+the target dir, so after the first build only what changed recompiles (a source edit
+→ ~1–2 min). `docker builder prune` clears those caches back to a cold build.
 
 Model/timezone live in [`albert.toml`](albert.toml) (`model = "gpt-5.4"`; also
 `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4-mini`, …). Edit before building, or bind-mount it
