@@ -16,11 +16,12 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use chrono::Utc;
 use kaeru_rig::KaeruMemory;
 use octo_core::{
-    ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind, Filter,
-    OctoResult, ReplyChannel, Subscription,
+    Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
+    Filter, OctoResult, ReplyChannel, Subscription,
 };
 use octo_rig::OctoDispatchTool;
 use rig::{
@@ -28,7 +29,9 @@ use rig::{
     client::CompletionClient,
     completion::{CompletionModel, Message, Prompt},
     http_client::{HeaderMap, HeaderValue},
+    message::{ImageMediaType, UserContent},
     providers::{openai, openrouter::Client as OpenRouterClient},
+    OneOrMany,
 };
 use serde_json::{json, Value};
 use tokio::{select, spawn};
@@ -46,6 +49,7 @@ use crate::{
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
+    status::StatusFeed,
 };
 
 pub(crate) const SCHEDULER_ID: &str = "scheduler";
@@ -128,8 +132,18 @@ impl AlbertCogitator {
         }
         match incoming.kind.as_str() {
             "chat.message" => {
-                if let Some(text) = incoming.payload_as::<String>().cloned() {
-                    self.respond(incoming, text, ctx).await;
+                // A text payload is a normal turn; a Blob payload is an image the
+                // connector downloaded (photo / image document), its caption in tags.
+                let input = if let Some(text) = incoming.payload_as::<String>() {
+                    Some(UserInput { text: text.clone(), image: None })
+                } else {
+                    incoming.payload_as::<Blob>().filter(|b| b.is_image()).map(|blob| UserInput {
+                        text: incoming.tags.get("caption").cloned().unwrap_or_default(),
+                        image: Some(blob.clone()),
+                    })
+                };
+                if let Some(input) = input {
+                    self.respond(incoming, input, ctx).await;
                 }
             }
             "alarm.fired" => self.on_alarm(incoming, ctx).await,
@@ -138,24 +152,43 @@ impl AlbertCogitator {
     }
 
     /// A user message → a normal agent turn with memory + scheduler + scratchpad tools.
-    async fn respond(self: &Arc<Self>, incoming: Arc<Envelope>, text: String, ctx: &CogitatorContext) {
+    async fn respond(self: &Arc<Self>, incoming: Arc<Envelope>, input: UserInput, ctx: &CogitatorContext) {
         let channel_key = channel_of(&incoming);
 
-        // Reflex: instant, no LLM.
-        if let Some(canned) = command_reply(&text) {
-            self.emit_reply(&incoming, canned.clone(), ctx).await;
-            self.record(&channel_key, text, "(reflex reply)".into()).await;
+        // Reflexes fire on text-only turns: instant, no LLM.
+        if input.image.is_none() {
+            if let Some(canned) = command_reply(&input.text) {
+                self.emit_reply(&incoming, canned.clone(), ctx).await;
+                self.record(&channel_key, input.text, "(reflex reply)".into()).await;
+                return;
+            }
+
+            // Reflex: owner-only ACL admin, deterministic (out of the LLM).
+            if let Some(reply) = acl_command(&self.self_source, &input.text, &incoming, ctx).await {
+                self.emit_reply(&incoming, reply, ctx).await;
+                self.record(&channel_key, input.text, "(acl command)".into()).await;
+                return;
+            }
+        }
+
+        // An image on a text-only model: say so instead of silently ignoring it.
+        if input.image.is_some() && !self.config.multimodal {
+            let reply = "Я получил изображение, но текущая модель не видит картинки — \
+                         опиши словами, что на ней. (Или включи мультимодальную модель: \
+                         `multimodal = true` + vision-модель в albert.toml.)"
+                .to_string();
+            self.emit_reply(&incoming, reply.clone(), ctx).await;
+            self.record(&channel_key, input.transcript(), reply).await;
             return;
         }
 
-        // Reflex: owner-only ACL admin, deterministic (out of the LLM).
-        if let Some(reply) = acl_command(&self.self_source, &text, &incoming, ctx).await {
-            self.emit_reply(&incoming, reply, ctx).await;
-            self.record(&channel_key, text, "(acl command)".into()).await;
-            return;
-        }
+        let shown = input.transcript();
+        info!(source = %incoming.source, channel = %channel_key, "← {shown}");
 
-        info!(source = %incoming.source, channel = %channel_key, "← {text}");
+        // Live feedback while the turn runs: the "typing…" indicator plus the
+        // tool-use / thoughts status feed (rendered by the connector).
+        self.emit_typing(incoming.source.clone(), incoming.channel.clone(), ctx).await;
+        let feed = self.feed(ctx, incoming.source.clone(), incoming.channel.clone());
 
         let active = self.active_reminders(ctx).await;
         let pad = self.scratchpad.render(&channel_key);
@@ -172,12 +205,12 @@ impl AlbertCogitator {
         );
 
         let answer = self
-            .run_agent(ctx, &channel_key, &preamble, Message::user(text.clone()), history)
+            .run_agent(ctx, &channel_key, &preamble, input.prompt(), history, feed)
             .await;
 
         info!("→ {answer}");
         self.emit_reply(&incoming, answer.clone(), ctx).await;
-        self.record(&channel_key, text, answer).await;
+        self.record(&channel_key, shown, answer).await;
     }
 
     /// An alarm fired → a system routine (silent) or a user reminder (message).
@@ -214,10 +247,13 @@ impl AlbertCogitator {
         let prompt = Message::user(format!(
             "Reminder due for \"{task}\". Write the reminder message to the user."
         ));
-        let answer = self.run_agent(ctx, &channel, &preamble, prompt, history).await;
+        let target = ConnectorId::new(reply_via);
+        self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
+        let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
+        let answer = self.run_agent(ctx, &channel, &preamble, prompt, history, feed).await;
 
         self.emit_text(
-            ConnectorId::new(reply_via),
+            target,
             Some(ChannelId::new(channel.clone())),
             answer.clone(),
             None,
@@ -244,7 +280,7 @@ impl AlbertCogitator {
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let out = self
-                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new())
+                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), StatusFeed::silent())
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
             }
@@ -262,6 +298,7 @@ impl AlbertCogitator {
         preamble: &str,
         prompt: Message,
         history: Vec<Message>,
+        feed: StatusFeed,
     ) -> String {
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
         match self.config.auth {
@@ -273,7 +310,7 @@ impl AlbertCogitator {
                     Ok(c) => c,
                     Err(e) => return format!("(llm client error: {e})"),
                 };
-                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, channel, prompt, history)
+                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, channel, prompt, history, feed)
                     .await
             }
             AuthMode::Subscription => {
@@ -288,7 +325,7 @@ impl AlbertCogitator {
                     Err(e) => return format!("(subscription auth: {e})"),
                 };
                 let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, channel, prompt, history)
+                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, channel, prompt, history, feed)
                     .await
             }
         }
@@ -327,6 +364,7 @@ impl AlbertCogitator {
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
+        feed: StatusFeed,
     ) -> String
     where
         M: CompletionModel + 'static,
@@ -350,6 +388,7 @@ impl AlbertCogitator {
         let agent = builder.build();
         match agent
             .prompt(prompt)
+            .with_hook(feed)
             .max_turns(self.config.max_tool_turns)
             .with_history(history)
             .await
@@ -414,6 +453,32 @@ impl AlbertCogitator {
         }
     }
 
+    /// Nudge the source connector's "typing…" indicator for the turn (Telegram
+    /// keeps it alive until the reply lands; other connectors ignore the kind).
+    async fn emit_typing(&self, target: ConnectorId, channel: Option<ChannelId>, ctx: &CogitatorContext) {
+        let mut env = Envelope::new(
+            self.self_source.clone(),
+            EventKind::from_static("chat.typing"),
+            json!({}),
+        )
+        .with_target(target);
+        if let Some(ch) = channel {
+            env = env.with_channel(ch);
+        }
+        if let Err(e) = ctx.publish(env).await {
+            warn!(error = %e, "failed to publish chat.typing");
+        }
+    }
+
+    /// The turn's live status feed (tool calls / thoughts → `chat.status`), or a
+    /// silent one when streaming is switched off in config.
+    fn feed(&self, ctx: &CogitatorContext, target: ConnectorId, channel: Option<ChannelId>) -> StatusFeed {
+        if !self.config.stream_status {
+            return StatusFeed::silent();
+        }
+        StatusFeed::new(ctx.bus(), self.self_source.clone(), target, channel)
+    }
+
     /// Reply to an incoming chat message: back to its source on the same channel.
     async fn emit_reply(&self, incoming: &Envelope, text: String, ctx: &CogitatorContext) {
         self.emit_text(
@@ -459,6 +524,63 @@ impl AlbertCogitator {
     }
 }
 
+/// One user turn as perceived: text, optionally with an image the connector
+/// downloaded (a Telegram photo / image document; the caption rides in `text`).
+struct UserInput {
+    text: String,
+    image: Option<Blob>,
+}
+
+impl UserInput {
+    /// The turn as the rig prompt message: plain text, or image + caption for a
+    /// vision model (base64 travels fine through both the OpenRouter and the
+    /// Codex Responses providers).
+    fn prompt(&self) -> Message {
+        let Some(blob) = &self.image else {
+            return Message::user(self.text.clone());
+        };
+        let b64 = base64::engine::general_purpose::STANDARD.encode(blob.bytes());
+        let caption = if self.text.trim().is_empty() {
+            "Пользователь прислал это изображение без подписи — рассмотри его и \
+             отреагируй по контексту разговора."
+        } else {
+            self.text.as_str()
+        };
+        Message::User {
+            content: OneOrMany::many(vec![
+                UserContent::image_base64(b64, Some(media_type(blob.content_type())), None),
+                UserContent::text(caption),
+            ])
+            .expect("two content items"),
+        }
+    }
+
+    /// A text stand-in for logs and the history transcript (raw bytes don't
+    /// belong in either).
+    fn transcript(&self) -> String {
+        match &self.image {
+            None => self.text.clone(),
+            Some(b) if self.text.trim().is_empty() => {
+                format!("(прислал изображение, {})", b.content_type())
+            }
+            Some(b) => format!("(прислал изображение, {}) {}", b.content_type(), self.text),
+        }
+    }
+}
+
+/// Map a MIME content type onto rig's media-type enum (unknowns land on JPEG —
+/// Telegram photos are JPEG re-encodes anyway).
+fn media_type(content_type: &str) -> ImageMediaType {
+    match content_type {
+        "image/png" => ImageMediaType::PNG,
+        "image/gif" => ImageMediaType::GIF,
+        "image/webp" => ImageMediaType::WEBP,
+        "image/heic" => ImageMediaType::HEIC,
+        "image/heif" => ImageMediaType::HEIF,
+        _ => ImageMediaType::JPEG,
+    }
+}
+
 fn channel_of(env: &Envelope) -> String {
     env.channel
         .as_ref()
@@ -499,6 +621,43 @@ fn catalog(ctx: &CogitatorContext) -> String {
         .join("\n")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_input_stays_a_plain_user_message() {
+        let input = UserInput { text: "привет".into(), image: None };
+        assert!(matches!(input.prompt(), Message::User { content } if content.len() == 1));
+        assert_eq!(input.transcript(), "привет");
+    }
+
+    #[test]
+    fn image_input_becomes_image_plus_caption() {
+        let blob = Blob::new(vec![0xFFu8, 0xD8, 0xFF], "image/jpeg").with_filename("photo.jpg");
+        let input = UserInput { text: "что на фото?".into(), image: Some(blob) };
+        let Message::User { content } = input.prompt() else {
+            panic!("expected a user message");
+        };
+        let items: Vec<_> = content.into_iter().collect();
+        assert_eq!(items.len(), 2);
+        assert!(matches!(items[0], UserContent::Image(_)));
+        assert!(matches!(&items[1], UserContent::Text(t) if t.text == "что на фото?"));
+        assert!(input.transcript().contains("image/jpeg"));
+    }
+
+    #[test]
+    fn captionless_image_gets_a_default_instruction() {
+        let blob = Blob::new(vec![1u8, 2, 3], "image/png");
+        let input = UserInput { text: "  ".into(), image: Some(blob) };
+        let Message::User { content } = input.prompt() else {
+            panic!("expected a user message");
+        };
+        let items: Vec<_> = content.into_iter().collect();
+        assert!(matches!(&items[1], UserContent::Text(t) if t.text.contains("без подписи")));
+    }
+}
+
 fn command_reply(text: &str) -> Option<String> {
     match text.trim() {
         "/start" => Some(
@@ -511,6 +670,8 @@ fn command_reply(text: &str) -> Option<String> {
             "Я помню контекст и умею напоминания:\n\
              • «напомни каждые 30 минут попить воды» → поставлю повторяющееся напоминание\n\
              • когда сработает — напишу; скажи «сделал» → отмечу выполненным и остановлю\n\
+             • пришли фото (или картинку файлом) — посмотрю и отвечу по ней\n\
+             • пока думаю — показываю «печатает…» и ход работы с инструментами\n\
              • владельцу: /allow <chat_id>, /deny <chat_id>, /allowed — доступ к боту\n\
              • /start, /help → мгновенно, без модели"
                 .to_string(),
