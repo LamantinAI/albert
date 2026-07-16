@@ -18,6 +18,7 @@ mod prompt;
 mod routines;
 mod scratchpad;
 mod skills;
+mod status;
 
 use std::{env::var, sync::Arc};
 

@@ -7,12 +7,12 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 [dependencies]
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "7edf794a93f870f4a8dd7491a79f4365edd86dd8" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "878e6bc8e09bae01be51b8cc42f2e7950ac17659" }
 
 # kaeru — the Memory substrate, pinned by rev (adff3db: install + per-call initiative).
 kaeru-core = { git = "https://github.com/LamantinAI/kaeru", rev = "adff3db1dc28f5dd6e0cda7b523ee8d2391e6283" }

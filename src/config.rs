@@ -47,6 +47,14 @@ pub struct Config {
     /// Codex backend base URL model calls hit (`.../responses` is appended by rig).
     pub subscription_auth_json: PathBuf,
     pub subscription_base_url: String,
+    /// Whether the configured model can see images — gates photo perception.
+    /// Explicit `multimodal = true/false` in the TOML wins; the default is a
+    /// heuristic: a ChatGPT subscription is always vision-capable, an API-key
+    /// model is matched by name against the known multimodal families.
+    pub multimodal: bool,
+    /// Stream the agent's live progress (tool calls, reasoning summaries) into
+    /// the chat as `chat.status` envelopes while a turn runs. Default: on.
+    pub stream_status: bool,
     pub history: Option<String>,
     pub scheduler_state_path: PathBuf,
     pub reflection_secs: u64,
@@ -128,7 +136,13 @@ impl Config {
             },
         };
 
+        let multimodal = raw
+            .multimodal
+            .unwrap_or_else(|| default_multimodal(auth, &raw.model));
+
         Ok(Config {
+            multimodal,
+            stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
             auth,
             base_url: raw.base_url,
@@ -151,6 +165,22 @@ impl Config {
             gcal,
         })
     }
+}
+
+/// Vision heuristic for when the TOML doesn't say: every ChatGPT-subscription
+/// (Codex) model is multimodal; an API-key (OpenRouter et al.) model is matched
+/// by name against the known multimodal families. Wrong guess → set
+/// `multimodal = true/false` explicitly.
+fn default_multimodal(auth: AuthMode, model: &str) -> bool {
+    if auth == AuthMode::Subscription {
+        return true;
+    }
+    const VISION_HINTS: &[&str] = &[
+        "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "chatgpt", "claude", "gemini", "pixtral",
+        "llava", "vision", "-vl", "qwen-vl", "llama-4", "grok-4", "grok-3",
+    ];
+    let m = model.to_lowercase();
+    VISION_HINTS.iter().any(|h| m.contains(h))
 }
 
 /// An env var read as `Some` only when set AND non-empty.
@@ -210,6 +240,12 @@ struct Raw {
     /// `"api_key"` (default) or `"subscription"`.
     #[serde(default)]
     auth: Option<String>,
+    /// Force vision on/off; absent → the [`default_multimodal`] heuristic.
+    #[serde(default)]
+    multimodal: Option<bool>,
+    /// Stream live turn progress (tool calls / thoughts) into the chat.
+    #[serde(default)]
+    stream_status: Option<bool>,
     #[serde(default)]
     base_url: String,
     #[serde(default)]
@@ -385,4 +421,22 @@ fn d_skills_dir() -> String {
 }
 fn d_skills_cache() -> usize {
     5
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subscription_is_always_multimodal() {
+        assert!(default_multimodal(AuthMode::Subscription, "whatever"));
+    }
+
+    #[test]
+    fn api_key_models_match_by_name() {
+        assert!(default_multimodal(AuthMode::ApiKey, "openai/gpt-4o"));
+        assert!(default_multimodal(AuthMode::ApiKey, "google/gemini-2.5-pro"));
+        assert!(default_multimodal(AuthMode::ApiKey, "qwen/qwen2.5-vl-72b-instruct"));
+        assert!(!default_multimodal(AuthMode::ApiKey, "deepseek/deepseek-chat"));
+    }
 }
