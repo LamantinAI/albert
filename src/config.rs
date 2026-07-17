@@ -11,18 +11,16 @@
 //! config file's own directory.
 
 use std::{
+    collections::HashMap,
     env::{current_exe, var},
     fs::read_to_string,
     path::{Path, PathBuf},
 };
 
 use serde::Deserialize;
-use toml::from_str;
+use toml::{from_str, Table, Value};
 
-use crate::{
-    error::{Error, Result},
-    gcal::GcalConfig,
-};
+use crate::error::{Error, Result};
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -31,6 +29,15 @@ pub enum AuthMode {
     ApiKey,
     /// A ChatGPT **subscription**: OAuth tokens routed to the Codex backend.
     Subscription,
+}
+
+/// One kaeru-cloud endpoint Albert can share to / pull from: its URL and the
+/// env-var **name** holding its bearer token (the value stays in the environment,
+/// never in the committed config).
+#[derive(Clone, Debug)]
+pub struct CloudEndpoint {
+    pub url: String,
+    pub token_env: String,
 }
 
 /// The resolved config the rest of the crate uses (secret already pulled from env).
@@ -74,9 +81,14 @@ pub struct Config {
     /// agent reasons from, so "today", reminders, and shown times are local
     /// rather than UTC. Defaults to UTC.
     pub timezone: chrono_tz::Tz,
-    /// Google Calendar reminders — `Some` when `[gcal] enabled` and the OAuth
-    /// secrets are in the environment; enables the `add_calendar_event` tool.
-    pub gcal: Option<GcalConfig>,
+    /// kaeru-cloud endpoints (name -> endpoint) Albert can share to / pull from.
+    /// Empty when no `[clouds.*]` is configured — Albert stays local-only.
+    pub clouds: HashMap<String, CloudEndpoint>,
+    /// The default cloud name (`[clouds] default`), if set.
+    pub clouds_default: Option<String>,
+    /// Ephemeral workspace root for octo-code file tools (`$OCTO_CODE_WORKSPACE`),
+    /// resolved against the config dir. octo-code jails all file ops to it.
+    pub code_workspace: PathBuf,
 }
 
 impl Config {
@@ -114,31 +126,36 @@ impl Config {
             .map_err(|e| Error::Config(format!("invalid timezone: {e}")))?
             .unwrap_or(chrono_tz::UTC);
 
-        // Google Calendar tool: enabled in the TOML + all three OAuth secrets in the
-        // env (GOOGLE_CLIENT_ID / _SECRET / _REFRESH_TOKEN). Enabled-but-unset is a
-        // soft failure — warn and run without the tool rather than refuse to start.
-        let gcal = match raw.gcal.enabled {
-            false => None,
-            true => match (env_nonempty("GOOGLE_CLIENT_ID"), env_nonempty("GOOGLE_CLIENT_SECRET"), env_nonempty("GOOGLE_REFRESH_TOKEN")) {
-                (Some(client_id), Some(client_secret), Some(refresh_token)) => Some(GcalConfig {
-                    client_id,
-                    client_secret,
-                    refresh_token,
-                    calendar_id: raw.gcal.calendar_id,
-                    timezone: raw.gcal.timezone,
-                    tz_offset: raw.gcal.tz_offset,
-                    reminder_min: raw.gcal.reminder_min,
-                }),
-                _ => {
-                    eprintln!("[albert] gcal enabled but GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN not all set; calendar tool off");
-                    None
-                }
-            },
-        };
-
         let multimodal = raw
             .multimodal
             .unwrap_or_else(|| default_multimodal(auth, &raw.model));
+
+        // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
+        // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
+        let mut clouds = HashMap::new();
+        let mut clouds_default = None;
+        for (name, val) in &raw.clouds {
+            if name == "default" {
+                clouds_default = val.as_str().map(str::to_string);
+                continue;
+            }
+            match (
+                val.get("url").and_then(Value::as_str),
+                val.get("token_env").and_then(Value::as_str),
+            ) {
+                (Some(url), Some(token_env)) => {
+                    clouds.insert(
+                        name.clone(),
+                        CloudEndpoint { url: url.to_string(), token_env: token_env.to_string() },
+                    );
+                }
+                _ => {
+                    return Err(Error::Config(format!(
+                        "cloud '{name}' needs both url and token_env"
+                    )))
+                }
+            }
+        }
 
         Ok(Config {
             multimodal,
@@ -162,7 +179,9 @@ impl Config {
             skills_dir: resolve(dir, &raw.skills.dir),
             skills_cache: raw.skills.cache,
             timezone,
-            gcal,
+            clouds,
+            clouds_default,
+            code_workspace: resolve(dir, &raw.code.workspace),
         })
     }
 }
@@ -181,11 +200,6 @@ fn default_multimodal(auth: AuthMode, model: &str) -> bool {
     ];
     let m = model.to_lowercase();
     VISION_HINTS.iter().any(|h| m.contains(h))
-}
-
-/// An env var read as `Some` only when set AND non-empty.
-fn env_nonempty(key: &str) -> Option<String> {
-    var(key).ok().filter(|v| !v.trim().is_empty())
 }
 
 /// Locate the config: `ALBERT_CONFIG`, else `albert.toml` next to the binary, else
@@ -269,32 +283,9 @@ struct Raw {
     #[serde(default)]
     skills: RawSkills,
     #[serde(default)]
-    gcal: RawGcal,
-}
-
-#[derive(Deserialize)]
-struct RawGcal {
+    clouds: Table,
     #[serde(default)]
-    enabled: bool,
-    #[serde(default = "d_calendar_id")]
-    calendar_id: String,
-    #[serde(default = "d_gcal_tz")]
-    timezone: String,
-    #[serde(default = "d_gcal_offset")]
-    tz_offset: String,
-    #[serde(default = "d_gcal_reminder")]
-    reminder_min: i64,
-}
-impl Default for RawGcal {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            calendar_id: d_calendar_id(),
-            timezone: d_gcal_tz(),
-            tz_offset: d_gcal_offset(),
-            reminder_min: d_gcal_reminder(),
-        }
-    }
+    code: RawCode,
 }
 
 #[derive(Deserialize)]
@@ -380,18 +371,17 @@ impl Default for RawSkills {
     }
 }
 
-fn d_calendar_id() -> String {
-    "primary".into()
+#[derive(Deserialize)]
+struct RawCode {
+    #[serde(default = "d_code_workspace")]
+    workspace: String,
 }
-fn d_gcal_tz() -> String {
-    "Europe/Moscow".into()
+impl Default for RawCode {
+    fn default() -> Self {
+        Self { workspace: d_code_workspace() }
+    }
 }
-fn d_gcal_offset() -> String {
-    "+03:00".into()
-}
-fn d_gcal_reminder() -> i64 {
-    10
-}
+
 fn d_auth_json() -> String {
     "~/.codex/auth.json".into()
 }
@@ -421,6 +411,9 @@ fn d_skills_dir() -> String {
 }
 fn d_skills_cache() -> usize {
     5
+}
+fn d_code_workspace() -> String {
+    "state/workspace".into()
 }
 
 #[cfg(test)]

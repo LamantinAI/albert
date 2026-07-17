@@ -3,10 +3,12 @@
 # by their env-var name (never the value) — so this file is safe to commit.
 
 # LLM backend — two auth modes (details in docs/configuration.md):
-#   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible)
-#   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth)
-auth  = "subscription"
-model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+#   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible). The default.
+#   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth). An option.
+auth  = "api_key"
+model = "deepseek/deepseek-v4-flash"
+base_url = "https://openrouter.ai/api/v1"
+openai_key_env = "ALBERT_OPENAI_KEY"
 
 # Vision: can the model see photos sent in chat? Omit for the default heuristic
 # (subscription -> always yes; api_key -> guessed from the model name).
@@ -16,17 +18,13 @@ model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gp
 # also streams tool calls / thoughts as an in-place edited status message).
 # stream_status = true
 
-[subscription]
-# Reuse the OAuth tokens the `codex` CLI already manages: run `codex login` once.
-# Albert reads this file each turn; refreshing the token stays with codex for now
-# (re-run `codex login` when it expires). base_url defaults to the Codex backend.
-auth_json = "~/.codex/auth.json"
+# --- Subscription mode (option) — set auth = "subscription" above to switch ---
+# model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+# [subscription]
+# # Reuse the OAuth tokens the `codex` CLI already manages (run `codex login` once);
+# # Albert reads auth.json each turn. base_url defaults to the Codex backend.
+# auth_json = "~/.codex/auth.json"
 # base_url = "https://chatgpt.com/backend-api/codex"
-
-# --- API-key mode (the previous default) — set auth = "api_key" above to use it ---
-# model    = "deepseek/deepseek-v4-flash"
-# base_url = "https://openrouter.ai/api/v1"
-# openai_key_env = "ALBERT_OPENAI_KEY"
 
 # Owner's timezone (IANA name). The agent's "current time" — and thus its sense
 # of "today" and any reminder times it computes — is rendered in this zone rather
@@ -53,7 +51,7 @@ backend = "memory"    # or "file:<dir>"
 state_path = "state/scheduler.json"
 
 [agent]
-max_tool_turns = 8
+max_tool_turns = 30
 
 [skills]
 # Declarative skills: a folder of `<name>/SKILL.md` (frontmatter name/description +
@@ -62,3 +60,25 @@ max_tool_turns = 8
 # many. Path resolves relative to this file; a missing folder just means no skills.
 dir   = "skills"
 cache = 5
+
+[code]
+# Ephemeral workspace root the file tools (read/write/edit/list/glob/grep) are
+# jailed to. Resolved relative to this file; octo-code creates it on first use. A
+# future storage/telegram workspace bridge should point at the SAME directory.
+workspace = "state/workspace"
+
+# --- Cloud memory (option) — kaeru-cloud endpoints Albert can share to / pull from.
+# Absent = local-only (the default): the share/pull/cloud_recall tools are not even
+# shown to the model. Add one [clouds.<name>] per cloud (its URL + the env-var NAME
+# of its bearer token; the value stays in .env). Optional [clouds] default picks the
+# cloud a tool hits when its `cloud` arg is omitted.
+# [clouds]
+# default = "family"
+#
+# [clouds.family]
+# url       = "https://cloud.family.example"
+# token_env = "ALBERT_CLOUD_FAMILY_TOKEN"
+#
+# [clouds.work]
+# url       = "https://kaeru.work.example"
+# token_env = "ALBERT_CLOUD_WORK_TOKEN"

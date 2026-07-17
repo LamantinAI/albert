@@ -13,6 +13,7 @@ use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     select,
 };
+use tracing::warn;
 
 const CHANNEL: &str = "stdin";
 
@@ -72,7 +73,7 @@ impl Connector for ConsoleConnector {
                         return Ok(());
                     }
                     Err(e) => {
-                        eprintln!("[console] stdin error: {e}");
+                        warn!(error = %e, "console stdin error; shutting down");
                         ctx.shutdown.cancel();
                         return Ok(());
                     }

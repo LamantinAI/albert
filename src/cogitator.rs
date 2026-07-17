@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::Utc;
 use kaeru_rig::KaeruMemory;
+use octo_code::code_tools;
 use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, OctoResult, ReplyChannel, Subscription,
@@ -35,14 +36,13 @@ use rig::{
 };
 use serde_json::{json, Value};
 use tokio::{select, spawn};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     acl::command as acl_command,
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
-    gcal::GcalTool,
     history::{to_messages, HistoryStore, Turn},
     openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
@@ -371,8 +371,21 @@ impl AlbertCogitator {
     {
         let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
-        let mut builder = m
-            .install(base)
+        debug!(
+            channel,
+            clouds = !self.config.clouds.is_empty(),
+            max_turns = self.config.max_tool_turns,
+            "building agent + running tool-loop"
+        );
+        // Variant (b): install the cloud tools only when a cloud is configured, so an
+        // unconfigured Albert never shows the model the 7 dead share/pull tools. Both
+        // methods return the same builder type, so the tool tail below is shared.
+        let installed = if self.config.clouds.is_empty() {
+            m.install(base)
+        } else {
+            m.install_with_cloud(base)
+        };
+        let with_tools = installed
             .tool(dispatch)
             .tool(pad.goal())
             .tool(pad.step())
@@ -380,12 +393,11 @@ impl AlbertCogitator {
             .tool(pad.note())
             .tool(pad.clear())
             .tool(self.skills.list_tool())
-            .tool(self.skills.apply_tool());
-        // Google Calendar reminders, only when configured (creds present).
-        if let Some(gcal) = &self.config.gcal {
-            builder = builder.tool(GcalTool::new(gcal.clone()));
-        }
-        let agent = builder.build();
+            .tool(self.skills.apply_tool())
+            .tool(self.skills.file_tool());
+        // octo-code file tools (read/write/edit/list/glob/grep), jailed to
+        // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
+        let agent = code_tools!(with_tools).build();
         match agent
             .prompt(prompt)
             .with_hook(feed)

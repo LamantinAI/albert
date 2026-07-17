@@ -11,6 +11,8 @@ use std::{
     time::SystemTime,
 };
 
+use tracing::{debug, warn};
+
 /// Terse fallback if `soul.md` is missing.
 const DEFAULT_SOUL: &str = "You are Albert, a concise, helpful personal assistant. \
 Reply in the user's language; keep it short and warm. Never invent a tool result — \
@@ -65,11 +67,15 @@ fn read_cached(path: &Path, slot: &mut Slot, default: &str) -> String {
         Some(mt) if slot.mtime == Some(mt) => slot.body.clone(),
         Some(mt) => match read_to_string(path) {
             Ok(body) => {
+                debug!(path = %path.display(), bytes = body.len(), "prompt file (re)loaded");
                 slot.mtime = Some(mt);
                 slot.body = body;
                 slot.body.clone()
             }
-            Err(_) => default.to_string(),
+            Err(e) => {
+                warn!(path = %path.display(), error = %e, "prompt file unreadable; using default");
+                default.to_string()
+            }
         },
         None => default.to_string(),
     }

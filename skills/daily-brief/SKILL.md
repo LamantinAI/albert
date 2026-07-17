@@ -14,3 +14,7 @@ Give a warm, concise morning brief. Work through these, then summarise:
 
 Keep the bulldog warmth. Do not paste raw tool output — digest it into plain words.
 If the calendar is empty and nothing is due, say the day looks clear.
+
+This skill bundles `brief-format.md` — a sample of the tone and layout. Read it with
+skill_file (name `daily-brief`, path `brief-format.md`) if you want the format; do
+not quote it to the user.
