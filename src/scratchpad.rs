@@ -18,6 +18,7 @@ use std::{
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::debug;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Status {
@@ -123,6 +124,7 @@ impl ScratchpadStore {
     }
 
     fn set_goal(&self, channel: &str, goal: String) -> Value {
+        debug!(channel, "scratchpad: set goal");
         let mut map = self.inner.lock().unwrap();
         let pad = map.entry(channel.to_string()).or_default();
         *pad = Scratchpad {
@@ -134,6 +136,7 @@ impl ScratchpadStore {
     }
 
     fn add_step(&self, channel: &str, text: String) -> Value {
+        debug!(channel, "scratchpad: add step");
         let mut map = self.inner.lock().unwrap();
         let pad = map.entry(channel.to_string()).or_default();
         pad.steps.push(Item {
@@ -145,6 +148,7 @@ impl ScratchpadStore {
     }
 
     fn mark(&self, channel: &str, step: usize, status: &str, note: Option<String>) -> Value {
+        debug!(channel, step, status, "scratchpad: mark");
         let Some(parsed) = Status::parse(status) else {
             return json!({ "ok": false, "error": "status must be pending|in_progress|done|verified|blocked" });
         };
@@ -163,6 +167,7 @@ impl ScratchpadStore {
     }
 
     fn note(&self, channel: &str, text: String) -> Value {
+        debug!(channel, "scratchpad: note");
         let mut map = self.inner.lock().unwrap();
         let pad = map.entry(channel.to_string()).or_default();
         pad.notes.push(text);
@@ -170,6 +175,7 @@ impl ScratchpadStore {
     }
 
     fn clear(&self, channel: &str) -> Value {
+        debug!(channel, "scratchpad: clear");
         let removed = self.inner.lock().unwrap().remove(channel).is_some();
         json!({ "ok": true, "cleared": removed })
     }

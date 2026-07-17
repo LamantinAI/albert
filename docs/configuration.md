@@ -100,6 +100,31 @@ scratchpad). Both are loaded into RAM once and re-read only when their **mtime**
 changes — edit and save, no restart, and no re-reading big files on every request.
 A missing file falls back to a terse embedded default.
 
+### Cloud memory (`[clouds.*]`)
+
+Optional. By default Albert's memory (kaeru) is **local-only** and the
+share/pull/cloud_recall tools are not shown to the model. Declare one or more
+`kaeru-cloud` endpoints and Albert can share to / pull from team knowledge:
+
+```toml
+[clouds]
+default = "family"        # optional; the cloud used when a tool's `cloud` arg is omitted
+
+[clouds.family]
+url       = "https://cloud.family.example"
+token_env = "ALBERT_CLOUD_FAMILY_TOKEN"   # the env-var NAME; the value lives in .env
+
+[clouds.work]
+url       = "https://kaeru.work.example"
+token_env = "ALBERT_CLOUD_WORK_TOKEN"
+```
+
+As with every secret, the config names the token's **env var**, never its value.
+With at least one cloud declared Albert installs the cloud tools (`kaeru_share`,
+`kaeru_pull`, `kaeru_cloud_recall`, `kaeru_policy`, `kaeru_link_cloud`,
+`kaeru_cloud_links`, `kaeru_sync_review`); with none it stays local-only. Design:
+[`docs/kaeru-cloud-handoff.md`](kaeru-cloud-handoff.md).
+
 ## Connector manifests — `config/`
 
 Connectors (the Telegram channel, the calendar) are config-driven through Octo's

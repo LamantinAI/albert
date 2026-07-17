@@ -14,26 +14,33 @@
 //! ---
 //! <instructions the agent follows once this skill is applied>
 //! ```
-//! Layout: `skills/<name>/SKILL.md` (a dir per skill — room for scripts later).
+//! Layout: `skills/<name>/SKILL.md` + any bundled resources (templates, references,
+//! example files) in the same folder. `skill_apply` returns the instructions plus a
+//! list of the bundled files; `skill_file` reads one **in place** (read-only, jailed
+//! to the skill's own folder). The agent reads a skill's resources where they live
+//! and does its actual work in the separate octo-code workspace — it never copies the
+//! skill into the workspace.
 
 use std::{
     collections::VecDeque,
     convert::Infallible,
     fs::{read_dir, read_to_string},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{debug, info};
 
-/// One skill's catalog entry (parsed frontmatter) + where its body lives.
+/// One skill's catalog entry (parsed frontmatter) + its folder.
 struct SkillMeta {
     name: String,
     when: String,
-    path: PathBuf,
+    /// The skill's own folder (`skills/<name>/`) — holds `SKILL.md` and any bundled
+    /// resources. `skill_file` reads are jailed to it.
+    dir: PathBuf,
 }
 
 struct Inner {
@@ -93,18 +100,20 @@ impl SkillStore {
 
     fn apply_json(&self, name: &str) -> Value {
         let mut inner = self.inner.lock().unwrap();
+        let Some(dir) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.dir.clone()) else {
+            return json!({ "ok": false, "error": format!("no skill '{name}'") });
+        };
+        let files = bundle_files(&dir);
+        debug!(skill = name, files = files.len(), "skill apply");
         // Cache hit: return the warm body and move it to the front — no disk read.
         if let Some(pos) = inner.cache.iter().position(|(n, _)| n == name) {
             let entry = inner.cache.remove(pos).expect("position just found");
             let body = entry.1.clone();
             inner.cache.push_front(entry);
-            return json!({ "ok": true, "applied": name, "cached": true, "instructions": body });
+            return json!({ "ok": true, "applied": name, "cached": true, "instructions": body, "files": files });
         }
-        // Miss: locate in the catalog, read from disk, cache it (LRU, evict the back).
-        let Some(path) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.path.clone()) else {
-            return json!({ "ok": false, "error": format!("no skill '{name}'") });
-        };
-        let body = match read_to_string(&path) {
+        // Miss: read SKILL.md, cache the body (LRU, evict the back).
+        let body = match read_to_string(dir.join("SKILL.md")) {
             Ok(text) => body_of(&text).trim().to_string(),
             Err(e) => return json!({ "ok": false, "error": format!("read {name}: {e}") }),
         };
@@ -113,7 +122,29 @@ impl SkillStore {
         while inner.cache.len() > cap {
             inner.cache.pop_back();
         }
-        json!({ "ok": true, "applied": name, "instructions": body })
+        json!({ "ok": true, "applied": name, "instructions": body, "files": files })
+    }
+
+    /// Read one of a skill's bundled files in place (read-only, jailed to the skill's
+    /// own folder). For informational resources (templates / references) — bytes for
+    /// scripts / fonts are a separate concern (see the module note).
+    fn file_json(&self, name: &str, rel: &str) -> Value {
+        let inner = self.inner.lock().unwrap();
+        let Some(dir) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.dir.clone()) else {
+            return json!({ "ok": false, "error": format!("no skill '{name}'") });
+        };
+        let rp = Path::new(rel);
+        if rel.is_empty()
+            || rp.is_absolute()
+            || rp.components().any(|c| matches!(c, Component::ParentDir))
+        {
+            return json!({ "ok": false, "error": "path must be relative and stay within the skill" });
+        }
+        debug!(skill = name, path = rel, "skill file read");
+        match read_to_string(dir.join(rp)) {
+            Ok(content) => json!({ "ok": true, "name": name, "path": rel, "content": content }),
+            Err(e) => json!({ "ok": false, "error": format!("read {name}/{rel}: {e}") }),
+        }
     }
 
     pub fn list_tool(self: &Arc<Self>) -> SkillList {
@@ -121,6 +152,9 @@ impl SkillStore {
     }
     pub fn apply_tool(self: &Arc<Self>) -> SkillApply {
         SkillApply(Arc::clone(self))
+    }
+    pub fn file_tool(self: &Arc<Self>) -> SkillFile {
+        SkillFile(Arc::clone(self))
     }
 }
 
@@ -144,11 +178,34 @@ fn scan(dir: &Path) -> Vec<SkillMeta> {
         out.push(SkillMeta {
             name,
             when: when.unwrap_or_else(|| "(no description)".to_string()),
-            path: skill_md,
+            dir: p,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+/// Relative paths of a skill's bundled files (everything but `SKILL.md`), sorted.
+fn bundle_files(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_files(dir, dir, &mut out);
+    out.retain(|p| p != "SKILL.md");
+    out.sort();
+    out
+}
+
+fn collect_files(root: &Path, cur: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = read_dir(cur) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            collect_files(root, &p, out);
+        } else if let Ok(rel) = p.strip_prefix(root) {
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
 }
 
 /// Split off the `---`…`---` frontmatter; return `(frontmatter, body)`.
@@ -224,7 +281,8 @@ impl Tool for SkillApply {
                           execute, not a suggestion to paraphrase; do not invent steps, \
                           parameters, or rules not written in it, and quote it verbatim if asked \
                           to show it. The instructions are returned now but not kept in context \
-                          afterward — re-apply if you need them again."
+                          afterward — re-apply if you need them again. The result also \
+                          lists the skill's bundled files (if any); read one with skill_file."
                 .to_string(),
             parameters: json!({
                 "type": "object",
@@ -239,10 +297,49 @@ impl Tool for SkillApply {
     }
 }
 
+#[derive(Clone)]
+pub struct SkillFile(Arc<SkillStore>);
+
+impl Tool for SkillFile {
+    const NAME: &'static str = "skill_file";
+    type Error = Infallible;
+    type Args = FileArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Read one of an applied skill's bundled files IN PLACE (a template / \
+                          reference / example it ships), by the skill name and a path relative to \
+                          the skill — skill_apply lists what a skill bundles. Read-only; do your \
+                          actual work in the file workspace, not here."
+                .to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "path": { "type": "string" }
+                },
+                "required": ["name", "path"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: FileArgs) -> Result<Value, Infallible> {
+        Ok(self.0.file_json(&args.name, &args.path))
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct NoArgs {}
 
 #[derive(Debug, Deserialize)]
 pub struct ApplyArgs {
     pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileArgs {
+    pub name: String,
+    pub path: String,
 }
