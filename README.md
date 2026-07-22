@@ -114,21 +114,6 @@ run — a Telegram bot token and, optionally, calendar credentials.
 See [`docs/`](docs/) for the architecture and the full configuration reference, and
 [`docs/configuration.md`](docs/configuration.md) for a complete, copyable working config.
 
-## Layout
-
-```
-albert/
-├── albert.toml         Albert-level config
-├── soul.md system.md   persona + a compact operating prompt (hot-reloaded)
-├── skills/             declarative + executable skills (<name>/SKILL.md)
-├── config/             connector manifests (Telegram, calendar, storage, forkd)
-├── src/                the cogitator + wiring
-├── contrib/deploy/     hardened systemd unit + a Docker runbook
-└── docs/               architecture, configuration, code map
-```
-
-The per-module code map is in [`docs/structure.md`](docs/structure.md).
-
 ## The long arc: PEMRR
 
 The frame Albert grows into is **PEMRR** — Perception, Experience, Memory, Reflection,
@@ -142,10 +127,31 @@ engine over fixed stages. The architecture is laid out in
 
 ## Built on
 
-- **[Octo](https://github.com/LamantinAI/octo)** — the Reaction runtime (bus, connectors,
-  supervision, control-plane, the rig tool bridge + file tools). Pulled as a git dependency.
-- **[kaeru](https://github.com/LamantinAI/kaeru)** — the Memory substrate (bi-temporal
-  cognitive graph). Pulled as a git dependency, pinned to a rev.
+Albert is assembled from three LamantinAI substrates rather than reimplemented. Each
+earns its place — and each is what makes the advantages above cheap to have:
+
+- **[Octo](https://github.com/LamantinAI/octo)** — the Reaction runtime, the reason
+  Albert *lives in an environment* instead of a chat loop. Connectors are autonomous,
+  supervised **in-process tasks** (one process, no IPC tax) that push events on their
+  own cadence, so the assistant is proactive and multi-channel by construction. Its
+  **env-as-tools** model means the agent's action space *is* the set of registered
+  connectors — add an organ (calendar, storage, forkd) and it appears in the toolset
+  with **zero cogitator change**. A reflex/cognition split keeps security and routing
+  deterministic (off the LLM), and a **control-plane** lets Albert restart a connector
+  or its whole self. Octo also carries the rig tool bridge and the jailed file tools.
+- **[kaeru](https://github.com/LamantinAI/kaeru)** — the Memory substrate, the reason
+  the prompt stays light as Albert learns. Not a memory file but a typed, **bi-temporal
+  cognitive graph** with operational and archival tiers, reached entirely **as tools**
+  (recall / remember / reflect / link / synthesise, filed into named *initiatives*).
+  Recall is selective, so context per turn stays small and memory scales far past any
+  context window; being bi-temporal, it records both when something happened and when
+  it was learned. Optional cloud endpoints let it share to / pull from team knowledge.
+- **[rig](https://github.com/0xPlaygrounds/rig)** — the LLM tool-calling loop Albert
+  drives, with a custom HTTP layer that also speaks the OpenAI Codex backend so the
+  same agent runs on an API key **or** a ChatGPT subscription.
+
+Octo and kaeru are pulled as git dependencies (one repo each, many crates, pinned to a
+rev); there is no local sibling-checkout requirement.
 
 ## License
 
