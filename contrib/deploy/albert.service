@@ -1,0 +1,42 @@
+# Albert — hardened systemd unit (L1: confine the agent from the host).
+# Install: cp to /etc/systemd/system/albert.service && systemctl daemon-reload.
+# Requires (deploy provisioning):
+#   - system users: `albert` (runs the service) and `albert-scripts` (forkd drops
+#     scripts to it), with albert-scripts a member of group `albert`;
+#   - chown -R albert:albert /opt/albert/state /opt/albert/kaeru
+#     and /opt/albert/config/connectors/telegram (the runtime ACL persists there);
+#   - the shared workspace group-owned + setgid: chmod 2770 state/workspace.
+
+[Unit]
+Description=Albert — LamantinAI personal assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=albert
+Group=albert
+# 0007: files land group-shared (0660/2770) so forkd's dropped script user can read
+# and edit what the agent writes — the workspace is the handoff surface.
+UMask=0007
+WorkingDirectory=/opt/albert
+EnvironmentFile=/opt/albert/.env
+ExecStart=/opt/albert/albert
+Restart=always
+RestartSec=5
+
+# L1 hardening. The agent's own code/config/skills are read-only at runtime; only
+# its state (workspace, artifacts, scheduler, kaeru vault, telegram ACL) is writable.
+NoNewPrivileges=yes
+# forkd needs to setuid scripts to albert-scripts from a non-root service:
+AmbientCapabilities=CAP_SETUID CAP_SETGID
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/albert/state /opt/albert/kaeru /opt/albert/config/connectors/telegram
+# RestrictNamespaces deliberately NOT set: forkd's next stage (bwrap mount-ns, L2)
+# needs namespace creation.
+
+[Install]
+WantedBy=multi-user.target
