@@ -13,7 +13,10 @@
 //! Owner-only ACL admin (`/allow` etc.) lives in [`crate::acl`]; the base routines
 //! in [`crate::routines`].
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -24,7 +27,7 @@ use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, OctoResult, ReplyChannel, Subscription,
 };
-use octo_rig::{OctoDispatchTool, RestartTool, SendFileTool};
+use octo_rig::{carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
@@ -204,7 +207,7 @@ impl AlbertCogitator {
             self.skills.catalog(),
         );
 
-        let answer = self
+        let (answer, restart) = self
             .run_agent(
                 ctx,
                 &channel_key,
@@ -220,6 +223,23 @@ impl AlbertCogitator {
         info!("→ {answer}");
         self.emit_reply(&incoming, answer.clone(), ctx).await;
         self.record(&channel_key, shown, answer).await;
+        // If the model asked to restart this turn, carry it out now — AFTER the reply
+        // is out — so it doesn't race the teardown (the tool only recorded the intent).
+        if let Some(target) = restart {
+            self.apply_restart(target, ctx).await;
+        }
+    }
+
+    /// Perform a restart the model requested this turn. The `restart` tool only records
+    /// the target; firing it mid-turn would wind connectors down before the reply is
+    /// sent (the reply would be lost). We wait until the reply has been emitted, give it
+    /// a short grace to flush to the channel, then publish the control signal.
+    async fn apply_restart(&self, target: String, ctx: &CogitatorContext) {
+        info!(target = %target, "restart requested — flushing reply, then carrying it out");
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        if let Err(e) = carry_out_restart(&ctx.bus(), &self.self_source, &target).await {
+            warn!(error = %e, target = %target, "failed to publish restart control signal");
+        }
     }
 
     /// An alarm fired → a system routine (silent) or a user reminder (message).
@@ -259,7 +279,7 @@ impl AlbertCogitator {
         let target = ConnectorId::new(reply_via);
         self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
         let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
-        let answer = self
+        let (answer, _) = self
             .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed)
             .await;
 
@@ -290,7 +310,7 @@ impl AlbertCogitator {
                     now_rfc3339(&self.config.timezone),
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
-                let out = self
+                let (out, _) = self
                     .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, false, StatusFeed::silent())
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
@@ -312,21 +332,23 @@ impl AlbertCogitator {
         reply_target: Option<ConnectorId>,
         owner: bool,
         feed: StatusFeed,
-    ) -> String {
+    ) -> (String, Option<String>) {
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
         let send_file =
             reply_target.map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
         // Owner-only: restarting a connector (to reload its manifest) or the whole
-        // process (to apply albert.toml) is an admin action.
-        let restart = owner.then(|| RestartTool::new(ctx.bus(), self.self_source.clone()));
-        match self.config.auth {
+        // process (to apply albert.toml) is an admin action. The tool records the
+        // requested target here; the caller carries it out after the reply is sent.
+        let pending: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let restart = owner.then(|| RestartTool::new(pending.clone()));
+        let answer = match self.config.auth {
             AuthMode::ApiKey => {
                 let Some(key) = self.config.api_key.as_deref() else {
-                    return "(config: api-key auth but no key loaded)".into();
+                    return ("(config: api-key auth but no key loaded)".into(), None);
                 };
                 let client = match OpenRouterClient::new(key) {
                     Ok(c) => c,
-                    Err(e) => return format!("(llm client error: {e})"),
+                    Err(e) => return (format!("(llm client error: {e})"), None),
                 };
                 self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
                     .await
@@ -336,17 +358,20 @@ impl AlbertCogitator {
                 // the Codex client for this turn.
                 let sub = match ensure_fresh(&self.config.subscription_auth_json).await {
                     Ok(s) => s,
-                    Err(e) => return format!("(subscription auth: {e})"),
+                    Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
                 let client = match self.subscription_client(&sub) {
                     Ok(c) => c,
-                    Err(e) => return format!("(subscription auth: {e})"),
+                    Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
                 let model = CodexResponsesModel::make(&client, self.config.model.as_str());
                 self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
                     .await
             }
-        }
+        };
+        // Drain any restart the model requested during the loop (owner turns only).
+        let restart_target = pending.lock().ok().and_then(|mut p| p.take());
+        (answer, restart_target)
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
