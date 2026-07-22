@@ -23,7 +23,7 @@ use octo_core::{
     ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind, Filter,
     OctoResult, ReplyChannel, Subscription,
 };
-use octo_rig::OctoDispatchTool;
+use octo_rig::{OctoDispatchTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
@@ -45,7 +45,6 @@ use crate::{
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
-    send_file::SendFileTool,
     skills::SkillStore,
 };
 

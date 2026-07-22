@@ -16,7 +16,6 @@ mod openai_login;
 mod prompt;
 mod routines;
 mod scratchpad;
-mod send_file;
 mod skills;
 
 use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
