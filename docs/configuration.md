@@ -29,6 +29,11 @@ model    = "deepseek/deepseek-v4-flash"
 base_url = "https://openrouter.ai/api/v1"
 openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
 
+# multimodal    = true   # can the model see photos? omit -> heuristic:
+                         # subscription = yes; api_key = guessed from the model name
+# stream_status = true   # stream tool calls / thoughts into the chat while a
+                         # turn runs (one in-place edited status message)
+
 [prompt]
 soul   = "soul.md"       # persona/tone           (hot-reloaded)
 system = "system.md"     # operating instructions (hot-reloaded)
