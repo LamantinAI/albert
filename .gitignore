@@ -3,3 +3,5 @@ target/
 state/
 # runtime ACL allow-list (per-chat, mutated at runtime)
 config/connectors/telegram/telegram_acl.json
+# docker deploy secrets (contrib/deploy/.env.example is the template)
+contrib/deploy/.env

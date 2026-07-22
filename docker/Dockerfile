@@ -18,7 +18,7 @@ COPY . .
 # only what actually changed recompiles: a source edit → just the albert crate
 # (~1–2 min); an octo rev bump → the octo crates and up. Cold cache (first build,
 # or after `docker builder prune`) is the old full ~15 min — cozo and rocksdb
-# dominate; on a 2 GB host add swap first (see deploy/README.md). The binary is
+# dominate; on a 2 GB host add swap first (see contrib/deploy/README.md). The binary is
 # copied out of the mount because cache mounts are not part of the image.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -37,7 +37,7 @@ WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
 # Config + persona + connector manifests + skills are baked in; all *runtime* state
 # (tokens, kaeru vault, scheduler alarms) lives under /data via a mounted volume.
-COPY deploy/albert.toml ./albert.toml
+COPY contrib/deploy/albert.toml ./albert.toml
 COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
