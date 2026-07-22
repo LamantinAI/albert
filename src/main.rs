@@ -39,7 +39,7 @@ use crate::{
     config::{AuthMode, Config},
     console::ConsoleConnector,
     error::{Error, Result},
-    history::{FileHistory, HistoryStore, InMemoryHistory},
+    history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
@@ -127,6 +127,11 @@ async fn main() -> Result<()> {
     // ── Hot context: per-channel transcript backend ──────────────────────────
     const HISTORY_MAX: usize = 30;
     let history: Arc<dyn HistoryStore> = match config.history.as_deref() {
+        Some(spec) if spec.starts_with("sqlite:") => {
+            let path = &spec["sqlite:".len()..];
+            info!(path, "history: sqlite backend (migrated, persistent)");
+            Arc::new(SqliteHistory::open(path, HISTORY_MAX).await?)
+        }
         Some(spec) if spec.starts_with("file:") => {
             let dir = &spec["file:".len()..];
             info!(dir, "history: file backend");
