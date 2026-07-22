@@ -50,7 +50,7 @@ pub async fn command(
 
 /// Whether an incoming message came from an owner-trust channel. The Telegram
 /// connector stamps `role = "owner"` on the owner's chat metadata.
-fn is_owner(env: &Envelope) -> bool {
+pub(crate) fn is_owner(env: &Envelope) -> bool {
     env.channel_metadata
         .as_ref()
         .and_then(|m| m.tags.get("role"))

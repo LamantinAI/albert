@@ -24,7 +24,7 @@ use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, OctoResult, ReplyChannel, Subscription,
 };
-use octo_rig::{OctoDispatchTool, SendFileTool};
+use octo_rig::{OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
@@ -39,7 +39,7 @@ use tokio::{select, spawn};
 use tracing::{debug, info, warn};
 
 use crate::{
-    acl::command as acl_command,
+    acl::{command as acl_command, is_owner},
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
@@ -212,6 +212,7 @@ impl AlbertCogitator {
                 input.prompt(),
                 history,
                 Some(incoming.source.clone()),
+                is_owner(&incoming),
                 feed,
             )
             .await;
@@ -259,7 +260,7 @@ impl AlbertCogitator {
         self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
         let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
         let answer = self
-            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), feed)
+            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed)
             .await;
 
         self.emit_text(
@@ -290,7 +291,7 @@ impl AlbertCogitator {
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let out = self
-                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, StatusFeed::silent())
+                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, false, StatusFeed::silent())
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
             }
@@ -309,11 +310,15 @@ impl AlbertCogitator {
         prompt: Message,
         history: Vec<Message>,
         reply_target: Option<ConnectorId>,
+        owner: bool,
         feed: StatusFeed,
     ) -> String {
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
         let send_file =
             reply_target.map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
+        // Owner-only: restarting a connector (to reload its manifest) or the whole
+        // process (to apply albert.toml) is an admin action.
+        let restart = owner.then(|| RestartTool::new(ctx.bus(), self.self_source.clone()));
         match self.config.auth {
             AuthMode::ApiKey => {
                 let Some(key) = self.config.api_key.as_deref() else {
@@ -323,7 +328,7 @@ impl AlbertCogitator {
                     Ok(c) => c,
                     Err(e) => return format!("(llm client error: {e})"),
                 };
-                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, channel, prompt, history, feed)
+                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
                     .await
             }
             AuthMode::Subscription => {
@@ -338,7 +343,7 @@ impl AlbertCogitator {
                     Err(e) => return format!("(subscription auth: {e})"),
                 };
                 let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, channel, prompt, history, feed)
+                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
                     .await
             }
         }
@@ -375,6 +380,7 @@ impl AlbertCogitator {
         base: AgentBuilder<M, (), NoToolConfig>,
         dispatch: OctoDispatchTool,
         send_file: Option<SendFileTool>,
+        restart: Option<RestartTool>,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -412,6 +418,11 @@ impl AlbertCogitator {
         // send_file is present only when there's a user to send to (not silent routines).
         let with_tools = match send_file {
             Some(sf) => with_tools.tool(sf),
+            None => with_tools,
+        };
+        // restart is present only for owner turns (apply config / reboot on request).
+        let with_tools = match restart {
+            Some(rt) => with_tools.tool(rt),
             None => with_tools,
         };
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to
