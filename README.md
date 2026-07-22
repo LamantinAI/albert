@@ -138,7 +138,10 @@ earns its place — and each is what makes the advantages above cheap to have:
   connectors — add an organ (calendar, storage, forkd) and it appears in the toolset
   with **zero cogitator change**. A reflex/cognition split keeps security and routing
   deterministic (off the LLM), and a **control-plane** lets Albert restart a connector
-  or its whole self. Octo also carries the rig tool bridge and the jailed file tools.
+  or its whole self. Octo also carries the rig tool bridge and **octo-code** — a
+  separate set of file tools (`read`/`write`/`edit`/`list`/`glob`/`grep`) jailed to the
+  workspace, so Albert gets a coding-agent's hands on the filesystem without leaving
+  the runtime.
 - **[kaeru](https://github.com/LamantinAI/kaeru)** — the Memory substrate, the reason
   the prompt stays light as Albert learns. Not a memory file but a typed, **bi-temporal
   cognitive graph** with operational and archival tiers, reached entirely **as tools**
