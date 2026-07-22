@@ -45,7 +45,9 @@ period_secs = 21600   # base memory-reflection routine cadence (6h)
 # config/connectors/*/*.toml (Octo's from_config_file). See those manifests.
 
 [history]
-backend = "memory"    # or "file:<dir>"
+# "memory" (lost on restart) | "file:<dir>" (JSON per channel) |
+# "sqlite:<path>" (durable, migrated — survives restarts; path is cwd-relative).
+backend = "sqlite:state/history.db"
 
 [scheduler]
 state_path = "state/scheduler.json"

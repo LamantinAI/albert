@@ -8,26 +8,26 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
 # (5bbd4cb = octo main with SendFileTool + caldav VALARM (#3) + telegram live feedback (#4).)
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411", features = ["sqlite"] }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
 # octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
 # to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
-octo-code = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
 # octo-connector-storage — durable object store (put/get/list/delete + promote/
 # checkout); env-as-tools organ, backend swappable (local dir now, S3 later).
-octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
+octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
-octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "ed86e5fd878c49a93a3c2063909572e445cd7f9d" }
+octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "6491efead36b68cbaed2f8c9714aed3ecc7db411" }
 
-# kaeru — the Memory substrate, pinned to a release tag (v0.5.0: multi-cloud
-# sharing/recall — the async cloud tools live in kaeru-rig).
-kaeru-core = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.5.0" }
-kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", tag = "v0.5.0" }
+# kaeru — the Memory substrate (v0.5.0 + the cozo-sqlite-dropped fix at 1ac19b6, so
+# it stops linking sqlite3 and Albert can use sqlx for its history store).
+kaeru-core = { git = "https://github.com/LamantinAI/kaeru", rev = "1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97" }
+kaeru-rig = { git = "https://github.com/LamantinAI/kaeru", rev = "1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97" }
 
 tokio = { version = "1.40", features = ["full"] }
 # futures: drain rig's SSE stream (StreamExt::next) in the Codex subscription model.
