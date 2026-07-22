@@ -5,6 +5,10 @@ Albert is config-as-data: nothing tunable is hardcoded. There are three layers �
 manifests** (`config/`). Secrets only ever live in the environment; every config file
 is safe to commit (it names secrets by their env-var name, never the value).
 
+The rest of this page is a reference for each knob. For a **complete, working
+configuration** you can copy and fill in, jump to [A working config](#a-working-config)
+at the end — it is the exact set of files a running Albert uses.
+
 ## `.env` — secrets only
 
 Loaded from the repo root (`../.env`, next to this crate). Holds secret *values* and,
@@ -13,11 +17,15 @@ optionally, the path to the config file:
 ```sh
 ALBERT_OPENAI_KEY=sk-or-...            # LLM API key (named by openai_key_env in albert.toml)
 OCTO_TELEGRAM_TOKEN=123456:ABC...      # Telegram bot token (named by token_env; omit -> console)
-OCTO_YANDEX_APP_PASSWORD=...           # Yandex APP password (named by password_env in the calendar manifest)
+# --- calendar: basic auth (Yandex/Fastmail/Nextcloud/iCloud) ---
+OCTO_YANDEX_APP_PASSWORD=...           # an APP password (named by password_env in the manifest)
+# --- or calendar: Google OAuth2 (named in the manifest) ---
+# GOOGLE_CLIENT_SECRET=...
+# GOOGLE_REFRESH_TOKEN=...
 # ALBERT_CONFIG=/path/to/albert.toml   # optional; default: next to the binary, else the crate dir
 ```
 
-kaeru reads its own `KAERU_*` env (vault path, etc.) directly.
+kaeru reads its own `KAERU_*` env (`KAERU_VAULT_PATH`, etc.) directly.
 
 ## `albert.toml` — Albert-level config
 
@@ -25,7 +33,8 @@ Located via `ALBERT_CONFIG`, else `albert.toml` next to the binary, else the cra
 Relative paths inside it resolve against the file's own directory.
 
 ```toml
-model    = "deepseek/deepseek-v4-flash"
+auth  = "api_key"                        # "api_key" (default) | "subscription"
+model = "deepseek/deepseek-v4-flash"
 base_url = "https://openrouter.ai/api/v1"
 openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
 
@@ -33,6 +42,11 @@ openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
                          # subscription = yes; api_key = guessed from the model name
 # stream_status = true   # stream tool calls / thoughts into the chat while a
                          # turn runs (one in-place edited status message)
+
+# Owner's timezone (IANA name). The agent's "current time" — and any reminder times
+# it computes — render in this zone, not UTC. Match the calendar connector's own
+# `timezone` so listed events read local. Defaults to UTC.
+timezone = "Europe/Moscow"
 
 [prompt]
 soul   = "soul.md"       # persona/tone           (hot-reloaded)
@@ -42,25 +56,32 @@ system = "system.md"     # operating instructions (hot-reloaded)
 period_secs = 21600      # base memory-reflection routine cadence (6h)
 
 [history]
-backend = "memory"       # or "file:<dir>"
+backend = "sqlite:state/history.db"   # "memory" | "file:<dir>" | "sqlite:<path>"
 
 [scheduler]
 state_path = "state/scheduler.json"   # where alarms persist (survives restart)
 
 [agent]
-max_tool_turns = 8       # max rig tool-loop rounds per message
+max_tool_turns = 30      # max rig tool-loop rounds per message
+
+[skills]
+dir   = "skills"         # folder of <name>/SKILL.md (catalog shown each turn)
+cache = 5                # LRU size for applied skill bodies
+
+[code]
+workspace = "state/workspace"   # ephemeral file-tool jail ($OCTO_CODE_WORKSPACE)
 ```
 
 ### Auth: API key vs. ChatGPT subscription
 
 `auth` selects how the LLM call authenticates:
 
-- `auth = "api_key"` (default) — an API key against `base_url` (OpenRouter or any
+- `auth = "api_key"` (**default**) — an API key against `base_url` (OpenRouter or any
   OpenAI-compatible endpoint). The key lives in the env var named by
-  `openai_key_env` (default `ALBERT_OPENAI_KEY`). This is the original behaviour.
+  `openai_key_env` (default `ALBERT_OPENAI_KEY`). This is the default path.
 - `auth = "subscription"` — a **ChatGPT subscription** (Plus/Pro/Team/…): model
   calls go to the OpenAI **Codex backend** using OAuth tokens instead of a metered
-  API key. No `openai_key_env` is needed.
+  API key. An option, not the default. No `openai_key_env` is needed.
 
 ```toml
 model = "gpt-5.4"          # a Codex-backend slug: gpt-5.6-sol, gpt-5.5, gpt-5.4, gpt-5.4-mini, …
@@ -93,17 +114,42 @@ schemas — Albert reconciles all of that transparently (see [`src/codex_http.rs
 > client credentials outside their officially-supported path — use it with your own
 > subscription, at your own discretion.
 
+### History backend
+
+`[history] backend` chooses where the per-channel chat transcript lives:
+
+- `"memory"` — in-RAM, lost on restart (dev default).
+- `"file:<dir>"` — JSON per channel.
+- `"sqlite:<path>"` — a migrated SQLite file (WAL), trimmed to a per-channel cap,
+  **survives restarts** — this is what a real deployment uses, so Albert still
+  remembers the dialogue after a reboot. The path is relative to the working dir.
+
 ### Prompt files (`soul.md`, `system.md`)
 
 `soul.md` is the persona; `system.md` the operating protocol (memory, reminders,
-scratchpad). Both are loaded into RAM once and re-read only when their **mtime**
-changes — edit and save, no restart, and no re-reading big files on every request.
-A missing file falls back to a terse embedded default.
+scratchpad, files, skills, scripts, restart). The system prompt is deliberately
+**compact** — capabilities that would bloat it (a skill's full instructions, a
+memory) are pulled on demand as tools, not pre-loaded. Both files are loaded into RAM
+once and re-read only when their **mtime** changes — edit and save, no restart, and no
+re-reading big files on every request. A missing file falls back to a terse embedded
+default.
+
+### Skills (`[skills]`) and the file workspace (`[code]`)
+
+- `[skills] dir` is a folder of `<name>/SKILL.md` (frontmatter `name`/`description` +
+  body, optionally bundling resource files). Only the **catalog** (name + when-to-use)
+  is shown to the model each turn; `skill_apply` loads a body on demand and keeps it in
+  an LRU cache of `[skills] cache` entries. A missing folder just means no skills.
+- `[code] workspace` is the ephemeral scratch directory the file tools
+  (`read/write/edit/list/glob/grep`) are **jailed** to, exported as
+  `$OCTO_CODE_WORKSPACE`. The forkd runner (cwd) and the storage connector
+  (promote/checkout) inherit the **same** directory by name, so they operate on the
+  files the agent wrote with zero path coordination. octo-code creates it on first use.
 
 ### Cloud memory (`[clouds.*]`)
 
 Optional. By default Albert's memory (kaeru) is **local-only** and the
-share/pull/cloud_recall tools are not shown to the model. Declare one or more
+share/pull/cloud_recall tools are not even shown to the model. Declare one or more
 `kaeru-cloud` endpoints and Albert can share to / pull from team knowledge:
 
 ```toml
@@ -122,25 +168,26 @@ token_env = "ALBERT_CLOUD_WORK_TOKEN"
 As with every secret, the config names the token's **env var**, never its value.
 With at least one cloud declared Albert installs the cloud tools (`kaeru_share`,
 `kaeru_pull`, `kaeru_cloud_recall`, `kaeru_policy`, `kaeru_link_cloud`,
-`kaeru_cloud_links`, `kaeru_sync_review`); with none it stays local-only. Design:
-[`docs/kaeru-cloud-handoff.md`](kaeru-cloud-handoff.md).
+`kaeru_cloud_links`, `kaeru_sync_review`); with none it stays local-only.
 
 ## Connector manifests — `config/`
 
-Connectors (the Telegram channel, the calendar) are config-driven through Octo's
-`from_config_file`: `main.rs` registers each type's factory, then points the builder at
-`config/octo.toml`, which scans a `connectors/` directory of per-connector manifests.
+Connectors are config-driven through Octo's `from_config_file`: `main.rs` registers
+each type's factory, then points the builder at `config/octo.toml`, which scans a
+`connectors/` directory of per-connector manifests.
 
 ```
 config/
 ├── octo.toml                          # [connectors] dir = "connectors"
 └── connectors/
-    ├── telegram/telegram.toml
-    └── calendar/calendar.toml
+    ├── telegram/telegram.toml         # the chat channel (edge ACL)
+    ├── calendar/calendar.toml         # CalDAV calendar
+    ├── storage/storage.toml           # durable object store
+    └── forkd/forkd.toml               # sandboxed script runner
 ```
 
 This path runs when a Telegram token is present; without one Albert uses a console
-channel (and does not load the calendar).
+channel for local dev.
 
 ### `connectors/telegram/telegram.toml`
 
@@ -157,27 +204,103 @@ owner_chat = 100000000                  # <- YOUR real chat id (ask @userinfobot
 chat, including you**, until an owner is seeded. A wrong/placeholder `owner_chat`
 locks you out of your own bot — which is the safe failure (better than open). At
 runtime the owner grows the list with the `/allow <id>` `/deny <id>` `/allowed`
-commands.
+commands, and the same owner-role gate exposes the `restart` tool.
 
 ### `connectors/calendar/calendar.toml`
+
+Two auth modes. **Basic (app password)** — the simple path, discovers its own
+collection (Yandex/Fastmail/Nextcloud/iCloud):
 
 ```toml
 [connector]
 id       = "calendar"
 type     = "caldav"
-base_url = "https://caldav.yandex.ru"   # the calendar collection is auto-discovered
-# calendar = "My events"                # optional: narrow to one calendar by display name
+timezone = "Europe/Moscow"              # render event start/end in this zone (default UTC)
+reminder_minutes = 10                   # default popup lead time for events Albert creates
 
-auth         = "basic"                  # basic app-password (Yandex/Fastmail/Nextcloud/iCloud)
+base_url     = "https://caldav.yandex.ru"   # the collection is auto-discovered
+auth         = "basic"
 login        = "you@yandex.ru"
-password_env = "OCTO_YANDEX_APP_PASSWORD"   # APP password in the env, NOT the account password
+password_env = "OCTO_YANDEX_APP_PASSWORD"    # APP password in the env, NOT the account password
 ```
 
-Two calendars later = a second manifest with a different `id` / `login` /
-`password_env` (e.g. `calendar-work`, `calendar-personal`); same `type = "caldav"`.
-Google is OAuth2-only and not wired end-to-end yet.
+**Google (OAuth2)** — needs the full `calendar` scope, the CalDAV API enabled, and an
+**explicit** collection (Google 404s the discovery chain):
+
+```toml
+[connector]
+id       = "calendar"
+type     = "caldav"
+timezone = "Europe/Moscow"
+reminder_minutes = 10
+
+collection        = "https://apidata.googleusercontent.com/caldav/v2/you@gmail.com/events"
+auth              = "oauth2"
+token_url         = "https://oauth2.googleapis.com/token"
+client_id         = "<oauth-client-id>.apps.googleusercontent.com"
+client_secret_env = "GOOGLE_CLIENT_SECRET"
+refresh_token_env = "GOOGLE_REFRESH_TOKEN"
+```
+
+Commands are the same either way: `calendar.{list,create,delete}_event`. Two calendars
+later = a second manifest with a different `id` (e.g. `calendar-work` /
+`calendar-personal`); same `type = "caldav"`.
+
+### `connectors/storage/storage.toml`
+
+```toml
+[connector]
+id      = "storage"
+type    = "storage"
+backend = "local"
+# `root` is durable + backed up (NOT the throwaway workspace), relative to THIS
+# manifest's directory — climb to the deploy root, land in state/ beside the workspace.
+root    = "../../../state/artifacts"
+# `workspace` omitted on purpose -> promote/checkout use $OCTO_CODE_WORKSPACE,
+# the same jail octo-code writes to, so the two stay in lockstep.
+```
+
+### `connectors/forkd/forkd.toml`
+
+```toml
+[connector]
+id   = "forkd"
+type = "forkd"
+# `workspace` omitted -> inherits $OCTO_CODE_WORKSPACE (the file-tool jail), so a
+# script edits the very files the agent wrote.
+
+run_as    = "albert-scripts"   # scripts run setuid to this unprivileged user (when Albert can);
+                               # missing on the host -> forkd warns and runs as the current user
+run_group = "albert"           # child's PRIMARY group = the workspace-sharing group (setuid drops
+                               # supplementary groups, so this is what opens the setgid 2770 workspace)
+
+timeout_secs     = 30          # default per-run wall-clock limit
+max_timeout_secs = 300         # ceiling a command may request
+max_output_bytes = 65536       # stdout/stderr each capped to this
+fsize_mb         = 64          # a script may not write a file larger than this
+# mem_mb         = 512         # optional RLIMIT_AS (leave unset: too low breaks interpreters)
+```
+
+The isolation these knobs implement, and why `run_group` matters, is in
+[architecture.md](architecture.md#isolation-three-layers).
 
 ## What is runtime state (gitignored)
 
-`state/` (scheduler alarms) and `config/connectors/telegram/telegram_acl.json` (the
-mutable ACL) are machine-specific runtime data, not source — both are gitignored.
+Machine-specific runtime data, not source — all gitignored: `state/` (scheduler
+alarms, the SQLite history, the workspace, promoted artifacts) and
+`config/connectors/telegram/telegram_acl.json` (the mutable ACL).
+
+## A working config
+
+The set of files above **is** a working configuration — the repo ships them with
+placeholder values already in place (`config/connectors/*/*.toml`, `albert.toml`), so a
+real deployment is those files with three edits:
+
+1. `config/connectors/telegram/telegram.toml` → real `owner_chat` (from `@userinfobot`).
+2. `config/connectors/calendar/calendar.toml` → your account (`login`, or the Google
+   `collection` + client).
+3. `.env` → the actual secret values (`ALBERT_OPENAI_KEY`, `OCTO_TELEGRAM_TOKEN`, the
+   calendar password/OAuth secrets).
+
+Everything else — the `albert.toml` above, the storage and forkd manifests — works
+unchanged. See [deploy.md](deploy.md) for the host provisioning that pairs with it.
