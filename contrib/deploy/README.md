@@ -90,7 +90,7 @@ A background service needs a **channel** (console is interactive-only). Set up T
 1. In `config/connectors/telegram/telegram.toml` set `owner_chat` = your numeric chat id
    (from `@userinfobot`). A placeholder locks you out — the ACL drops everyone until the
    owner is seeded.
-2. Put the bot token in `deploy/.env`: `OCTO_TELEGRAM_TOKEN=…` (from `@BotFather`).
+2. Put the bot token in `contrib/deploy/.env`: `OCTO_TELEGRAM_TOKEN=…` (from `@BotFather`).
 3. Rebuild if you edited the baked config (`docker compose build`), then:
 
 ```sh
@@ -121,7 +121,7 @@ Build the **linux/amd64** image on a capable machine, ship it, load it:
 
 ```sh
 # on a build host (x86_64, or via emulation):
-docker build --platform linux/amd64 -f deploy/Dockerfile -t albert:latest .
+docker build --platform linux/amd64 -f docker/Dockerfile -t albert:latest .
 docker save albert:latest | zstd | ssh root@SERVER 'zstd -d | docker load'
 # on the server: docker compose up -d   (compose reuses the loaded albert:latest image)
 ```
@@ -129,7 +129,7 @@ docker save albert:latest | zstd | ssh root@SERVER 'zstd -d | docker load'
 ## Notes
 
 - **Tokens = password-equivalent.** They live only in the `albert-data` volume
-  (`auth.json`, written `0600`). Don’t commit `deploy/.env`; it’s gitignored.
+  (`auth.json`, written `0600`). Don’t commit `contrib/deploy/.env`; it’s gitignored.
 - **ToS.** Subscription mode uses the first-party Codex OAuth client + the
   `backend-api/codex` endpoint — outside OpenAI’s officially-supported third-party use.
   Opt-in, your subscription, your call.
