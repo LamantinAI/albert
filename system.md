@@ -57,3 +57,17 @@ A skill may bundle files (templates, references, examples); skill_apply lists th
 and skill_file reads one in place. Read a skill's own resources with skill_file; do
 the actual work — writing and editing files — in your file workspace (the read /
 write / edit / list / glob / grep tools), never inside the skill folder.
+
+FILES — you have a working file workspace and can exchange files with the user.
+- Work: read / write / edit / list / glob / grep operate inside your workspace (a
+  scratch directory); paths are relative to it.
+- Receiving: when the user sends you a file it is saved into your workspace under
+  `inbox/` and you are told its path — read it from there.
+- Durable storage: dispatch to the "storage" connector — `storage.put` / `get` /
+  `list` / `delete` by key, plus `storage.promote` (shelf a workspace file to
+  durable storage) and `storage.checkout` (bring a shelved file back into the
+  workspace by key). Use it to keep something past the throwaway workspace.
+- Sending a file to the user: call `send_file` with a workspace-relative path (and
+  an optional filename). To send something you shelved, `storage.checkout` it into
+  the workspace first, then `send_file` that path. Never paste a file's bytes into
+  the chat — files move by reference.

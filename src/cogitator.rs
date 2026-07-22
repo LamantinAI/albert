@@ -45,6 +45,7 @@ use crate::{
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
+    send_file::SendFileTool,
     skills::SkillStore,
 };
 
@@ -172,7 +173,14 @@ impl AlbertCogitator {
         );
 
         let answer = self
-            .run_agent(ctx, &channel_key, &preamble, Message::user(text.clone()), history)
+            .run_agent(
+                ctx,
+                &channel_key,
+                &preamble,
+                Message::user(text.clone()),
+                history,
+                Some(incoming.source.clone()),
+            )
             .await;
 
         info!("→ {answer}");
@@ -214,7 +222,9 @@ impl AlbertCogitator {
         let prompt = Message::user(format!(
             "Reminder due for \"{task}\". Write the reminder message to the user."
         ));
-        let answer = self.run_agent(ctx, &channel, &preamble, prompt, history).await;
+        let answer = self
+            .run_agent(ctx, &channel, &preamble, prompt, history, Some(ConnectorId::new(reply_via.clone())))
+            .await;
 
         self.emit_text(
             ConnectorId::new(reply_via),
@@ -244,7 +254,7 @@ impl AlbertCogitator {
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let out = self
-                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new())
+                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None)
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
             }
@@ -262,8 +272,11 @@ impl AlbertCogitator {
         preamble: &str,
         prompt: Message,
         history: Vec<Message>,
+        reply_target: Option<ConnectorId>,
     ) -> String {
         let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
+        let send_file =
+            reply_target.map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
         match self.config.auth {
             AuthMode::ApiKey => {
                 let Some(key) = self.config.api_key.as_deref() else {
@@ -273,7 +286,7 @@ impl AlbertCogitator {
                     Ok(c) => c,
                     Err(e) => return format!("(llm client error: {e})"),
                 };
-                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, channel, prompt, history)
+                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, channel, prompt, history)
                     .await
             }
             AuthMode::Subscription => {
@@ -288,7 +301,7 @@ impl AlbertCogitator {
                     Err(e) => return format!("(subscription auth: {e})"),
                 };
                 let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, channel, prompt, history)
+                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, channel, prompt, history)
                     .await
             }
         }
@@ -324,6 +337,7 @@ impl AlbertCogitator {
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
         dispatch: OctoDispatchTool,
+        send_file: Option<SendFileTool>,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -357,6 +371,11 @@ impl AlbertCogitator {
             .tool(self.skills.list_tool())
             .tool(self.skills.apply_tool())
             .tool(self.skills.file_tool());
+        // send_file is present only when there's a user to send to (not silent routines).
+        let with_tools = match send_file {
+            Some(sf) => with_tools.tool(sf),
+            None => with_tools,
+        };
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to
         // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
         let agent = code_tools!(with_tools).build();
