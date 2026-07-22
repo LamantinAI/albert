@@ -11,6 +11,9 @@ type = "forkd"
 # The user must exist on the host (deploy provisions `albert-scripts`); if it is
 # missing, forkd warns and runs scripts as the current user instead of crashing.
 run_as = "albert-scripts"
+# The child's PRIMARY group must be the workspace-sharing group: setuid drops
+# supplementary groups, so membership alone cannot open the setgid 2770 workspace.
+run_group = "albert"
 
 timeout_secs     = 30    # default per-run wall-clock limit
 max_timeout_secs = 300   # ceiling a command may request
