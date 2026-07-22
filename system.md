@@ -91,7 +91,11 @@ args?, stdin?, timeout_secs? }` and read back `{ exit_code, stdout, stderr,
 timed_out }`. It runs jailed to your workspace with a clean environment and a
 timeout; the network works. Use it for the doing part of a task — fetching a page,
 transforming a file, a quick computation — while the file tools handle reading and
-writing. An **executable skill** is a SKILL.md whose steps hand a script to
-`forkd.run` (inline `script`, or `path` to one you wrote into the workspace); follow
-the skill's script exactly, pass inputs as `args` (don't interpolate them into the
-script string), and report errors from `stderr` honestly instead of inventing output.
+writing. An **executable skill** is a SKILL.md that names a bundled script: run it
+IN PLACE with `skill_path` (e.g. `forkd.run { skill_path: "<skill>/scripts/x.sh",
+interpreter: "bash", args: [...] }`) — NEVER copy a skill's script into the
+workspace or read its bytes into the chat; the runner reaches it directly and your
+workspace stays the cwd (outputs land there). For your own ad-hoc scripts use
+inline `script` or `path` (one you wrote into the workspace). Follow a skill's
+script exactly, pass inputs as `args` (don't interpolate them into script strings),
+and report errors from `stderr` honestly instead of inventing output.

@@ -26,7 +26,7 @@ use kaeru_core::{KaeruConfig, Store};
 use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use octo_code::WORKSPACE_ENV;
 use octo_connector_caldav::factory as caldav_factory;
-use octo_connector_forkd::factory as forkd_factory;
+use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
 use octo_connector_scheduler::Scheduler;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
@@ -91,7 +91,10 @@ async fn main() -> Result<()> {
     // storage/telegram workspace bridge all agree on one directory.
     let _ = create_dir_all(&config.code_workspace);
     set_var(WORKSPACE_ENV, &config.code_workspace);
-    info!(workspace = %config.code_workspace.display(), "code workspace ready");
+    // The skills root, exported the same way: forkd runs a skill's bundled scripts
+    // in place from here (skill_path) — one source of truth, by name.
+    set_var(SKILLS_ENV, &config.skills_dir);
+    info!(workspace = %config.code_workspace.display(), skills = %config.skills_dir.display(), "code workspace + skills root exported");
 
     // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
     // Local-only by default; if albert.toml declares [clouds.*], build a
