@@ -1,0 +1,19 @@
+# forkd — sandboxed runner for skill scripts (v0). Reached via the dispatch tool:
+# forkd.run { path?|script?, interpreter?, args?, stdin?, timeout_secs? }.
+[connector]
+id   = "forkd"
+type = "forkd"
+
+# `workspace` omitted on purpose -> inherits $OCTO_CODE_WORKSPACE, the same jail the
+# octo-code file tools and storage use, so a script edits the very files Albert wrote.
+
+# Drop privileges: scripts run setuid to this unprivileged user when Albert is root.
+# The user must exist on the host (deploy provisions `albert-scripts`); if it is
+# missing, forkd warns and runs scripts as the current user instead of crashing.
+run_as = "albert-scripts"
+
+timeout_secs     = 30    # default per-run wall-clock limit
+max_timeout_secs = 300   # ceiling a command may request
+max_output_bytes = 65536 # stdout/stderr each capped to this
+fsize_mb         = 64     # a script may not write a file larger than this
+# mem_mb         = 512    # optional RLIMIT_AS (leave unset: too low breaks interpreters)
