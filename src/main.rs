@@ -17,6 +17,7 @@ mod prompt;
 mod routines;
 mod scratchpad;
 mod skills;
+mod status;
 
 use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
 

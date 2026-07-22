@@ -10,6 +10,14 @@ model = "deepseek/deepseek-v4-flash"
 base_url = "https://openrouter.ai/api/v1"
 openai_key_env = "ALBERT_OPENAI_KEY"
 
+# Vision: can the model see photos sent in chat? Omit for the default heuristic
+# (subscription -> always yes; api_key -> guessed from the model name).
+# multimodal = true
+
+# Live progress in chat while a turn runs (typing indicator is always on; this
+# also streams tool calls / thoughts as an in-place edited status message).
+# stream_status = true
+
 # --- Subscription mode (option) — set auth = "subscription" above to switch ---
 # model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
 # [subscription]

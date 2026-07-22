@@ -1,0 +1,9 @@
+# Keep the Docker build context small: source + config only.
+target/
+.git/
+state/
+kaeru/
+**/telegram_acl.json
+*.log
+.env
+.DS_Store
