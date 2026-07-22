@@ -39,23 +39,25 @@ KAERU_VAULT_PATH=/opt/albert/kaeru
 
 ## systemd unit — `/etc/systemd/system/albert.service`
 
-```ini
-[Unit]
-Description=Albert — LamantinAI personal assistant
-After=network-online.target
-Wants=network-online.target
+The canonical **hardened** unit lives in
+[`contrib/deploy/albert.service`](../contrib/deploy/albert.service) — Albert runs as
+the unprivileged `albert` user (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
+capabilities bounded to `CAP_SETUID CAP_SETGID` so forkd can still drop scripts to
+`albert-scripts`). Provision before first start:
 
-[Service]
-Type=simple
-WorkingDirectory=/opt/albert
-EnvironmentFile=/opt/albert/.env
-ExecStart=/opt/albert/albert
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+```sh
+useradd --system --no-create-home --shell /usr/sbin/nologin albert
+useradd --system --no-create-home --shell /usr/sbin/nologin albert-scripts
+usermod -aG albert albert-scripts        # workspace handoff group
+chown -R albert:albert /opt/albert/state /opt/albert/kaeru
+chown albert:albert /opt/albert/config/connectors/telegram   # runtime ACL persists here
+chmod 2770 /opt/albert/state/workspace   # setgid: agent + scripts share via group
+cp contrib/deploy/albert.service /etc/systemd/system/albert.service
+systemctl daemon-reload
 ```
+
+Secrets stay in root-owned `0600` `/opt/albert/.env` — systemd reads it before
+dropping privileges, so the service sees them but the files on disk stay root-only.
 
 ## First deploy
 
