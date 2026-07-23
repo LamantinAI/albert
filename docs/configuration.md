@@ -70,6 +70,7 @@ max_tool_turns = 30      # max rig tool-loop rounds per message
 [skills]
 dir   = "skills"         # folder of <name>/SKILL.md (catalog shown each turn)
 cache = 5                # LRU size for applied skill bodies
+page  = 10               # skill_list page size + inline-catalog threshold (see below)
 
 [code]
 workspace = "state/workspace"   # ephemeral file-tool jail ($OCTO_CODE_WORKSPACE)
@@ -143,6 +144,11 @@ default.
   body, optionally bundling resource files). Only the **catalog** (name + when-to-use)
   is shown to the model each turn; `skill_apply` loads a body on demand and keeps it in
   an LRU cache of `[skills] cache` entries. A missing folder just means no skills.
+  - **Scaling:** `[skills] page` (default 10) is both the `skill_list` page size and the
+    inline threshold — a catalog up to `page` skills is shown in full each turn; a larger
+    library collapses in the preamble to a count + a pointer, and the model finds skills
+    with `skill_search <keywords>` (ranked by name/description) or `skill_list <page>`.
+    So 100 skills cost a line of context, not a hundred.
 - `[code] workspace` is the ephemeral scratch directory the file tools
   (`read/write/edit/list/glob/grep`) are **jailed** to, exported as
   `$OCTO_CODE_WORKSPACE`. The forkd runner (cwd) and the storage connector

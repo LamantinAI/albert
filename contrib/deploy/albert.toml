@@ -47,3 +47,4 @@ max_tool_turns = 8
 [skills]
 dir   = "skills"
 cache = 5
+page  = 10   # skill_list page size + inline-catalog threshold (larger library -> skill_search)

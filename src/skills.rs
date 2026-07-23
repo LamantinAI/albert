@@ -1,10 +1,14 @@
 //! Declarative skills — a `skills/` folder of `SKILL.md` files (instructions, no
 //! scripts yet). At startup we scan the **catalog** (name + when-to-use, from each
-//! file's frontmatter). Only the catalog is kept in front of the agent each turn —
-//! the full body would clutter context. `skill_apply` returns a skill's instructions
-//! on demand and caches the body in a small **LRU RAM read-through cache** (default
-//! 5), so re-applying a recent skill is a fast RAM hit, not a disk read. The agent
-//! lists (`skill_list`) and applies (`skill_apply`).
+//! file's frontmatter). Only the catalog — never the bodies — sits in front of the
+//! agent, and it **scales**: a catalog up to one page (`[skills] page`, default 10) is
+//! shown inline each turn; a larger one is replaced by a count + a pointer to
+//! `skill_search`, so 100 skills don't cost 100 lines of context every turn. `skill_apply` returns a
+//! skill's instructions on demand and caches the body in a small **LRU RAM
+//! read-through cache** (default 5), so re-applying a recent skill is a fast RAM hit.
+//! The agent finds skills three ways: the inline catalog, `skill_search <query>`
+//! (ranked by name/description match), and `skill_list <page>` (paginated browse);
+//! then `skill_apply <name>`.
 //!
 //! A `SKILL.md`:
 //! ```text
@@ -34,6 +38,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
+/// Default number of matches `skill_search` returns (clamped 1..=`SEARCH_MAX`).
+const SEARCH_LIMIT: usize = 10;
+const SEARCH_MAX: usize = 25;
+
 /// One skill's catalog entry (parsed frontmatter) + its folder.
 struct SkillMeta {
     name: String,
@@ -48,6 +56,8 @@ struct Inner {
     /// LRU read-through cache of loaded `(name, body)`; front = most-recently applied.
     cache: VecDeque<(String, String)>,
     cache_cap: usize,
+    /// `skill_list` page size, and the inline-catalog threshold (from `[skills] page`).
+    page: usize,
 }
 
 /// Catalog of installed skills + an LRU cache of applied skill bodies.
@@ -58,7 +68,7 @@ pub struct SkillStore {
 impl SkillStore {
     /// Scan `dir` for `*/SKILL.md` and build the catalog. A missing `dir` yields an
     /// empty catalog (skills are optional).
-    pub fn load(dir: PathBuf, cache_cap: usize) -> Arc<Self> {
+    pub fn load(dir: PathBuf, cache_cap: usize, page: usize) -> Arc<Self> {
         let catalog = scan(&dir);
         info!(skills = catalog.len(), dir = %dir.display(), "skills: catalog loaded");
         Arc::new(Self {
@@ -66,36 +76,95 @@ impl SkillStore {
                 catalog,
                 cache: VecDeque::new(),
                 cache_cap: cache_cap.max(1),
+                page: page.max(1),
             }),
         })
     }
 
-    /// The always-visible menu for the preamble.
+    /// The per-turn menu for the preamble. Small catalog → the full list (cheap);
+    /// large catalog (> [`INLINE_MAX`]) → a count + a pointer to `skill_search`, so it
+    /// never floods context. Either way the bodies stay out until `skill_apply`.
     pub fn catalog(&self) -> String {
         let inner = self.inner.lock().unwrap();
-        if inner.catalog.is_empty() {
+        let n = inner.catalog.len();
+        if n == 0 {
             return "Skills: (none installed).".to_string();
         }
-        let lines: Vec<String> = inner
-            .catalog
-            .iter()
-            .map(|s| format!("- {}: {}", s.name, s.when))
-            .collect();
+        if n <= inner.page {
+            let lines: Vec<String> = inner
+                .catalog
+                .iter()
+                .map(|s| format!("- {}: {}", s.name, s.when))
+                .collect();
+            return format!(
+                "Skills available (apply one with skill_apply when it fits the task; skill_list to \
+                 re-list):\n{}",
+                lines.join("\n")
+            );
+        }
         format!(
-            "Skills available (apply one with skill_apply when it fits the task; skill_list to \
-             re-list):\n{}",
-            lines.join("\n")
+            "Skills: {n} installed — too many to list here. When a task might match one, call \
+             skill_search with a few keywords to find it (ranked by name/description), or \
+             skill_list to browse by page; then skill_apply the one that fits."
         )
     }
 
-    fn list_json(&self) -> Value {
+    /// One page of the catalog (name + when-to-use), 1-indexed, `PAGE` per page.
+    fn list_json(&self, page: usize) -> Value {
         let inner = self.inner.lock().unwrap();
+        let size = inner.page;
+        let total = inner.catalog.len();
+        let pages = total.div_ceil(size).max(1);
+        let page = page.clamp(1, pages);
         let items: Vec<Value> = inner
             .catalog
             .iter()
+            .skip((page - 1) * size)
+            .take(size)
             .map(|s| json!({ "name": s.name, "when": s.when }))
             .collect();
-        json!({ "skills": items })
+        json!({ "skills": items, "page": page, "pages": pages, "total": total })
+    }
+
+    /// Rank the catalog against `query` (keywords). A term in a skill's name scores 2,
+    /// in its description 1; skills with any hit are returned best-first, up to `limit`.
+    /// An empty query just returns the first `limit` by name (a browse fallback).
+    fn search_json(&self, query: &str, limit: usize) -> Value {
+        let inner = self.inner.lock().unwrap();
+        let q = query.to_lowercase();
+        let terms: Vec<&str> = q.split_whitespace().collect();
+
+        let mut scored: Vec<(i32, &SkillMeta)> = if terms.is_empty() {
+            inner.catalog.iter().map(|s| (0, s)).collect()
+        } else {
+            inner
+                .catalog
+                .iter()
+                .filter_map(|s| {
+                    let name = s.name.to_lowercase();
+                    let when = s.when.to_lowercase();
+                    let score: i32 = terms
+                        .iter()
+                        .map(|t| (name.contains(t) as i32) * 2 + (when.contains(t) as i32))
+                        .sum();
+                    (score > 0).then_some((score, s))
+                })
+                .collect()
+        };
+        // Best score first; ties by name for a stable order.
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+        let total_matched = scored.len();
+        let items: Vec<Value> = scored
+            .iter()
+            .take(limit)
+            .map(|(_, s)| json!({ "name": s.name, "when": s.when }))
+            .collect();
+        json!({
+            "query": query,
+            "total_matched": total_matched,
+            "returned": items.len(),
+            "skills": items,
+        })
     }
 
     fn apply_json(&self, name: &str) -> Value {
@@ -149,6 +218,9 @@ impl SkillStore {
 
     pub fn list_tool(self: &Arc<Self>) -> SkillList {
         SkillList(Arc::clone(self))
+    }
+    pub fn search_tool(self: &Arc<Self>) -> SkillSearch {
+        SkillSearch(Arc::clone(self))
     }
     pub fn apply_tool(self: &Arc<Self>) -> SkillApply {
         SkillApply(Arc::clone(self))
@@ -246,21 +318,62 @@ pub struct SkillList(Arc<SkillStore>);
 impl Tool for SkillList {
     const NAME: &'static str = "skill_list";
     type Error = Infallible;
-    type Args = NoArgs;
+    type Args = ListArgs;
     type Output = Value;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "List the installed skills (name + when to use each). The catalog is also \
-                          shown to you each turn."
+            description: "Browse the installed skills, one page at a time (name + when to use \
+                          each). Pass `page` (1-indexed; default 1); the result carries `pages` \
+                          and `total`. When there are many skills, prefer skill_search to jump \
+                          straight to the relevant ones."
                 .to_string(),
-            parameters: json!({ "type": "object", "properties": {} }),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "page": { "type": "integer", "description": "1-indexed page (default 1)" }
+                }
+            }),
         }
     }
 
-    async fn call(&self, _args: NoArgs) -> Result<Value, Infallible> {
-        Ok(self.0.list_json())
+    async fn call(&self, args: ListArgs) -> Result<Value, Infallible> {
+        Ok(self.0.list_json(args.page.unwrap_or(1)))
+    }
+}
+
+#[derive(Clone)]
+pub struct SkillSearch(Arc<SkillStore>);
+
+impl Tool for SkillSearch {
+    const NAME: &'static str = "skill_search";
+    type Error = Infallible;
+    type Args = SearchArgs;
+    type Output = Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.to_string(),
+            description: "Find skills by need when you have many and the per-turn catalog is only \
+                          a summary. Give `query` (a few keywords about the task); returns the \
+                          best-matching skills (name + when-to-use), ranked by name/description \
+                          match. Then skill_apply the one that fits. Optional `limit` (default 10)."
+                .to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "keywords describing the task" },
+                    "limit": { "type": "integer", "description": "max matches (default 10)" }
+                },
+                "required": ["query"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: SearchArgs) -> Result<Value, Infallible> {
+        let limit = args.limit.unwrap_or(SEARCH_LIMIT).clamp(1, SEARCH_MAX);
+        Ok(self.0.search_json(&args.query, limit))
     }
 }
 
@@ -331,7 +444,17 @@ impl Tool for SkillFile {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct NoArgs {}
+pub struct ListArgs {
+    #[serde(default)]
+    pub page: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchArgs {
+    pub query: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ApplyArgs {
