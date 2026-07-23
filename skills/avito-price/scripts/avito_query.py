@@ -170,8 +170,8 @@ def fetch_serp(url, max_hops=4):
     from parser_cls import AvitoParse
     try:
         parser = AvitoParse(make_config([url]))
-    except Exception as exc:  # noqa: BLE001
-        emit({"status": "error", "error": "runtime", "message": str(exc)})
+    except Exception:  # noqa: BLE001
+        return None  # let the caller retry with a fresh parser (new impersonate)
     current = url
     data = {}
     for _ in range(max_hops):
@@ -258,18 +258,31 @@ def cmd_search(args):
     if args.max_price:
         url += f"&pmax={int(args.max_price)}"
 
-    data = fetch_serp(url)
-    if data is None:
-        emit({"status": "blocked", "url": url,
-              "message": "Avito не отдал страницу (блокировка или капча). "
-                         "Попробуйте позже или настройте прокси (AVITO_PROXY)."})
+    # Avito's anti-bot is flaky: the same query returns a parseable catalog on
+    # one hit and a captcha / unparseable SPA stub on the next. Each fetch_serp
+    # builds a FRESH parser (a new random impersonate profile from the working
+    # set tor/edge/firefox/safari), so a few attempts almost always land a good
+    # one. Only give up (blocked) after all attempts fail.
+    import time
+    ATTEMPTS = 5
+    items = None
+    for attempt in range(ATTEMPTS):
+        if attempt:
+            time.sleep(3)  # space out hits so Avito's per-IP rate-limit relaxes
+        data = fetch_serp(url)
+        if not data:
+            continue
+        try:
+            items = ItemsResponse(**(data.get("catalog") or {})).items
+        except Exception:  # noqa: BLE001
+            items = None
+            continue
+        break
 
-    catalog = data.get("catalog") or {}
-    try:
-        items = ItemsResponse(**catalog).items
-    except Exception:  # noqa: BLE001
+    if items is None:
         emit({"status": "blocked", "url": url,
-              "message": "Не удалось разобрать выдачу Avito (капча или изменение вёрстки)."})
+              "message": "Avito не отдал разборчивую страницу за несколько попыток "
+                         "(блокировка или капча). Попробуйте ещё раз чуть позже."})
 
     items = [i for i in items if isinstance(i.id, int)]
     results = [fmt_item(it, n + 1) for n, it in enumerate(items[: args.limit])]

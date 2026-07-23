@@ -13,8 +13,10 @@ description: >-
 Поиск и оценка стоимости через Avito. Бэкенд — python-парсер, запускается через
 **forkd**: `dispatch_to_connector` target `"forkd"`, kind `"forkd.run"`, payload
 `{ "skill_path": "avito-price/scripts/avito_query.py", "interpreter": "python3",
-"args": [...], "timeout_secs": 60 }`. Скрипт печатает ОДИН JSON-объект в stdout —
-он приходит в поле `stdout` результата forkd; распарси его и работай с ним.
+"args": [...], "timeout_secs": 120 }`. Всегда ставь `timeout_secs: 120` для
+`search`/`details` — они делают несколько попыток против флаки-антибота Avito и
+бывают небыстрыми. Скрипт печатает ОДИН JSON-объект в stdout — он приходит в поле
+`stdout` результата forkd; распарси его и работай с ним.
 
 ## Шаг 1. Город (только при первом использовании)
 

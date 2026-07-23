@@ -15,7 +15,7 @@ run_as = "albert-scripts"
 # supplementary groups, so membership alone cannot open the setgid 2770 workspace.
 run_group = "albert"
 
-timeout_secs     = 30    # default per-run wall-clock limit
+timeout_secs     = 60    # default per-run wall-clock limit (a caller may raise it up to max)
 max_timeout_secs = 300   # ceiling a command may request
 max_output_bytes = 65536 # stdout/stderr each capped to this
 fsize_mb         = 64     # a script may not write a file larger than this
