@@ -1,18 +1,19 @@
-# REG.RU mailbox — IMAP/SMTP connector (octo-connector-mail).
+# Mailbox — IMAP/SMTP connector (octo-connector-mail).
 #
 # Reached as env-as-tools: the cogitator dispatches mail.cmd.list/read/send/reply
-# and gets a correlated result. Hosts/ports are literals (REG.RU defaults);
-# credentials are named env vars, values live in .env. SMTP login and the From
-# address default to the IMAP ones (REG.RU uses one login for both). Ported from
-# the openclaw regru-mail skill — same mailbox, no node.
+# and gets a correlated result. Hosts are literals (imap_host REQUIRED; smtp_host
+# defaults to it); credentials are named env vars, values live in .env. SMTP login
+# and the From address default to the IMAP ones.
+#
+# imap_host below is a PLACEHOLDER: put your provider in the deployment's copy of
+# this file (the deploy rsync excludes it, like telegram/calendar).
 
 [connector]
 id   = "mail"
 type = "mail"
 
-imap_host = "mail.hosting.reg.ru"
+imap_host = "imap.example.com"
 imap_port = 993
-smtp_host = "mail.hosting.reg.ru"
 smtp_port = 465
 mailbox   = "INBOX"
 

@@ -1,15 +1,17 @@
-# CodeInside Jira — dynamic HTTP connector (octo-connector-http).
+# Jira — dynamic HTTP connector (octo-connector-http).
 #
 # A whole Jira REST surface described declaratively: each command kind is one
-# HTTP call the cogitator reaches through `dispatch_to_connector`. On-prem Jira
-# Server/DC at jira.codeinside.ru — auth is a Personal Access Token (Bearer),
-# paths are /rest/api/2/*. Ported from the openclaw codeinside-jira skill; the
-# node script is gone — this needs no runtime in the image.
+# HTTP call the cogitator reaches through `dispatch_to_connector`. Targets an
+# on-prem Jira Server/DC — auth is a Personal Access Token (Bearer), paths are
+# /rest/api/2/*. No runtime in the image — pure manifest.
+#
+# base_url below is a PLACEHOLDER: put your real instance in the deployment's
+# copy of this file (the deploy rsync excludes it, like telegram/calendar).
 
 [connector]
 id       = "jira"
 type     = "http"
-base_url = "https://jira.codeinside.ru"
+base_url = "https://jira.example.com"
 
 [connector.auth]
 # Jira Server PAT: `Authorization: Bearer <token>`. The token is a secret, named

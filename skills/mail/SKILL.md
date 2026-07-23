@@ -1,9 +1,9 @@
 ---
-name: regru-mail
-description: when the user asks about their email / mail / inbox / messages / invitations / meetings, or asks to draft or reply to an email. «посмотри почту», «что в почте», «прочитай письмо от …», «ответь на письмо», «есть ли встречи в почте». Reads and sends via the REG.RU mailbox.
+name: mail
+description: when the user asks about their email / mail / inbox / messages / invitations / meetings, or asks to draft or reply to an email. «посмотри почту», «что в почте», «прочитай письмо от …», «ответь на письмо», «есть ли встречи в почте».
 ---
 
-Inspect and act on the user's REG.RU mailbox through the **mail** connector —
+Inspect and act on the owner's mailbox (provider lives in the connector manifest) through the **mail** connector —
 reach it with `dispatch_to_connector` (target `"mail"`, a `mail.cmd.*` kind, JSON
 payload). Every command returns JSON; summarize in short Russian unless asked.
 
