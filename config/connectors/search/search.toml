@@ -1,22 +1,37 @@
 # Search connector — web search as an env-as-tools organ. Reached via the dispatch
-# tool: search.web { query, limit? } -> { query, count, results: [{title, url, snippet}] }.
-# Returns a clean hit list (never raw HTML), so the model spends context on results.
+# tool: search.web { query, limit?, engine? } -> { engine, query, count,
+# results: [{ title, url, snippet }] }. Returns a clean hit list (never raw HTML),
+# so the model spends context on results rather than markup.
+#
+# Choosing the search system happens at BOTH levels: this manifest declares which
+# engines exist and which answers by default; Albert overrides per call with `engine`.
 
 [connector]
-id      = "search"
-type    = "search"
+id   = "search"
+type = "search"
 
-# Backend is swappable behind the SearchBackend trait. "ddg" (DuckDuckGo) needs no
-# account or key. It fetches through the system `curl`: DuckDuckGo's anti-bot serves
-# reqwest/hyper a 202 challenge page with no results, while curl's TLS fingerprint
-# passes — so curl must be installed (it already is: the forkd sandbox requires it).
-# Yandex Search API will slot in here later as `backend = "yandex"`.
-backend = "ddg"
+# Which engine answers when a call omits `engine`.
+default_engine = "ddg"
 
 timeout_secs  = 15   # per-search wall clock
-default_limit = 5    # hits returned when the caller doesn't say
-max_limit     = 10   # ceiling a caller may request
+default_limit = 10   # hits per search when the caller doesn't say — the useful base
+max_limit     = 25   # ceiling; the agent may ask for more than the default, up to this
 
+# --- Engines: one table per search system, each with its own settings -------------
+# Add `enabled = false` to keep an engine declared but out of service.
+
+[connector.engines.ddg]
+# DuckDuckGo. No account or key. It fetches through the SYSTEM libcurl (in-process):
+# DDG's anti-bot serves reqwest/hyper a 202 challenge page with no results, and drops a
+# vendored libcurl's handshake, while the system libcurl gets a full page. So the host
+# needs `libcurl.so.4` — present wherever `curl` is, which the forkd sandbox already
+# requires — and the BUILD host needs `libcurl4-openssl-dev`.
+#
 # DuckDuckGo locale (`kl`), e.g. "ru-ru" or "us-en". Omitted = DDG's global default,
 # which keeps mixed-language queries honest. Set it to bias results to one region.
 # region = "ru-ru"
+
+# [connector.engines.yandex]
+# Yandex Search API — planned. Needs a Yandex Cloud service account (role
+# `search-api.executor`) with its API key + folder id named by env var, and the
+# connector gains a `yandex` arm. Until then, leave this commented out.

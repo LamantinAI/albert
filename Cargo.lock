@@ -966,6 +966,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "curl"
+version = "0.4.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a45ee8994e5307cb4c60cfc1c20bf7263ffb771ddc135c9f768a14bcbc15b09"
+dependencies = [
+ "curl-sys",
+ "libc",
+ "openssl-probe 0.1.6",
+ "openssl-sys",
+ "schannel",
+ "socket2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "curl-sys"
+version = "0.4.90+curl-8.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97799a0d220bfb3361e0fe4936966ff8c4b24d65c3f06dfc70d7b680b44e7897"
+dependencies = [
+ "cc",
+ "libc",
+ "libz-sys",
+ "openssl-sys",
+ "pkg-config",
+ "vcpkg",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cxx"
 version = "1.0.197"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2427,6 +2457,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "libz-sys"
+version = "1.1.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85bc9657773828b90eeb625adff10eeac83cc21bbfd8e23a03eaa8a33c9e28d9"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "linereader"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2694,7 +2736,7 @@ dependencies = [
  "libc",
  "log",
  "openssl",
- "openssl-probe",
+ "openssl-probe 0.2.1",
  "openssl-sys",
  "schannel",
  "security-framework",
@@ -2886,7 +2928,7 @@ dependencies = [
 [[package]]
 name = "octo-code"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "glob",
  "octo-workspace",
@@ -2901,7 +2943,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-caldav"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2923,7 +2965,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-forkd"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "libc",
@@ -2939,7 +2981,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-mail"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-imap",
  "async-trait",
@@ -2962,7 +3004,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-scheduler"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2977,9 +3019,10 @@ dependencies = [
 [[package]]
 name = "octo-connector-search"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
+ "curl",
  "octo-core",
  "scraper",
  "serde",
@@ -2993,7 +3036,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-storage"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3010,7 +3053,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-telegram"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "futures",
@@ -3028,7 +3071,7 @@ dependencies = [
 [[package]]
 name = "octo-core"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3048,7 +3091,7 @@ dependencies = [
 [[package]]
 name = "octo-history"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "async-trait",
  "serde",
@@ -3061,7 +3104,7 @@ dependencies = [
 [[package]]
 name = "octo-http-auth"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "base64 0.22.1",
  "reqwest 0.12.28",
@@ -3074,7 +3117,7 @@ dependencies = [
 [[package]]
 name = "octo-rig"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "octo-core",
  "rig-core",
@@ -3086,7 +3129,7 @@ dependencies = [
 [[package]]
 name = "octo-workspace"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=206c89c71ddd37d519e4cca79ffbbabe5a6c2df5#206c89c71ddd37d519e4cca79ffbbabe5a6c2df5"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
 dependencies = [
  "libc",
  "thiserror 2.0.18",
@@ -3122,6 +3165,12 @@ dependencies = [
  "quote",
  "syn 2.0.118",
 ]
+
+[[package]]
+name = "openssl-probe"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "openssl-probe"
@@ -4119,7 +4168,7 @@ version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
 dependencies = [
- "openssl-probe",
+ "openssl-probe 0.2.1",
  "rustls-pki-types",
  "schannel",
  "security-framework",
