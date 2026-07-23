@@ -1,0 +1,30 @@
+# Mail connector (IMAP read + SMTP send) — DISABLED by default.
+#
+# The factory is registered in main.rs, but Octo's from_config_file only loads
+# `*.toml` manifests, so this `.example` file is ignored. To ENABLE mail:
+#   1. copy this file to `mail.toml` (same directory);
+#   2. set the real hosts below (provider-neutral — no vendor defaults);
+#   3. put the credentials in `.env` under the env-var names given here;
+#   4. restart Albert.
+# The model then reaches it through the existing dispatch tool (env-as-tools),
+# zero cogitator change: mail.cmd.list / read / send / reply.
+#
+# Basic auth only (app-passwords): REG.RU / Yandex / Fastmail work; Gmail does NOT
+# (it needs XOAUTH2, not yet wired).
+
+[connector]
+id   = "mail"
+type = "mail"
+
+imap_host     = "imap.example.com"     # required
+imap_port     = 993                    # implicit TLS; default 993
+imap_user_env = "OCTO_MAIL_USER"       # env var holding the login
+imap_pass_env = "OCTO_MAIL_PASS"       # env var holding the password (app-password)
+mailbox       = "INBOX"                # default INBOX
+
+# SMTP defaults to the IMAP host + credentials; override only if they differ:
+# smtp_host     = "smtp.example.com"
+# smtp_port     = 465                  # implicit TLS; default 465
+# smtp_user_env = "OCTO_MAIL_SMTP_USER"
+# smtp_pass_env = "OCTO_MAIL_SMTP_PASS"
+# from          = "Albert <albert@example.com>"   # default: the IMAP user

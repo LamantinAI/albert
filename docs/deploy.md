@@ -43,6 +43,7 @@ Secrets only, plus the two location vars:
 ALBERT_OPENAI_KEY=...            # LLM key
 OCTO_TELEGRAM_TOKEN=...          # Telegram bot token
 OCTO_YANDEX_APP_PASSWORD=...     # calendar (basic auth) — or the Google OAuth pair
+# OCTO_MAIL_USER=... OCTO_MAIL_PASS=...   # only if you enable the off-by-default mail organ
 ALBERT_CONFIG=/opt/albert/albert.toml
 KAERU_VAULT_PATH=/opt/albert/kaeru
 ```

@@ -194,6 +194,10 @@ the factory in `main.rs`, point the builder at `config/octo.toml`):
   behind reminders and routines.
 - **Storage** — the durable object store (see Files).
 - **forkd** — the sandboxed script runner (see Scripts).
+- **mail** (optional, **off by default**) — an IMAP-read + SMTP-send mailbox organ:
+  `mail.cmd.{list,read,send,reply}`, attachments as metadata only, basic-auth providers
+  (no Gmail/XOAUTH2 yet). The factory is registered but instantiates only when a
+  `config/connectors/mail/mail.toml` is present (the repo ships just `.example`).
 
 ## Settled today; future direction
 
