@@ -13,12 +13,27 @@ or a static musl binary.
 
 ## Host prerequisites
 
-Beyond the binary, the target needs **`curl` on `PATH`**. Two organs depend on it: the
-forkd sandbox (scripts fetch with `curl`/`wget`) and the **search** connector's
-DuckDuckGo backend (DDG's anti-bot rejects reqwest's TLS fingerprint; curl's passes —
-see [configuration.md](configuration.md#connectorssearchsearchtoml)). It is the binary
-that is required, not libcurl — nothing is linked against it, so no dev packages and no
-ABI coupling with the shipped binary. Ubuntu ships `curl`; verify with `curl -V`.
+Two things beyond the binary, both satisfied by having `curl` installed (Ubuntu ships it):
+
+- **`curl` on `PATH`** — the forkd sandbox runs scripts that fetch with `curl`/`wget`.
+- **`libcurl.so.4`** — the **search** connector's DuckDuckGo engine links the system
+  libcurl (see [configuration.md](configuration.md#connectorssearchsearchtoml) for why
+  reqwest can't be used). It ships in the same package as the `curl` command, so a host
+  with curl already has it. Verify with `curl -V` and
+  `ls /usr/lib/*/libcurl.so.4`.
+
+**On the build host** you additionally need the libcurl headers:
+
+```sh
+sudo apt install libcurl4-openssl-dev     # then: cargo clean -p curl-sys (see below)
+```
+
+Without them `curl-sys` silently vendors its own libcurl, whose TLS handshake DuckDuckGo
+drops — search then fails at runtime. Cargo caches that build-script decision, so if a
+build ran before the headers were installed, run `cargo clean -p curl-sys` and rebuild.
+Albert logs the linked libcurl version at startup (`search ready … libcurl=…`), so a
+vendored build is visible immediately. Build host and target need compatible libcurl,
+the same way they already need compatible glibc.
 
 ## Layout on the target
 

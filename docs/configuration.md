@@ -297,33 +297,52 @@ The isolation these knobs implement, and why `run_group` matters, is in
 
 ### `connectors/search/search.toml`
 
-Web search as an env-as-tools organ — `search.web { query, limit? }` →
-`{ query, count, results: [{ title, url, snippet }] }` (a clean hit list, never raw
-HTML). The backend is swappable; DuckDuckGo needs no account or key.
+Web search as an env-as-tools organ — `search.web { query, limit?, engine? }` →
+`{ engine, query, count, results: [{ title, url, snippet }] }` (a clean hit list,
+never raw HTML).
+
+**The search system is chosen at two levels.** The manifest declares which engines
+exist (one `[connector.engines.<name>]` table each, with its own settings) and which
+is the `default_engine`; Albert overrides per call with `engine`. So one connector can
+front several systems — DuckDuckGo today, Yandex next — and the model picks per query
+with no config change.
 
 ```toml
 [connector]
-id      = "search"
-type    = "search"
-backend = "ddg"        # Yandex Search API slots in here later as "yandex"
+id   = "search"
+type = "search"
 
-timeout_secs  = 15     # per-search wall clock
-default_limit = 5      # hits returned when the caller doesn't say
-max_limit     = 10     # ceiling a caller may request
-# region = "ru-ru"     # DuckDuckGo `kl` locale; omitted = DDG's global default
+default_engine = "ddg"   # answers when a call omits `engine`
+timeout_secs   = 15      # per-search wall clock
+default_limit  = 10      # hits per search when the caller doesn't say
+max_limit      = 25      # ceiling; a call may ask for more than the default, up to this
+
+[connector.engines.ddg]  # DuckDuckGo — no account or key
+# region = "ru-ru"       # DDG `kl` locale; omitted = DDG's global default
+
+# [connector.engines.yandex]   # planned; `enabled = false` shelves an engine
 ```
 
-> **⚠ The `ddg` backend requires the `curl` binary on `PATH` at runtime.** Not
-> libcurl: there is no linkage, no dev headers, no build-time dependency and no ABI
-> coupling between the shipped binary and the host's libcurl. The reason is measured,
-> not incidental — DuckDuckGo's anti-bot answers reqwest/hyper with a `202` challenge
-> page and zero results (with rustls *and* native-tls, over HTTP/1.1 *and* HTTP/2,
-> with browser-like headers), while `curl` from the same IP in the same second gets
-> `200` and a full page: the block keys on the TLS client fingerprint, which hyper
-> cannot spoof. Every ready-made DDG crate wraps reqwest and hits the same wall.
-> Albert's deployments already have `curl` (the forkd sandbox requires it). If it is
-> missing, a search fails loudly naming the binary rather than returning "no results".
-> A backend talking to a real API (Yandex) carries no such requirement.
+A single-engine deployment can still use the shorthand `backend = "ddg"` on
+`[connector]`. A manifest with no engines, or a `default_engine` that isn't enabled,
+fails at **startup** rather than at query time.
+
+> **⚠ The `ddg` engine links the *system* libcurl.** Build hosts need
+> `libcurl4-openssl-dev`; run hosts need `libcurl.so.4` — which is present wherever the
+> `curl` command is (same package), so Albert's deployments already satisfy it (the
+> forkd sandbox requires curl). The reason is measured, not incidental: DuckDuckGo's
+> anti-bot answers reqwest/hyper with a `202` challenge page and zero results (with
+> rustls *and* native-tls, over HTTP/1.1 *and* HTTP/2, with browser-like headers), and
+> drops a **vendored** libcurl's handshake outright, while the system libcurl — the
+> library the working `curl` command is a shell over — gets `200` and a full page. The
+> block keys on the TLS fingerprint, which hyper cannot spoof, so every ready-made DDG
+> crate wraps reqwest and hits the same wall.
+>
+> **Build trap:** `curl-sys` links the system library only if pkg-config finds it, else
+> it silently vendors its own — and cargo caches that decision, so installing the dev
+> package *after* a build needs `cargo clean -p curl-sys` before rebuilding. The
+> connector logs the linked libcurl version at startup so a vendored build is visible
+> immediately. An engine talking to a real API (Yandex) carries no such requirement.
 
 ### `connectors/mail/mail.toml` — off by default
 
