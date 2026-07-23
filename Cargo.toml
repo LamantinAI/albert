@@ -7,26 +7,28 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 [dependencies]
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
-# (11e85c6 = octo main; RestartTool defers to after the reply (carry_out_restart) so a
-#  self-restart no longer races the reply out the door.)
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4", features = ["sqlite"] }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+# (eeb449f = octo main; adds octo-connector-mail, the IMAP/SMTP organ.)
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7", features = ["sqlite"] }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
 # octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
 # to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
-octo-code = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
 # octo-connector-storage — durable object store (put/get/list/delete + promote/
 # checkout); env-as-tools organ, backend swappable (local dir now, S3 later).
-octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
-octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
 # octo-connector-http — dynamic TOML-configured REST connector: a whole multi-route
 # API (e.g. Jira) described declaratively in a manifest, no per-integration Rust.
-octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
+# octo-connector-mail — IMAP/SMTP mailbox organ (list/read/send/reply), MIME +
+# cp1251 decoded via mail-parser. Ported from the openclaw regru-mail skill.
+octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "eeb449fb17bc2f3099889474c389dd1c90c052d7" }
 
 # kaeru — the Memory substrate (v0.5.0 + the cozo-sqlite-dropped fix at 1ac19b6, so
 # it stops linking sqlite3 and Albert can use sqlx for its history store).

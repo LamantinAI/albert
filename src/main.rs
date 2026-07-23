@@ -28,6 +28,7 @@ use octo_code::WORKSPACE_ENV;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
 use octo_connector_http::factory as http_factory;
+use octo_connector_mail::factory as mail_factory;
 use octo_connector_scheduler::Scheduler;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
@@ -182,13 +183,14 @@ async fn main() -> Result<()> {
     // Otherwise a console channel (no calendar in that dev mode).
     let has_telegram = var("OCTO_TELEGRAM_TOKEN").map(|t| !t.trim().is_empty()).unwrap_or(false);
     if has_telegram {
-        info!(manifest = %config.connectors_manifest.display(), "channels: telegram (ACL) + calendar + storage + forkd + http");
+        info!(manifest = %config.connectors_manifest.display(), "channels: telegram (ACL) + calendar + storage + forkd + http + mail");
         builder = builder
             .register_connector_type("telegram", telegram_factory())
             .register_connector_type("caldav", caldav_factory())
             .register_connector_type("storage", storage_factory())
             .register_connector_type("forkd", forkd_factory())
             .register_connector_type("http", http_factory())
+            .register_connector_type("mail", mail_factory())
             .from_config_file(&config.connectors_manifest)?;
     } else {
         info!("channel: console (set OCTO_TELEGRAM_TOKEN for telegram + calendar)");
