@@ -72,6 +72,7 @@ dependencies = [
  "octo-code",
  "octo-connector-caldav",
  "octo-connector-forkd",
+ "octo-connector-mail",
  "octo-connector-scheduler",
  "octo-connector-storage",
  "octo-connector-telegram",
@@ -162,6 +163,64 @@ name = "as-any"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0f477b951e452a0b6b4a10b53ccd569042d1d01729b519e02074a9c0958a063"
+
+[[package]]
+name = "async-channel"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81953c529336010edd6d8e358f886d9581267795c61b19475b71314bffa46d35"
+dependencies = [
+ "concurrent-queue",
+ "event-listener 2.5.3",
+ "futures-core",
+]
+
+[[package]]
+name = "async-channel"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
+dependencies = [
+ "concurrent-queue",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e79b3f8a79cccc2898f31920fc69f304859b3bd567490f75ebf51ae1c792a9ac"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "async-imap"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a6728e0f7931b36d725ac234fcb02539e9f7888dbeaaa8a18d9ea5792181570"
+dependencies = [
+ "async-channel 2.5.0",
+ "async-compression",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "imap-proto",
+ "log",
+ "nom 7.1.3",
+ "pin-project",
+ "pin-utils",
+ "self_cell",
+ "stop-token",
+ "thiserror 1.0.69",
+ "tokio",
+]
 
 [[package]]
 name = "async-stream"
@@ -572,6 +631,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "compression-codecs"
+version = "0.4.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
+dependencies = [
+ "compression-core",
+ "flate2",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -763,6 +838,15 @@ name = "crc-catalog"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
+
+[[package]]
+name = "crc32fast"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
+dependencies = [
+ "cfg-if",
+]
 
 [[package]]
 name = "crossbeam"
@@ -1103,6 +1187,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "email-encoding"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9298e6504d9b9e780ed3f7dfd43a61be8cd0e09eb07f7706a945b0072b6670b6"
+dependencies = [
+ "base64 0.22.1",
+ "memchr",
+]
+
+[[package]]
+name = "email_address"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1163,12 +1263,28 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
+version = "2.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
+name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
 dependencies = [
  "concurrent-queue",
  "parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "event-listener-strategy"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+dependencies = [
+ "event-listener 5.4.1",
  "pin-project-lite",
 ]
 
@@ -1211,6 +1327,16 @@ name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+
+[[package]]
+name = "flate2"
+version = "1.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide 0.8.9",
+]
 
 [[package]]
 name = "flume"
@@ -1541,6 +1667,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
+name = "hashify"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd1246c0e5493286aeb2dde35b1f4eb9c4ce00e628641210a5e553fc001a1f26"
+dependencies = [
+ "indexmap 2.14.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "hashlink"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1641,6 +1779,12 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "humantime"
@@ -1870,6 +2014,15 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "imap-proto"
+version = "0.16.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25f6af35c6a517aea5c72314abe90134980d2ae6a763809b50c208b3e429d71f"
+dependencies = [
+ "nom 7.1.3",
 ]
 
 [[package]]
@@ -2113,6 +2266,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "lettre"
+version = "0.11.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0da65617f6cb926332d039cb578aad56178da86e128db6a1b09f4c94fa5b3349"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "email-encoding",
+ "email_address",
+ "fastrand",
+ "futures-io",
+ "futures-util",
+ "httpdate",
+ "idna",
+ "mime",
+ "nom 8.0.0",
+ "percent-encoding",
+ "quoted_printable",
+ "rustls 0.23.42",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "url",
+ "webpki-roots 1.0.8",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2234,6 +2414,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-parser"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47785d444be4d32c1709171c6219a90f667c0ad0ffe68b4b179e794f31f4f9e8"
+dependencies = [
+ "hashify",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2347,6 +2536,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
+ "simd-adler32",
 ]
 
 [[package]]
@@ -2581,7 +2771,7 @@ dependencies = [
 [[package]]
 name = "octo-code"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "glob",
  "octo-workspace",
@@ -2596,7 +2786,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-caldav"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2618,7 +2808,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-forkd"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "libc",
@@ -2632,9 +2822,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-connector-mail"
+version = "0.0.1"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
+dependencies = [
+ "async-imap",
+ "async-trait",
+ "chrono",
+ "futures",
+ "lettre",
+ "mail-parser",
+ "octo-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "octo-connector-scheduler"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2649,7 +2862,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-storage"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2666,7 +2879,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-telegram"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "futures",
@@ -2684,7 +2897,7 @@ dependencies = [
 [[package]]
 name = "octo-core"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2704,7 +2917,7 @@ dependencies = [
 [[package]]
 name = "octo-history"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "async-trait",
  "serde",
@@ -2717,7 +2930,7 @@ dependencies = [
 [[package]]
 name = "octo-http-auth"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "base64 0.22.1",
  "reqwest 0.12.28",
@@ -2730,7 +2943,7 @@ dependencies = [
 [[package]]
 name = "octo-rig"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "octo-core",
  "rig-core",
@@ -2742,7 +2955,7 @@ dependencies = [
 [[package]]
 name = "octo-workspace"
 version = "0.0.1"
-source = "git+https://github.com/LamantinAI/octo?rev=11e85c629f99932ef47df46361279f1f0636ddb4#11e85c629f99932ef47df46361279f1f0636ddb4"
+source = "git+https://github.com/LamantinAI/octo?rev=21146bf8c36f797a28fe117cf13022bc6a9d870a#21146bf8c36f797a28fe117cf13022bc6a9d870a"
 dependencies = [
  "libc",
  "thiserror 2.0.18",
@@ -3025,6 +3238,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
 name = "pkcs1"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3222,6 +3441,12 @@ checksum = "dfbc457d0c7a0759a614551b11a6409e5951f6c7537be1f1b7682b9ae9230368"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "quoted_printable"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "478e0585659a122aa407eb7e3c0e1fa51b1d8a870038bd29f0cf4a8551eea972"
 
 [[package]]
 name = "r-efi"
@@ -3690,6 +3915,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c54fcab019b409d04215d3a17cb438fd7fbf192ee61461f20f4fe18704bc138"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -3882,6 +4108,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "self_cell"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813"
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4068,6 +4300,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "simd-adler32"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
 name = "simd_cesu8"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4175,7 +4413,7 @@ dependencies = [
  "crc",
  "crossbeam-queue",
  "either",
- "event-listener",
+ "event-listener 5.4.1",
  "futures-core",
  "futures-intrusive",
  "futures-io",
@@ -4360,6 +4598,18 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "stop-token"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af91f480ee899ab2d9f8435bfdfc14d08a5754bd9d3fef1f1a1c23336aad6c8b"
+dependencies = [
+ "async-channel 1.9.0",
+ "cfg-if",
+ "futures-core",
+ "pin-project-lite",
+]
 
 [[package]]
 name = "stringprep"
@@ -4796,6 +5046,7 @@ checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "futures-util",
  "pin-project-lite",

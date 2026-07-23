@@ -27,6 +27,7 @@ use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use octo_code::WORKSPACE_ENV;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
+use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
@@ -61,12 +62,20 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             "albert=info,octo_rig=info,octo_connector_scheduler=info,\
              octo_connector_telegram=info,octo_connector_caldav=info,\
-             octo_connector_storage=info,octo_connector_forkd=info,octo_core=warn"
+             octo_connector_storage=info,octo_connector_forkd=info,\
+             octo_connector_mail=info,octo_core=warn"
                 .into()
         }))
         .with_target(true)
         .init();
     info!("albert starting");
+
+    // Pin the rustls CryptoProvider process-wide BEFORE any TLS config is built.
+    // Linking octo-connector-mail brings a second provider (ring) alongside reqwest's
+    // aws-lc-rs; with both compiled in, the first `ClientConfig::builder()` without an
+    // installed default panics. This must run before caldav's first HTTPS and before
+    // the `login` OAuth flow — i.e. here, regardless of whether mail is enabled.
+    ensure_crypto_provider();
 
     let config = Config::load()?;
     match config.auth {
@@ -181,12 +190,16 @@ async fn main() -> Result<()> {
     // Otherwise a console channel (no calendar in that dev mode).
     let has_telegram = var("OCTO_TELEGRAM_TOKEN").map(|t| !t.trim().is_empty()).unwrap_or(false);
     if has_telegram {
-        info!(manifest = %config.connectors_manifest.display(), "channels: telegram (ACL) + calendar + storage + forkd");
+        info!(manifest = %config.connectors_manifest.display(), "channels: telegram (ACL) + calendar + storage + forkd (+ mail if a manifest is present)");
+        // The mail factory is registered so the organ CAN be enabled, but no
+        // config/connectors/mail manifest ships by default (only mail.toml.example),
+        // so from_config_file instantiates it only once a real manifest is dropped in.
         builder = builder
             .register_connector_type("telegram", telegram_factory())
             .register_connector_type("caldav", caldav_factory())
             .register_connector_type("storage", storage_factory())
             .register_connector_type("forkd", forkd_factory())
+            .register_connector_type("mail", mail_factory())
             .from_config_file(&config.connectors_manifest)?;
     } else {
         info!("channel: console (set OCTO_TELEGRAM_TOKEN for telegram + calendar)");

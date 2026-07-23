@@ -22,6 +22,9 @@ OCTO_YANDEX_APP_PASSWORD=...           # an APP password (named by password_env 
 # --- or calendar: Google OAuth2 (named in the manifest) ---
 # GOOGLE_CLIENT_SECRET=...
 # GOOGLE_REFRESH_TOKEN=...
+# --- mail: only if you enable the (off-by-default) mail connector ---
+# OCTO_MAIL_USER=...                   # IMAP/SMTP login  (named in mail.toml)
+# OCTO_MAIL_PASS=...                   # IMAP/SMTP app-password (named in mail.toml)
 # ALBERT_CONFIG=/path/to/albert.toml   # optional; default: next to the binary, else the crate dir
 ```
 
@@ -183,7 +186,8 @@ config/
     ├── telegram/telegram.toml         # the chat channel (edge ACL)
     ├── calendar/calendar.toml         # CalDAV calendar
     ├── storage/storage.toml           # durable object store
-    └── forkd/forkd.toml               # sandboxed script runner
+    ├── forkd/forkd.toml               # sandboxed script runner
+    └── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
 ```
 
 This path runs when a Telegram token is present; without one Albert uses a console
@@ -283,6 +287,36 @@ fsize_mb         = 64          # a script may not write a file larger than this
 
 The isolation these knobs implement, and why `run_group` matters, is in
 [architecture.md](architecture.md#isolation-three-layers).
+
+### `connectors/mail/mail.toml` — off by default
+
+A mailbox organ (IMAP read + SMTP send) is **wired in but disabled**: the factory is
+registered in `main.rs`, but the repo ships only `mail.toml.example` — and Octo's
+`from_config_file` loads only `*.toml`, so nothing is instantiated until you opt in.
+To enable: copy the example to `mail.toml`, set the hosts, and put the credentials in
+`.env`.
+
+```toml
+[connector]
+id   = "mail"
+type = "mail"
+imap_host     = "imap.example.com"     # required (provider-neutral, no vendor default)
+imap_port     = 993                    # implicit TLS; default 993
+imap_user_env = "OCTO_MAIL_USER"       # env var holding the login
+imap_pass_env = "OCTO_MAIL_PASS"       # env var holding the app-password
+mailbox       = "INBOX"                # default INBOX
+# SMTP defaults to the IMAP host + creds; override smtp_host/port/user/pass/from if they differ.
+```
+
+Commands (env-as-tools, via the dispatch tool — zero cogitator change):
+`mail.cmd.list` / `read` / `send` / `reply`. Attachments come back as **metadata only**
+(bytes never pass through the model). **Basic auth only** — REG.RU / Yandex / Fastmail
+app-passwords work; Gmail does **not** (it needs XOAUTH2, not yet wired). Sending is a
+real side effect — the decision to send is the cogitator's; confirm with the user first.
+
+> Linking the mail crate pulls a second rustls provider (ring) alongside reqwest's
+> aws-lc-rs, so `main()` installs one process-wide (`ensure_crypto_provider()`) — this
+> runs even when mail is disabled, because the crate is compiled into the binary.
 
 ## What is runtime state (gitignored)
 
