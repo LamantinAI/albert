@@ -11,6 +11,15 @@ or a static musl binary.
 > [`contrib/deploy/README.md`](../contrib/deploy/README.md). This page is the
 > systemd-on-a-host path.
 
+## Host prerequisites
+
+Beyond the binary, the target needs **`curl` on `PATH`**. Two organs depend on it: the
+forkd sandbox (scripts fetch with `curl`/`wget`) and the **search** connector's
+DuckDuckGo backend (DDG's anti-bot rejects reqwest's TLS fingerprint; curl's passes —
+see [configuration.md](configuration.md#connectorssearchsearchtoml)). It is the binary
+that is required, not libcurl — nothing is linked against it, so no dev packages and no
+ABI coupling with the shipped binary. Ubuntu ships `curl`; verify with `curl -V`.
+
 ## Layout on the target
 
 Everything lives under `/opt/albert/`:

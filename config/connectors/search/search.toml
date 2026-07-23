@@ -1,0 +1,22 @@
+# Search connector — web search as an env-as-tools organ. Reached via the dispatch
+# tool: search.web { query, limit? } -> { query, count, results: [{title, url, snippet}] }.
+# Returns a clean hit list (never raw HTML), so the model spends context on results.
+
+[connector]
+id      = "search"
+type    = "search"
+
+# Backend is swappable behind the SearchBackend trait. "ddg" (DuckDuckGo) needs no
+# account or key. It fetches through the system `curl`: DuckDuckGo's anti-bot serves
+# reqwest/hyper a 202 challenge page with no results, while curl's TLS fingerprint
+# passes — so curl must be installed (it already is: the forkd sandbox requires it).
+# Yandex Search API will slot in here later as `backend = "yandex"`.
+backend = "ddg"
+
+timeout_secs  = 15   # per-search wall clock
+default_limit = 5    # hits returned when the caller doesn't say
+max_limit     = 10   # ceiling a caller may request
+
+# DuckDuckGo locale (`kl`), e.g. "ru-ru" or "us-en". Omitted = DDG's global default,
+# which keeps mixed-language queries honest. Set it to bias results to one region.
+# region = "ru-ru"

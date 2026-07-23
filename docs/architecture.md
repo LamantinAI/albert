@@ -194,6 +194,11 @@ the factory in `main.rs`, point the builder at `config/octo.toml`):
   behind reminders and routines.
 - **Storage** — the durable object store (see Files).
 - **forkd** — the sandboxed script runner (see Scripts).
+- **search** — web search: `search.web { query, limit? }` → a clean
+  `[{ title, url, snippet }]` list (never raw HTML). Backend swappable behind a trait:
+  **DuckDuckGo** now (no account/key), Yandex Search API later. **The DDG backend needs
+  the `curl` binary on `PATH`** — DDG's anti-bot rejects reqwest's TLS fingerprint with
+  a 202 challenge while curl passes; this is a runtime binary, not a libcurl linkage.
 - **mail** (optional, **off by default**) — an IMAP-read + SMTP-send mailbox organ:
   `mail.cmd.{list,read,send,reply}`, attachments as metadata only, basic-auth providers
   (no Gmail/XOAUTH2 yet). The factory is registered but instantiates only when a
