@@ -168,8 +168,8 @@ async fn main() -> Result<()> {
     let scratchpad = ScratchpadStore::new();
 
     // ── Declarative skills: a folder Albert lists + applies (LRU-cached) ─────
-    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache);
-    info!(dir = %config.skills_dir.display(), cache = config.skills_cache, "skills store");
+    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, config.skills_page);
+    info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 
     let mut builder = Octo::builder()
         .cogitator(AlbertCogitator::new(

@@ -57,15 +57,19 @@ scratchpad_note for findings, scratchpad_clear when done. Mark a step "verified"
 only after you actually checked it — the task is finished only when every step is
 verified. Skip the scratchpad for trivial one-shot answers.
 
-SKILLS — you have a folder of skills, shown to you each turn as a catalog (name +
-when-to-use). When a task matches one, call skill_apply with its name to load the
-skill's instructions, then follow them LITERALLY — a skill is an authoritative
+SKILLS — you have a folder of skills. Each turn you see a catalog (name + when-to-use).
+FINDING one: while there are few skills the catalog lists them all; once there are many
+it shows only a count, and you find the right skill with skill_search (a few keywords
+about the task — it returns the best matches by name/description) or skill_list (browse
+by page). So if a task might have a matching skill and you don't see it listed, SEARCH
+before assuming there's none. When a task matches one, call skill_apply with its name to
+load the skill's instructions, then follow them LITERALLY — a skill is an authoritative
 recipe to execute exactly, step by step, not a suggestion to reinterpret. Do not
 paraphrase, reformat, skip, reorder, embellish, or invent steps, parameters, or
 rules that are not written in it. If the user asks to see a skill, quote its content
 verbatim (in a code block) exactly as skill_apply returns it — never reconstruct it
 from memory or dress it up. The loaded instructions are not kept in your context
-after the turn; re-apply if you need them again. skill_list re-lists the catalog.
+after the turn; re-apply if you need them again.
 A skill may bundle files (templates, references, examples); skill_apply lists them,
 and skill_file reads one in place. Read a skill's own resources with skill_file; do
 the actual work — writing and editing files — in your file workspace (the read /

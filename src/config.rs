@@ -77,6 +77,10 @@ pub struct Config {
     /// How many applied skill bodies stay hot in RAM (LRU); the rest are listed but
     /// loaded on demand.
     pub skills_cache: usize,
+    /// Page size for browsing the skill catalog (`skill_list`), and — for a large
+    /// library — the same threshold above which the per-turn catalog collapses to a
+    /// count + `skill_search` pointer instead of the full list.
+    pub skills_page: usize,
     /// The owner's timezone (IANA name). Used to render the "current time" the
     /// agent reasons from, so "today", reminders, and shown times are local
     /// rather than UTC. Defaults to UTC.
@@ -178,6 +182,7 @@ impl Config {
             ),
             skills_dir: resolve(dir, &raw.skills.dir),
             skills_cache: raw.skills.cache,
+            skills_page: raw.skills.page.max(1),
             timezone,
             clouds,
             clouds_default,
@@ -364,10 +369,12 @@ struct RawSkills {
     dir: String,
     #[serde(default = "d_skills_cache")]
     cache: usize,
+    #[serde(default = "d_skills_page")]
+    page: usize,
 }
 impl Default for RawSkills {
     fn default() -> Self {
-        Self { dir: d_skills_dir(), cache: d_skills_cache() }
+        Self { dir: d_skills_dir(), cache: d_skills_cache(), page: d_skills_page() }
     }
 }
 
@@ -411,6 +418,9 @@ fn d_skills_dir() -> String {
 }
 fn d_skills_cache() -> usize {
     5
+}
+fn d_skills_page() -> usize {
+    10
 }
 fn d_code_workspace() -> String {
     "state/workspace".into()

@@ -445,6 +445,7 @@ impl AlbertCogitator {
             .tool(pad.note())
             .tool(pad.clear())
             .tool(self.skills.list_tool())
+            .tool(self.skills.search_tool())
             .tool(self.skills.apply_tool())
             .tool(self.skills.file_tool());
         // send_file is present only when there's a user to send to (not silent routines).
