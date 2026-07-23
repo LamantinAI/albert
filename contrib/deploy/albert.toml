@@ -17,16 +17,9 @@ timezone = "Europe/Moscow"
 # refreshed in place before expiry. On the mounted volume, so it persists.
 auth_json = "/data/auth.json"
 
-[gcal]
-# The bolt-on REST tool (`add_calendar_event`). Superseded by the caldav connector
-# (config/connectors/calendar), which now creates the event AND its popup VALARM —
-# so reminders go through the shared octo organ instead of a private tool here.
-# Flip back to true to fall back on the REST path.
-enabled     = false
-calendar_id = "primary"
-timezone    = "Europe/Moscow"
-tz_offset   = "+03:00"
-reminder_min = 10
+# Reminders go through the caldav calendar connector (config/connectors/calendar),
+# which creates the event AND its popup VALARM — the private [gcal] REST tool is
+# gone (connectors-only-in-octo).
 
 [prompt]
 soul   = "soul.md"       # baked into the image (hot-reloaded if you bind-mount it)
@@ -36,14 +29,21 @@ system = "system.md"
 period_secs = 21600
 
 [history]
+# Durable across restarts, on the mounted volume (JSON per channel).
 backend = "file:/data/history"
 
 [scheduler]
 state_path = "/data/state/scheduler.json"
 
 [agent]
-max_tool_turns = 8
+# Match main's default — 8 is too few once the file/script/storage tools are in play.
+max_tool_turns = 30
 
 [skills]
 dir   = "skills"
 cache = 5
+
+[code]
+# octo-code file-tool jail (also inherited by forkd + storage). On the mounted
+# volume so promoted artifacts and in-flight files survive a container restart.
+workspace = "/data/workspace"
