@@ -25,6 +25,11 @@ services:
       # they're hot-reloaded by mtime (no rebuild, no restart).
       - ./soul.md:/opt/albert/soul.md:ro
       - ./system.md:/opt/albert/system.md:ro
+      # Skills — mounted (read-write) so a skill's files can be edited without a
+      # rebuild, its heavy vendored deps stay a host-side artifact (not in git),
+      # and forkd-run scripts can write their scratch (logs/db) in place. On the
+      # server the host tree carries avito-price/vendor + proxy.conf.
+      - ./skills:/opt/albert/skills
     # `albert login` needs an interactive terminal for the paste fallback.
     stdin_open: true
     tty: true
