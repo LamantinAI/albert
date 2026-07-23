@@ -216,13 +216,16 @@ impl AlbertCogitator {
                 history,
                 Some(incoming.source.clone()),
                 is_owner(&incoming),
-                feed,
+                feed.clone(),
             )
             .await;
 
         info!("→ {answer}");
         self.emit_reply(&incoming, answer.clone(), ctx).await;
-        self.record(&channel_key, shown, answer).await;
+        // Persist what he DID (drained from the feed) alongside what he SAID — folded
+        // into the stored turn only, never into the reply the user sees.
+        self.record(&channel_key, shown, with_action_log(&answer, &feed.drain_actions()))
+            .await;
         // If the model asked to restart this turn, carry it out now — AFTER the reply
         // is out — so it doesn't race the teardown (the tool only recorded the intent).
         if let Some(target) = restart {
@@ -280,7 +283,7 @@ impl AlbertCogitator {
         self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
         let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
         let (answer, _) = self
-            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed)
+            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed.clone())
             .await;
 
         self.emit_text(
@@ -292,8 +295,12 @@ impl AlbertCogitator {
             ctx,
         )
         .await;
-        self.record(&channel, format!("(reminder fired: {task})"), answer)
-            .await;
+        self.record(
+            &channel,
+            format!("(reminder fired: {task})"),
+            with_action_log(&answer, &feed.drain_actions()),
+        )
+        .await;
     }
 
     /// A system routine fired — internal self-care, no user message.
@@ -653,6 +660,22 @@ fn channel_of(env: &Envelope) -> String {
         .as_ref()
         .map(|c| c.as_str().to_string())
         .unwrap_or_default()
+}
+
+/// Fold this turn's action records into the assistant content we persist — so Albert's
+/// transcript keeps what he DID (which tools, with which args, ok/err), not only what
+/// he said. Appended to the STORED turn only; the reply the user sees is untouched.
+fn with_action_log(answer: &str, actions: &[String]) -> String {
+    if actions.is_empty() {
+        return answer.to_string();
+    }
+    let mut s = String::from(answer);
+    s.push_str("\n\n[actions taken this turn]");
+    for a in actions {
+        s.push_str("\n- ");
+        s.push_str(a);
+    }
+    s
 }
 
 /// Current time as RFC3339 in the owner's configured timezone (offset form,
