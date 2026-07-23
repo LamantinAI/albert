@@ -24,6 +24,9 @@ octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "11
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
 octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
+# octo-connector-http — dynamic TOML-configured REST connector: a whole multi-route
+# API (e.g. Jira) described declaratively in a manifest, no per-integration Rust.
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "11e85c629f99932ef47df46361279f1f0636ddb4" }
 
 # kaeru — the Memory substrate (v0.5.0 + the cozo-sqlite-dropped fix at 1ac19b6, so
 # it stops linking sqlite3 and Albert can use sqlx for its history store).

@@ -1,0 +1,106 @@
+# CodeInside Jira — dynamic HTTP connector (octo-connector-http).
+#
+# A whole Jira REST surface described declaratively: each command kind is one
+# HTTP call the cogitator reaches through `dispatch_to_connector`. On-prem Jira
+# Server/DC at jira.codeinside.ru — auth is a Personal Access Token (Bearer),
+# paths are /rest/api/2/*. Ported from the openclaw codeinside-jira skill; the
+# node script is gone — this needs no runtime in the image.
+
+[connector]
+id       = "jira"
+type     = "http"
+base_url = "https://jira.codeinside.ru"
+
+[connector.auth]
+# Jira Server PAT: `Authorization: Bearer <token>`. The token is a secret, named
+# by env var below (never in this file).
+type         = "bearer"
+header       = "Authorization"
+secret_var   = "${secret.jira_token}"
+value_prefix = "Bearer "
+
+[connector.timeout]
+request_ms = 15000
+
+[connector.retry]
+max_attempts       = 2
+backoff_initial_ms = 500
+backoff_max_ms     = 3000
+retry_on_status    = [429, 502, 503, 504]
+
+# ── Endpoints (cmd_kind → HTTP → response payload back to the agent) ───────────
+
+# Who am I — sanity/auth check.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.myself"
+method        = "GET"
+path          = "/rest/api/2/myself"
+response_kind = "jira.event.myself"
+
+# Search issues by JQL. Payload: { jql, max_results }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.search"
+method        = "POST"
+path          = "/rest/api/2/search"
+response_kind = "jira.event.search"
+body_template = '''
+{"jql": "${payload.jql}", "maxResults": ${payload.max_results}, "fields": ["summary","status","priority","assignee","reporter","updated","created","labels","components","fixVersions","issuetype","resolution","duedate"]}
+'''
+
+# Read one issue in full (rendered fields + changelog + all fields, incl. comments).
+# Payload: { key }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.issue"
+method        = "GET"
+path          = "/rest/api/2/issue/{key}?expand=renderedFields,changelog&fields=*all"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.issue"
+
+# List the transitions available on an issue. Payload: { key }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.transitions"
+method        = "GET"
+path          = "/rest/api/2/issue/{key}/transitions"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.transitions"
+
+# Add a comment. Payload: { key, body }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.comment"
+method        = "POST"
+path          = "/rest/api/2/issue/{key}/comment"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.comment"
+body_template = '{"body": "${payload.body}"}'
+
+# Execute a transition by its id (get it first via jira.cmd.transitions).
+# Payload: { key, transition_id }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.transition"
+method        = "POST"
+path          = "/rest/api/2/issue/{key}/transitions"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.transition"
+body_template = '{"transition": {"id": "${payload.transition_id}"}}'
+
+# Log work. Payload: { key, time (e.g. "2h 30m"), comment? }. `started` is
+# omitted so Jira stamps "now"; pass a past time only if the user asks.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.worklog"
+method        = "POST"
+path          = "/rest/api/2/issue/{key}/worklog"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.worklog"
+body_template = '{"timeSpent": "${payload.time}", "comment": "${payload.comment}"}'
+
+# Reassign. Payload: { key, user }.
+[[connector.endpoint]]
+cmd_kind      = "jira.cmd.assign"
+method        = "PUT"
+path          = "/rest/api/2/issue/{key}/assignee"
+path_params   = { key = "$.key" }
+response_kind = "jira.event.assign"
+body_template = '{"name": "${payload.user}"}'
+
+[connector.secrets]
+jira_token = { env = "JIRA_TOKEN" }

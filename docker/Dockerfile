@@ -27,7 +27,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp target/release/albert /albert
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS runtime
+# python:3.12-slim-bookworm (not plain debian-slim) so forkd-run skill scripts
+# have a python3 interpreter. bookworm → same glibc 2.36 as the rust:1-bookworm
+# build stage, so the release binary links cleanly; the avito-price skill ships a
+# vendored pylib compiled for exactly CPython 3.12 / x86_64, which this matches.
+FROM python:3.12-slim-bookworm AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 \
