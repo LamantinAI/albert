@@ -60,8 +60,9 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   restart its whole self to apply a config change (history + memory persist).
 - **Config-driven connectors** — Telegram (edge ACL + owner-only `/allow` `/deny`
   `/allowed`), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
-  a **scheduler**, **storage**, **forkd**, and an optional **mail** organ (IMAP/SMTP,
-  off by default) — each assembled from a small manifest.
+  a **scheduler**, **storage**, **forkd**, **search** (web search — DuckDuckGo now,
+  Yandex later; its DDG backend needs the `curl` binary on `PATH`), and an optional
+  **mail** organ (IMAP/SMTP, off by default) — each assembled from a small manifest.
 - **Two brains, your call** — an **API key** (OpenRouter / any OpenAI-compatible
   endpoint; the default) or a **ChatGPT subscription** (via the Codex backend).
 - **Config-as-data** — Albert-level settings in `albert.toml`; secrets in `.env`,

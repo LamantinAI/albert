@@ -193,6 +193,7 @@ config/
     ├── calendar/calendar.toml         # CalDAV calendar
     ├── storage/storage.toml           # durable object store
     ├── forkd/forkd.toml               # sandboxed script runner
+    ├── search/search.toml             # web search (DuckDuckGo; needs the `curl` binary)
     └── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
 ```
 
@@ -293,6 +294,36 @@ fsize_mb         = 64          # a script may not write a file larger than this
 
 The isolation these knobs implement, and why `run_group` matters, is in
 [architecture.md](architecture.md#isolation-three-layers).
+
+### `connectors/search/search.toml`
+
+Web search as an env-as-tools organ — `search.web { query, limit? }` →
+`{ query, count, results: [{ title, url, snippet }] }` (a clean hit list, never raw
+HTML). The backend is swappable; DuckDuckGo needs no account or key.
+
+```toml
+[connector]
+id      = "search"
+type    = "search"
+backend = "ddg"        # Yandex Search API slots in here later as "yandex"
+
+timeout_secs  = 15     # per-search wall clock
+default_limit = 5      # hits returned when the caller doesn't say
+max_limit     = 10     # ceiling a caller may request
+# region = "ru-ru"     # DuckDuckGo `kl` locale; omitted = DDG's global default
+```
+
+> **⚠ The `ddg` backend requires the `curl` binary on `PATH` at runtime.** Not
+> libcurl: there is no linkage, no dev headers, no build-time dependency and no ABI
+> coupling between the shipped binary and the host's libcurl. The reason is measured,
+> not incidental — DuckDuckGo's anti-bot answers reqwest/hyper with a `202` challenge
+> page and zero results (with rustls *and* native-tls, over HTTP/1.1 *and* HTTP/2,
+> with browser-like headers), while `curl` from the same IP in the same second gets
+> `200` and a full page: the block keys on the TLS client fingerprint, which hyper
+> cannot spoof. Every ready-made DDG crate wraps reqwest and hits the same wall.
+> Albert's deployments already have `curl` (the forkd sandbox requires it). If it is
+> missing, a search fails loudly naming the binary rather than returning "no results".
+> A backend talking to a real API (Yandex) carries no such requirement.
 
 ### `connectors/mail/mail.toml` — off by default
 
