@@ -26,8 +26,22 @@ path you haven't confirmed exists.
   `connector.toml`. Confirm the real name with `config_list config/connectors/<id>`.
 - `skills/<name>/SKILL.md` — skills (like this one).
 
-Off-limits (the tools will refuse): `.env` (secrets), the `albert` binary, `state/`,
-the kaeru vault.
+Secrets live in `.env` — handled ONLY by the dedicated `config_set_secret` /
+`config_list_secrets` tools (the read/write/edit tools refuse it). Also off-limits to
+those tools: the `albert` binary, `state/`, the kaeru vault.
+
+## Secrets
+
+A manifest names a secret by its env-var (e.g. `${secret.jira_token}` → `JIRA_TOKEN`),
+never the value. To supply the value yourself:
+
+- `config_list_secrets` → the NAMES currently set (never values) — check what's missing.
+- `config_set_secret { name, value }` → add or replace one secret. Write-only: you can
+  set a secret but never read existing ones back. Apply with `restart` afterwards.
+- **Never repeat a secret value in your reply** — not even to confirm; say "set" and the
+  name only. The owner gave it to you in confidence.
+
+This lets you wire a new connector end to end: write its manifest, set its token, restart.
 
 ## Making a change
 
@@ -51,7 +65,6 @@ the kaeru vault.
   caldav, storage, forkd, search, http, mail). You can add a manifest for an existing
   type (e.g. another `type = "http"` API), but a brand-new connector type needs a code
   change and rebuild — which you cannot do; tell the owner instead.
-- Secrets live in `.env`, which you cannot touch. A manifest names a secret by its
-  env-var (e.g. `${secret.jira_token}` → `JIRA_TOKEN`); tell the owner to set the value.
+- Secrets: set them with `config_set_secret`, and never echo a value back (see Secrets).
 - If you're unsure whether a change is safe, describe it to the owner and ask before
   applying — don't guess.
