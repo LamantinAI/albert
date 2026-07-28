@@ -16,6 +16,7 @@ mod openai_login;
 mod prompt;
 mod routines;
 mod scratchpad;
+mod selfconfig;
 mod skills;
 mod status;
 

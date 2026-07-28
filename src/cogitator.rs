@@ -47,6 +47,7 @@ use crate::{
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
+    selfconfig::SelfConfig,
     openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
@@ -352,6 +353,9 @@ impl AlbertCogitator {
         // requested target here; the caller carries it out after the reply is sent.
         let pending: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let restart = owner.then(|| RestartTool::new(pending.clone()));
+        // Owner-only: read/edit its own config + prompt + skill files (jailed to the
+        // deploy dir, allow-listed). Applied via the restart tool above.
+        let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
         let answer = match self.config.auth {
             AuthMode::ApiKey => {
                 let Some(key) = self.config.api_key.as_deref() else {
@@ -361,7 +365,7 @@ impl AlbertCogitator {
                     Ok(c) => c,
                     Err(e) => return (format!("(llm client error: {e})"), None),
                 };
-                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
+                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
                     .await
             }
             AuthMode::Subscription => {
@@ -376,7 +380,7 @@ impl AlbertCogitator {
                     Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
                 let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, channel, prompt, history, feed)
+                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
                     .await
             }
         };
@@ -417,6 +421,7 @@ impl AlbertCogitator {
         dispatch: OctoDispatchTool,
         send_file: Option<SendFileTool>,
         restart: Option<RestartTool>,
+        selfconfig: Option<SelfConfig>,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -460,6 +465,15 @@ impl AlbertCogitator {
         // restart is present only for owner turns (apply config / reboot on request).
         let with_tools = match restart {
             Some(rt) => with_tools.tool(rt),
+            None => with_tools,
+        };
+        // self-config tools: owner turns only — read/list/write/edit its own deploy files.
+        let with_tools = match selfconfig {
+            Some(sc) => with_tools
+                .tool(sc.read_tool())
+                .tool(sc.list_tool())
+                .tool(sc.write_tool())
+                .tool(sc.edit_tool()),
             None => with_tools,
         };
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to

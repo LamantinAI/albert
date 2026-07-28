@@ -93,6 +93,10 @@ pub struct Config {
     /// Ephemeral workspace root for octo-code file tools (`$OCTO_CODE_WORKSPACE`),
     /// resolved against the config dir. octo-code jails all file ops to it.
     pub code_workspace: PathBuf,
+    /// The deployment directory — the folder holding `albert.toml`, `soul.md`,
+    /// `system.md`, `config/`, `skills/`. The owner-only self-config tools jail their
+    /// (allow-listed) reads/writes to it, so Albert can edit its own configuration.
+    pub deploy_dir: PathBuf,
 }
 
 impl Config {
@@ -187,6 +191,7 @@ impl Config {
             clouds,
             clouds_default,
             code_workspace: resolve(dir, &raw.code.workspace),
+            deploy_dir: dir.to_path_buf(),
         })
     }
 }
