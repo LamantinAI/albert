@@ -473,7 +473,9 @@ impl AlbertCogitator {
                 .tool(sc.read_tool())
                 .tool(sc.list_tool())
                 .tool(sc.write_tool())
-                .tool(sc.edit_tool()),
+                .tool(sc.edit_tool())
+                .tool(sc.set_secret_tool())
+                .tool(sc.list_secrets_tool()),
             None => with_tools,
         };
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to

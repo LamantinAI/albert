@@ -92,7 +92,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         args: &str,
     ) -> impl std::future::Future<Output = ToolCallHookAction> + Send {
         let feed = self.clone();
-        let line = format!("🔧 {tool_name} {}", clip(&args.replace('\n', " "), 160));
+        let line = format!("🔧 {tool_name} {}", clip(&display_args(tool_name, args).replace('\n', " "), 160));
         async move {
             feed.emit(line).await;
             ToolCallHookAction::cont()
@@ -113,7 +113,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         if let Ok(mut v) = self.actions.lock() {
             v.push(format!(
                 "{tool_name} {} -> {}",
-                clip(&args.replace('\n', " "), 120),
+                clip(&display_args(tool_name, args).replace('\n', " "), 120),
                 summarize_result(result),
             ));
         }
@@ -155,6 +155,19 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
             HookAction::cont()
         }
     }
+}
+
+/// Tool args as shown in the live status and recorded in the action log — with secret
+/// values redacted so `config_set_secret`'s value never reaches chat or history.
+fn display_args(tool_name: &str, args: &str) -> String {
+    if tool_name == "config_set_secret" {
+        let name = serde_json::from_str::<serde_json::Value>(args)
+            .ok()
+            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "?".to_string());
+        return format!("{{name: {name}, value: <redacted>}}");
+    }
+    args.to_string()
 }
 
 /// Compress a tool result to a few tokens — `ok` / `err: …` when the payload says so,

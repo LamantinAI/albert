@@ -20,6 +20,8 @@
 //! the authoritative map + procedure.
 
 use std::fs;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,11 +39,16 @@ const ALLOWED: &[&str] = &["albert.toml", "soul.md", "system.md", "config", "ski
 #[derive(Clone)]
 pub struct SelfConfig {
     root: Arc<PathBuf>,
+    /// The secrets file (`<deploy>/.env`). Handled only by the dedicated secret tools
+    /// below — the general file tools' allow-list refuses it. Set/upsert only; values
+    /// are never read back out to the model.
+    env_path: Arc<PathBuf>,
 }
 
 impl SelfConfig {
     pub fn new(root: PathBuf) -> Self {
-        Self { root: Arc::new(root) }
+        let env_path = root.join(".env");
+        Self { root: Arc::new(root), env_path: Arc::new(env_path) }
     }
 
     pub fn read_tool(&self) -> ConfigRead {
@@ -55,6 +62,12 @@ impl SelfConfig {
     }
     pub fn edit_tool(&self) -> ConfigEdit {
         ConfigEdit(self.clone())
+    }
+    pub fn set_secret_tool(&self) -> SetSecret {
+        SetSecret(self.clone())
+    }
+    pub fn list_secrets_tool(&self) -> ListSecrets {
+        ListSecrets(self.clone())
     }
 
     /// Resolve a deploy-relative path inside the jail AND the allow-list.
@@ -323,6 +336,172 @@ impl ConfigEdit {
     }
 }
 
+// ── config_set_secret ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SetSecretArg {
+    /// The env-var name, e.g. `JIRA_TOKEN`.
+    pub name: String,
+    /// The secret value. Never read back out; redacted from the status feed and the
+    /// action log so it doesn't land in chat or history.
+    pub value: String,
+}
+
+#[derive(Clone)]
+pub struct SetSecret(SelfConfig);
+
+impl Tool for SetSecret {
+    const NAME: &'static str = "config_set_secret";
+    type Error = std::convert::Infallible;
+    type Args = SetSecretArg;
+    type Output = Value;
+
+    async fn definition(&self, _p: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.into(),
+            description: "Set (add or replace) one secret in your .env — the value a connector \
+                          manifest references by env-var, e.g. the JIRA_TOKEN behind \
+                          ${secret.jira_token}. Write-only: you can set a secret but never read \
+                          existing ones back. After setting it, apply with restart. NEVER repeat the \
+                          value in your reply. Owner-only."
+                .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name":  { "type": "string", "description": "env var name, e.g. JIRA_TOKEN" },
+                    "value": { "type": "string", "description": "the secret value" }
+                },
+                "required": ["name", "value"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: SetSecretArg) -> Result<Value, Self::Error> {
+        Ok(match self.0.upsert_secret(&args.name, &args.value) {
+            Ok(action) => json!({ "ok": true, "name": args.name, "action": action }),
+            Err(e) => json!({ "ok": false, "error": e }),
+        })
+    }
+}
+
+// ── config_list_secrets ───────────────────────────────────────────────────────
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NoArg {}
+
+#[derive(Clone)]
+pub struct ListSecrets(SelfConfig);
+
+impl Tool for ListSecrets {
+    const NAME: &'static str = "config_list_secrets";
+    type Error = std::convert::Infallible;
+    type Args = NoArg;
+    type Output = Value;
+
+    async fn definition(&self, _p: String) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::NAME.into(),
+            description: "List the NAMES of the secrets currently set in your .env (never the \
+                          values) — so you can check whether e.g. JIRA_TOKEN is set before telling \
+                          the owner what's missing. Owner-only."
+                .into(),
+            parameters: json!({ "type": "object", "properties": {} }),
+        }
+    }
+
+    async fn call(&self, _args: NoArg) -> Result<Value, Self::Error> {
+        Ok(json!({ "names": self.0.secret_names() }))
+    }
+}
+
+impl SelfConfig {
+    /// Add or replace `NAME=value` in `.env`. Reads the file internally to update in
+    /// place, but never surfaces existing values (no read tool exposes them). Written
+    /// atomically at mode 0600.
+    fn upsert_secret(&self, name: &str, value: &str) -> Result<&'static str, String> {
+        validate_env_name(name)?;
+        if value.contains('\n') || value.contains('\r') {
+            return Err("value must not contain a newline".into());
+        }
+        let path = self.env_path.as_path();
+        let existing = fs::read_to_string(path).unwrap_or_default();
+        let prefix = format!("{name}=");
+        let mut lines: Vec<String> = Vec::new();
+        let mut found = false;
+        for line in existing.lines() {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with('#') && trimmed.starts_with(&prefix) {
+                lines.push(format!("{name}={value}"));
+                found = true;
+            } else {
+                lines.push(line.to_string());
+            }
+        }
+        if !found {
+            lines.push(format!("{name}={value}"));
+        }
+        let mut body = lines.join("\n");
+        body.push('\n');
+        write_secret_file(path, &body)?;
+        Ok(if found { "updated" } else { "added" })
+    }
+
+    /// The NAMES of secrets set in `.env` (values never returned).
+    fn secret_names(&self) -> Vec<String> {
+        let text = fs::read_to_string(self.env_path.as_path()).unwrap_or_default();
+        let mut out: Vec<String> = text
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                if l.starts_with('#') {
+                    return None;
+                }
+                let name = l.split_once('=')?.0.trim().to_string();
+                (!name.is_empty()).then_some(name)
+            })
+            .collect();
+        out.dedup();
+        out
+    }
+}
+
+/// A valid env-var name: letters/digits/underscore, not starting with a digit.
+fn validate_env_name(name: &str) -> Result<(), String> {
+    let ok = !name.is_empty()
+        && name.chars().enumerate().all(|(i, c)| {
+            if i == 0 {
+                c.is_ascii_alphabetic() || c == '_'
+            } else {
+                c.is_ascii_alphanumeric() || c == '_'
+            }
+        });
+    ok.then_some(())
+        .ok_or_else(|| "secret name must be letters/digits/underscore, not starting with a digit (e.g. JIRA_TOKEN)".into())
+}
+
+/// Atomic write of `.env` at mode 0600 (owner-only; systemd reads it as root, the agent
+/// never reads it back, forkd's albert-scripts cannot touch it).
+fn write_secret_file(path: &Path, content: &str) -> Result<(), String> {
+    let dir = path.parent().ok_or("bad .env path")?;
+    let tmp = dir.join(format!(".env.tmp.{}", std::process::id()));
+    {
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .map_err(|e| e.to_string())?;
+        f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        f.flush().map_err(|e| e.to_string())?;
+    }
+    let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +521,42 @@ mod tests {
         assert!(sc.resolve("albert").is_err(), "binary must be denied");
         assert!(sc.resolve("state/history.db").is_err(), "state must be denied");
         assert!(sc.resolve("../outside").is_err(), "jail escape must be denied");
+    }
+
+    #[test]
+    fn set_secret_upserts_and_lists_names_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::write(root.join(".env"), "# comment\nEXISTING=old\n").unwrap();
+        let sc = SelfConfig::new(root.clone());
+
+        assert_eq!(sc.upsert_secret("JIRA_TOKEN", "abc123").unwrap(), "added");
+        assert_eq!(sc.upsert_secret("EXISTING", "new").unwrap(), "updated");
+        let env = fs::read_to_string(root.join(".env")).unwrap();
+        assert!(env.contains("JIRA_TOKEN=abc123"));
+        assert!(env.contains("EXISTING=new") && !env.contains("EXISTING=old"));
+        assert!(env.contains("# comment"), "comments preserved");
+
+        // Listing returns names, never values.
+        let names = sc.secret_names();
+        assert!(names.contains(&"JIRA_TOKEN".to_string()));
+        assert!(names.contains(&"EXISTING".to_string()));
+
+        // Bad names refused.
+        assert!(sc.upsert_secret("2BAD", "x").is_err());
+        assert!(sc.upsert_secret("has space", "x").is_err());
+        // Newline in value refused.
+        assert!(sc.upsert_secret("OK_NAME", "a\nb").is_err());
+    }
+
+    #[test]
+    fn secret_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let sc = SelfConfig::new(dir.path().to_path_buf());
+        sc.upsert_secret("K", "v").unwrap();
+        let mode = fs::metadata(dir.path().join(".env")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "secrets file must be 0600");
     }
 
     #[test]
