@@ -40,6 +40,10 @@ octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "39515
 # vendored its own copy — `cargo clean -p curl-sys` and rebuild.
 # Backend is swappable — Yandex Search API slots in behind the same trait later.
 octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "3951560b305fe72969e7708cfc2c4ca84bae9302" }
+# octo-connector-http — the GENERIC configurable connector: a whole REST API becomes an
+# env-as-tools organ from a manifest alone (type = "http"), no code. Ported colleague
+# work (PR #3) wires Jira this way — config/connectors/jira/jira.toml.
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "3951560b305fe72969e7708cfc2c4ca84bae9302" }
 
 # kaeru — the Memory substrate (v0.5.0 + the cozo-sqlite-dropped fix at 1ac19b6, so
 # it stops linking sqlite3 and Albert can use sqlx for its history store).

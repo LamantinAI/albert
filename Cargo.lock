@@ -72,6 +72,7 @@ dependencies = [
  "octo-code",
  "octo-connector-caldav",
  "octo-connector-forkd",
+ "octo-connector-http",
  "octo-connector-mail",
  "octo-connector-scheduler",
  "octo-connector-search",
@@ -609,7 +610,7 @@ checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.2.2",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
@@ -2979,6 +2980,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-connector-http"
+version = "0.0.1"
+source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
+dependencies = [
+ "async-trait",
+ "octo-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "octo-connector-mail"
 version = "0.0.1"
 source = "git+https://github.com/LamantinAI/octo?rev=3951560b305fe72969e7708cfc2c4ca84bae9302#3951560b305fe72969e7708cfc2c4ca84bae9302"
@@ -5127,7 +5144,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
