@@ -56,8 +56,9 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
 - **Loop scratchpad** — a super-operational, per-task working object the agent authors
   (`scratchpad_goal/step/mark/note`) and sees each turn, so multi-step work is
   **verifiable**: a task is done only when every step is `verified`.
-- **Self-restart** — on an owner turn, Albert can reload a connector's manifest or
-  restart its whole self to apply a config change (history + memory persist).
+- **Self-lifecycle control** — on an owner turn, Albert manages its own runtime: it can
+  read and edit its own config/prompt files and then apply the change by restarting —
+  reloading a connector's manifest, or its whole self (history + memory persist).
 - **Config-driven connectors** — Telegram (edge ACL + owner-only `/allow` `/deny`
   `/allowed`), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
   a **scheduler**, **storage**, **forkd**, **search** (web search over several engines —

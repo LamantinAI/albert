@@ -17,17 +17,6 @@ timezone = "Europe/Moscow"
 # refreshed in place before expiry. On the mounted volume, so it persists.
 auth_json = "/data/auth.json"
 
-[gcal]
-# The bolt-on REST tool (`add_calendar_event`). Superseded by the caldav connector
-# (config/connectors/calendar), which now creates the event AND its popup VALARM —
-# so reminders go through the shared octo organ instead of a private tool here.
-# Flip back to true to fall back on the REST path.
-enabled     = false
-calendar_id = "primary"
-timezone    = "Europe/Moscow"
-tz_offset   = "+03:00"
-reminder_min = 10
-
 [prompt]
 soul   = "soul.md"       # baked into the image (hot-reloaded if you bind-mount it)
 system = "system.md"
@@ -36,15 +25,20 @@ system = "system.md"
 period_secs = 21600
 
 [history]
-backend = "file:/data/history"
+backend = "sqlite:/data/history.db"   # migrated, persistent (survives restarts)
 
 [scheduler]
 state_path = "/data/state/scheduler.json"
 
 [agent]
-max_tool_turns = 8
+max_tool_turns = 30
 
 [skills]
 dir   = "skills"
 cache = 5
 page  = 10   # skill_list page size + inline-catalog threshold (larger library -> skill_search)
+
+[code]
+# Ephemeral file-tool workspace, on the /data volume so it and the forkd handoff
+# survive restarts. Matches OCTO_CODE_WORKSPACE in the Dockerfile.
+workspace = "/data/workspace"

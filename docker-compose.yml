@@ -16,6 +16,12 @@ services:
     container_name: albert
     restart: unless-stopped
     env_file: contrib/deploy/.env
+    # The container runs as the unprivileged `albert` user (see docker/Dockerfile).
+    # forkd drops skill scripts to `albert-scripts`, which from a non-root process needs
+    # these two capabilities — the same ones the systemd unit grants as AmbientCapabilities.
+    cap_add:
+      - SETUID
+      - SETGID
     volumes:
       - albert-data:/data
       # Connector manifests (owner_chat, which calendars) — mounted so you can edit
