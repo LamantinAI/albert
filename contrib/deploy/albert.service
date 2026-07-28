@@ -39,10 +39,13 @@ CapabilityBoundingSet=CAP_SETUID CAP_SETGID
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-# state/kaeru/telegram-ACL (runtime) + the self-config surface (albert.toml, prompts,
-# connector manifests, skills). NOT .env (root-owned 0600, systemd reads it before the
-# drop) and NOT the binary.
-ReadWritePaths=/opt/albert/state /opt/albert/kaeru /opt/albert/config /opt/albert/skills /opt/albert/albert.toml /opt/albert/soul.md /opt/albert/system.md
+# The whole deploy dir is writable at the mount level (atomic writes of top-level files
+# like albert.toml need their parent — /opt/albert — writable). Fine-grained protection
+# is by UNIX PERMS on top: the dir is albert:albert 0755, so forkd's `albert-scripts`
+# (group) can read but not create/delete/rename; the binary is refused by the self-config
+# allow-list; `.env` is root:root 0600 (systemd reads it before dropping privileges, and
+# neither albert nor albert-scripts can read or write it).
+ReadWritePaths=/opt/albert
 # RestrictNamespaces deliberately NOT set: forkd's next stage (bwrap mount-ns, L2)
 # needs namespace creation.
 
