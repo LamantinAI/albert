@@ -1,49 +1,94 @@
-# Albert — multi-stage build. Build stage compiles the release binary (cozo/rocksdb
-# and the rig tree need clang + cmake); runtime stage is a slim Debian that just runs
-# it. Target the server's arch when building: `--platform linux/amd64`.
+# Albert — multi-stage build, both stages on Ubuntu 24.04.
+#
+# Why one base for both: the release binary dynamically links the system libcurl
+# (the search connector's DuckDuckGo backend fetches through it, and DDG's anti-bot
+# keys on that libcurl's TLS fingerprint — see connectors/search docs). Building and
+# running on the same Ubuntu 24.04 means the same libcurl 8.5 / libcurl.so.4 at both
+# ends, no cross-distro skew. Ubuntu 24.04 also ships python3.12 natively — what the
+# forkd skill scripts (e.g. avito's vendored parser) expect.
+#
+# Build for the server's arch: `docker build --platform linux/amd64 …`.
 
 # ---- build ----
-FROM rust:1-bookworm AS build
+FROM ubuntu:24.04 AS build
 
-# cozo/rocksdb: clang + libclang for bindgen, cmake for the C/C++ deps. libssl-dev
-# covers a native-tls path if one is pulled in. (gcc/g++/make come with the image.)
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+# Pin the toolchain (Ubuntu's apt rustc is too old for edition 2024).
+ARG RUST_VERSION=1.97.0
+
+# cozo/rocksdb: clang + libclang for bindgen, cmake for the C/C++ deps. pkg-config +
+# libssl-dev for TLS. libcurl4-openssl-dev so the search connector's `curl` crate links
+# the SYSTEM libcurl — WITHOUT it curl-sys silently vendors its own build, whose TLS
+# handshake DuckDuckGo drops. git + curl bootstrap rustup.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        clang libclang-dev cmake pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+        build-essential clang libclang-dev cmake pkg-config \
+        libssl-dev libcurl4-openssl-dev \
+        git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -sSf https://sh.rustup.rs | sh -s -- -y \
+        --no-modify-path --profile minimal --default-toolchain ${RUST_VERSION}
 
 WORKDIR /src
 COPY . .
-# --locked: build exactly Cargo.lock (reproducible). The BuildKit cache mounts keep
-# the cargo registry/git checkouts and the target dir warm across image builds, so
-# only what actually changed recompiles: a source edit → just the albert crate
-# (~1–2 min); an octo rev bump → the octo crates and up. Cold cache (first build,
-# or after `docker builder prune`) is the old full ~15 min — cozo and rocksdb
-# dominate; on a 2 GB host add swap first (see contrib/deploy/README.md). The binary is
-# copied out of the mount because cache mounts are not part of the image.
+# --locked: build exactly Cargo.lock. BuildKit cache mounts keep the cargo registry/git
+# and target dir warm across image builds, so only what changed recompiles. First build
+# is the full ~15+ min (cozo/rocksdb dominate); on a 2 GB host add swap (see
+# contrib/deploy/README.md). The binary is copied out because cache mounts aren't in the
+# image. `cargo clean -p curl-sys` guards the trap where a build-script decision cached
+# from before libcurl-dev was present would keep a vendored libcurl.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
+    cargo clean -p curl-sys --release 2>/dev/null; \
     cargo build --release --locked \
     && cp target/release/albert /albert
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS runtime
+FROM ubuntu:24.04 AS runtime
 
+ENV DEBIAN_FRONTEND=noninteractive
+# Runtime libraries + tools:
+#  - ca-certificates, libssl3, libcurl4: TLS + the libcurl the binary links (and the
+#    search backend uses).
+#  - curl, wget, python3: what the forkd sandbox runs skill scripts with (python3 is
+#    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+        ca-certificates libssl3 libcurl4 \
+        curl wget python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
+    # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
+    # group is `albert` (setuid drops supplementary groups, so this is what lets it share
+    # the group-readable workspace the agent writes).
+    && groupadd --system albert \
+    && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert \
+    && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
+    # Runtime state lives on the /data volume; a fresh named volume inherits this owner.
+    && mkdir -p /data && chown albert:albert /data
 
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
-# Config + persona + connector manifests + skills are baked in; all *runtime* state
-# (tokens, kaeru vault, scheduler alarms) lives under /data via a mounted volume.
+# Config + persona + connector manifests + skills are baked in; mutable state lives on
+# /data (mounted volume).
 COPY contrib/deploy/albert.toml ./albert.toml
 COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
+RUN chown -R albert:albert /opt/albert
 
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
-    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_http_auth=info,octo_core=warn
+    OCTO_CODE_WORKSPACE=/data/workspace \
+    OCTO_SKILLS_DIR=/opt/albert/skills \
+    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_http_auth=info,octo_core=warn
+
+# Run as the unprivileged service user. forkd still drops scripts to albert-scripts —
+# from non-root that needs CAP_SETUID/CAP_SETGID, granted in docker-compose (cap_add).
+# Running as `albert` (gid albert) means workspace files are group `albert` by default,
+# so the dropped script user can read them without a setgid dance.
+USER albert
 
 ENTRYPOINT ["albert"]
