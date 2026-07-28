@@ -6,6 +6,10 @@
 #   - chown -R albert:albert /opt/albert/state /opt/albert/kaeru
 #     and /opt/albert/config/connectors/telegram (the runtime ACL persists there);
 #   - the shared workspace group-owned + setgid: chmod 2770 state/workspace.
+#   - self-config surface owned albert:albert but NOT group-writable — dirs 0755, files
+#     0644 (owner-write only), so a sandboxed forkd script (group `albert`) can read but
+#     not tamper with albert.toml / manifests / prompts. The self-config tools re-assert
+#     these perms on every write (UMask=0007 would otherwise leave them group-writable).
 
 [Unit]
 Description=Albert — LamantinAI personal assistant
@@ -25,8 +29,9 @@ ExecStart=/opt/albert/albert
 Restart=always
 RestartSec=5
 
-# L1 hardening. The agent's own code/config/skills are read-only at runtime; only
-# its state (workspace, artifacts, scheduler, kaeru vault, telegram ACL) is writable.
+# L1 hardening. ProtectSystem=strict makes the whole tree read-only except the paths
+# below. The agent's binary stays read-only; its state AND its own config/prompt/skill
+# files are writable so the owner-only self-config tools can edit them.
 NoNewPrivileges=yes
 # forkd needs to setuid scripts to albert-scripts from a non-root service:
 AmbientCapabilities=CAP_SETUID CAP_SETGID
@@ -34,7 +39,10 @@ CapabilityBoundingSet=CAP_SETUID CAP_SETGID
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/opt/albert/state /opt/albert/kaeru /opt/albert/config/connectors/telegram
+# state/kaeru/telegram-ACL (runtime) + the self-config surface (albert.toml, prompts,
+# connector manifests, skills). NOT .env (root-owned 0600, systemd reads it before the
+# drop) and NOT the binary.
+ReadWritePaths=/opt/albert/state /opt/albert/kaeru /opt/albert/config /opt/albert/skills /opt/albert/albert.toml /opt/albert/soul.md /opt/albert/system.md
 # RestrictNamespaces deliberately NOT set: forkd's next stage (bwrap mount-ns, L2)
 # needs namespace creation.
 
