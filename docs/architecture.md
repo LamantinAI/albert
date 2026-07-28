@@ -202,6 +202,11 @@ the factory in `main.rs`, point the builder at `config/octo.toml`):
   (`libcurl4-openssl-dev` to build, `libcurl.so.4` to run) — DDG's anti-bot rejects
   reqwest's TLS fingerprint with a 202 challenge, and a vendored libcurl's handshake
   outright, while the system one passes.
+- **jira** — a **configurable** (`type = "http"`) organ: the whole Jira REST v2 surface
+  as `jira.cmd.*` commands from a manifest alone, no code (Bearer PAT via `JIRA_TOKEN`).
+  The generic `http` connector; `base_url` is a per-deployment placeholder in git. Paired
+  with a `jira` skill that teaches safe use (read freely, write on request). Ported from
+  a colleague's PR.
 - **mail** (optional, **off by default**) — an IMAP-read + SMTP-send mailbox organ:
   `mail.cmd.{list,read,send,reply}`, attachments as metadata only, basic-auth providers
   (no Gmail/XOAUTH2 yet). The factory is registered but instantiates only when a

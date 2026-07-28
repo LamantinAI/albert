@@ -193,7 +193,8 @@ config/
     ├── calendar/calendar.toml         # CalDAV calendar
     ├── storage/storage.toml           # durable object store
     ├── forkd/forkd.toml               # sandboxed script runner
-    ├── search/search.toml             # web search (DuckDuckGo; needs the `curl` binary)
+    ├── search/search.toml             # web search (DuckDuckGo; links the system libcurl)
+    ├── jira/jira.toml                 # Jira via the generic http connector (placeholder base_url)
     └── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
 ```
 
