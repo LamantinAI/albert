@@ -46,7 +46,7 @@ use crate::{
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
-    history::{to_messages, HistoryStore, Turn},
+    history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
@@ -195,16 +195,18 @@ impl AlbertCogitator {
 
         let active = self.active_reminders(ctx).await;
         let pad = self.scratchpad.render(&channel_key);
-        let history = to_messages(&self.history.load(&channel_key).await);
+        let turns = self.history.load(&channel_key).await;
+        let history = to_messages(&turns);
 
         let base = self.prompt.base();
         let preamble = format!(
-            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}",
+            "{base}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}{}",
             incoming_context(&incoming, &channel_key),
             now_rfc3339(&self.config.timezone),
             active,
             pad,
             self.skills.catalog(),
+            action_context(&turns),
         );
 
         let (answer, restart) = self
@@ -267,14 +269,16 @@ impl AlbertCogitator {
         };
         info!(alarm_id, %task, channel, "reminder due");
 
-        let history = to_messages(&self.history.load(&channel).await);
+        let turns = self.history.load(&channel).await;
+        let history = to_messages(&turns);
         let base = self.prompt.base();
         let preamble = format!(
             "{base}\n\nAn internal reminder alarm just fired (alarm_id={alarm_id}) for the \
              memory task \"{task}\". Recall its details from memory if useful, then write a short, \
              friendly reminder to the user and ask them to tell you when it's done (so it can stop \
-             repeating). Do NOT schedule anything now.\n\nCurrent time: {}",
+             repeating). Do NOT schedule anything now.\n\nCurrent time: {}{}",
             now_rfc3339(&self.config.timezone),
+            action_context(&turns),
         );
         let prompt = Message::user(format!(
             "Reminder due for \"{task}\". Write the reminder message to the user."
@@ -665,18 +669,34 @@ fn channel_of(env: &Envelope) -> String {
 
 /// Fold this turn's action records into the assistant content we persist — so Albert's
 /// transcript keeps what he DID (which tools, with which args, ok/err), not only what
-/// he said. Appended to the STORED turn only; the reply the user sees is untouched.
+/// he said. Appended to the STORED turn only, behind [`ACTION_MARKER`]; the reply the
+/// user sees is untouched, and on reload the block is stripped from the assistant
+/// message and surfaced via [`action_context`] instead (so it is never echoed to chat).
 fn with_action_log(answer: &str, actions: &[String]) -> String {
     if actions.is_empty() {
         return answer.to_string();
     }
     let mut s = String::from(answer);
-    s.push_str("\n\n[actions taken this turn]");
+    s.push_str(ACTION_MARKER);
     for a in actions {
         s.push_str("\n- ");
         s.push_str(a);
     }
     s
+}
+
+/// Render recent action logs as a preamble section — the agent's memory of what it
+/// actually did, framed as system context (like the scratchpad) so it is read, not
+/// repeated. Empty string when nothing recent, so it drops cleanly out of the format.
+fn action_context(turns: &[Turn]) -> String {
+    match recent_actions(turns, 3) {
+        Some(actions) => format!(
+            "\n\nRECENT ACTIONS (system-recorded — the tools you actually ran on recent turns, \
+             your ground truth for what you have already done; reference only, NEVER repeat these \
+             lines in a reply):\n{actions}"
+        ),
+        None => String::new(),
+    }
 }
 
 /// Current time as RFC3339 in the owner's configured timezone (offset form,
