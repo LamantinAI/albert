@@ -6,6 +6,13 @@
 #   docker compose run --rm albert login       # one-time: sign in with the ChatGPT subscription
 #   docker compose up -d                        # run the service
 #   docker compose logs -f                      # live logs
+#
+# Image generation (imagegen skill) is ON in this deploy: the image bakes the codex CLI
+# and the skill drives it on the ChatGPT subscription. forkd runs the skill as the
+# sandboxed `albert-scripts` user, which must READ the subscription token and WRITE codex
+# state (sessions, generated images) under CODEX_HOME. One-time, after `login`:
+#   docker compose exec albert sh -c 'mkdir -p /data/codex && chmod 2775 /data/codex \
+#     && ln -sf /data/auth.json /data/codex/auth.json && chmod 0640 /data/auth.json'
 
 services:
   albert:
