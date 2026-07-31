@@ -181,6 +181,9 @@ async fn main() -> Result<()> {
     if config.auth == AuthMode::Subscription {
         capabilities.push("subscription");
     }
+    if config.imagegen {
+        capabilities.push("imagegen");
+    }
     let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, config.skills_page, &capabilities);
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 

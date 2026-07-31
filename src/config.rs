@@ -64,6 +64,11 @@ pub struct Config {
     /// token is what the dictation endpoint accepts — with an API key there is nothing
     /// to authenticate a transcription with. See [`crate::transcribe`].
     pub hearing: bool,
+    /// Whether the `imagegen` skill is offered. It generates images by driving the
+    /// Codex CLI's built-in tool on a ChatGPT subscription (a separate credential from
+    /// Albert's own model auth), so it is gated on its own flag, not on [`AuthMode`].
+    /// Default off: the host needs the `codex` binary + a subscription `auth.json`.
+    pub imagegen: bool,
     /// Stream the agent's live progress (tool calls, reasoning summaries) into
     /// the chat as `chat.status` envelopes while a turn runs. Default: on.
     pub stream_status: bool,
@@ -148,6 +153,11 @@ impl Config {
         // token. An API key has nothing to offer it, whatever the model can do.
         let hearing = raw.hearing.unwrap_or(auth == AuthMode::Subscription);
 
+        // Image generation rides on Codex's subscription, not on Albert's model auth,
+        // so it defaults off and is turned on explicitly where codex + a subscription
+        // auth.json are provisioned.
+        let imagegen = raw.imagegen.unwrap_or(false);
+
         // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
         // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
         let mut clouds = HashMap::new();
@@ -178,6 +188,7 @@ impl Config {
         Ok(Config {
             multimodal,
             hearing,
+            imagegen,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
             auth,
@@ -282,6 +293,9 @@ struct Raw {
     /// subscription, off with an API key.
     #[serde(default)]
     hearing: Option<bool>,
+    /// Force image generation on/off; absent → off. Needs codex + a subscription auth.
+    #[serde(default)]
+    imagegen: Option<bool>,
     /// Stream live turn progress (tool calls / thoughts) into the chat.
     #[serde(default)]
     stream_status: Option<bool>,
