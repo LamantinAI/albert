@@ -1,0 +1,21 @@
+# Browser connector — stealth web fetch (browser.fetch { url, html?, timeout_secs? }).
+# Drives a real headless Chrome via zendriver for JS-heavy / anti-bot pages, and returns
+# clean rendered text. Reached via the dispatch tool; the agent uses it AFTER search, on
+# the specific URLs worth reading (a browser is heavy — don't render what a snippet answers).
+
+[connector]
+id   = "browser"
+type = "browser"
+
+# Writable dir for the downloaded Chrome-for-Testing + Chrome's profile. Resolved
+# relative to THIS manifest (config/connectors/browser/), so climb to the deploy root and
+# land in state/ (gitignored), beside the workspace. On first fetch the fetcher downloads
+# Chrome here (~150 MB); no system chromium needed.
+data_dir = "../../../state/browser"
+
+# executable = "/path/to/chrome"   # skip the download and use a pre-provisioned Chrome
+# headless = true                  # default true
+# sandbox  = false                 # default false (--no-sandbox: the service isn't privileged)
+
+timeout_secs     = 30   # default per-fetch wall clock (page load + extract)
+max_timeout_secs = 90   # ceiling a caller may request
