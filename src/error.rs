@@ -47,6 +47,11 @@ pub enum Error {
     /// kaeru's error enum directly).
     #[error("kaeru: {0}")]
     Kaeru(String),
+
+    /// Voice transcription (the subscription dictation endpoint): a refused token, an
+    /// over-long recording, or an unreadable response.
+    #[error("transcribe: {0}")]
+    Transcribe(String),
 }
 
 pub type Result<T> = StdResult<T, Error>;

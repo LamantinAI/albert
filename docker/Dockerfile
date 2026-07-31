@@ -55,9 +55,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    search backend uses).
 #  - curl, wget, python3: what the forkd sandbox runs skill scripts with (python3 is
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
+#  - ffmpeg (with ffprobe): backs the `transcribe` skill — it measures a recording,
+#    finds its silences and cuts it into chunks the dictation endpoint won't truncate.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
-        curl wget python3 \
+        curl wget python3 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
@@ -68,6 +70,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
     # Runtime state lives on the /data volume; a fresh named volume inherits this owner.
     && mkdir -p /data && chown albert:albert /data
+
+# The Codex CLI, so skills can drive it directly on the same ChatGPT subscription
+# Albert already authenticates with. One static musl binary (no node, no runtime deps)
+# — pinned, because "latest" would make the image unreproducible.
+ARG CODEX_VERSION=rust-v0.146.0
+RUN curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin \
+    && mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex \
+    && chmod 0755 /usr/local/bin/codex \
+    && codex --version
 
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
@@ -83,6 +95,11 @@ ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
     OCTO_CODE_WORKSPACE=/data/workspace \
     OCTO_SKILLS_DIR=/opt/albert/skills \
+    # CODEX_HOME on the volume so the CLI's own state survives rebuilds. Deliberately
+    # NOT /data itself: codex would then share Albert's auth.json and rewrite it on
+    # refresh. To let codex use the subscription, link the token in once:
+    #   docker compose exec albert sh -c 'mkdir -p /data/codex && ln -sf /data/auth.json /data/codex/auth.json'
+    CODEX_HOME=/data/codex \
     RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_http_auth=info,octo_core=warn
 
 # Run as the unprivileged service user. forkd still drops scripts to albert-scripts —

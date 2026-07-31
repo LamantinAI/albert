@@ -68,8 +68,12 @@ pub struct SkillStore {
 impl SkillStore {
     /// Scan `dir` for `*/SKILL.md` and build the catalog. A missing `dir` yields an
     /// empty catalog (skills are optional).
-    pub fn load(dir: PathBuf, cache_cap: usize, page: usize) -> Arc<Self> {
-        let catalog = scan(&dir);
+    ///
+    /// `capabilities` are what this runtime can actually do (e.g. `subscription`).
+    /// A skill declaring `requires: <cap>` for a capability that's absent is left out
+    /// of the catalog entirely, so the agent never offers what it can't deliver.
+    pub fn load(dir: PathBuf, cache_cap: usize, page: usize, capabilities: &[&str]) -> Arc<Self> {
+        let catalog = scan(&dir, capabilities);
         info!(skills = catalog.len(), dir = %dir.display(), "skills: catalog loaded");
         Arc::new(Self {
             inner: Mutex::new(Inner {
@@ -231,7 +235,7 @@ impl SkillStore {
 }
 
 /// Scan `skills/<name>/SKILL.md` into catalog entries, sorted by name.
-fn scan(dir: &Path) -> Vec<SkillMeta> {
+fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
     let Ok(entries) = read_dir(dir) else {
         return Vec::new();
     };
@@ -245,11 +249,19 @@ fn scan(dir: &Path) -> Vec<SkillMeta> {
         let Ok(text) = read_to_string(&skill_md) else {
             continue;
         };
-        let (name, when) = meta_of(&text);
-        let name = name.unwrap_or_else(|| p.file_name().unwrap_or_default().to_string_lossy().into_owned());
+        let front = meta_of(&text);
+        let name = front
+            .name
+            .unwrap_or_else(|| p.file_name().unwrap_or_default().to_string_lossy().into_owned());
+        // A skill whose requirement isn't met must be invisible, not merely unusable —
+        // else the agent keeps offering something it cannot do.
+        if let Some(req) = front.requires.as_deref().filter(|r| !capabilities.contains(r)) {
+            debug!(skill = %name, requires = %req, "skills: hidden (capability unavailable)");
+            continue;
+        }
         out.push(SkillMeta {
             name,
-            when: when.unwrap_or_else(|| "(no description)".to_string()),
+            when: front.description.unwrap_or_else(|| "(no description)".to_string()),
             dir: p,
         });
     }
@@ -296,18 +308,47 @@ fn body_of(text: &str) -> &str {
 }
 
 /// Parse `name:` and `description:` out of the frontmatter.
-fn meta_of(text: &str) -> (Option<String>, Option<String>) {
+fn meta_of(text: &str) -> SkillFront {
     let (fm, _) = split_frontmatter(text);
-    let mut name = None;
-    let mut when = None;
-    for line in fm.lines() {
+    let lines: Vec<&str> = fm.lines().collect();
+    let mut front = SkillFront::default();
+    for (i, line) in lines.iter().enumerate() {
         if let Some(v) = line.strip_prefix("name:") {
-            name = Some(v.trim().to_string());
+            front.name = Some(v.trim().to_string());
         } else if let Some(v) = line.strip_prefix("description:") {
-            when = Some(v.trim().to_string());
+            front.description = Some(field_value(v, &lines[i + 1..]));
+        } else if let Some(v) = line.strip_prefix("requires:") {
+            front.requires = Some(v.trim().to_string());
         }
     }
-    (name, when)
+    front
+}
+
+/// A skill's parsed frontmatter.
+#[derive(Default)]
+struct SkillFront {
+    name: Option<String>,
+    description: Option<String>,
+    /// A capability the runtime must have for the skill to exist at all (today:
+    /// `subscription`). Absent → always available.
+    requires: Option<String>,
+}
+
+/// A frontmatter value, following YAML block scalars (`>`, `>-`, `|`, `|-`) into the
+/// indented lines beneath — that's how a long `description:` is usually written, and
+/// reading only the marker line would leave the skill with no description at all.
+fn field_value(rest_of_line: &str, following: &[&str]) -> String {
+    let head = rest_of_line.trim();
+    if !matches!(head, ">" | ">-" | ">+" | "|" | "|-" | "|+") {
+        return head.to_string();
+    }
+    following
+        .iter()
+        .take_while(|l| l.trim().is_empty() || l.starts_with([' ', '\t']))
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ── rig tools ────────────────────────────────────────────────────────────────
