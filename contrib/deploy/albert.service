@@ -24,6 +24,10 @@ Group=albert
 # and edit what the agent writes — the workspace is the handoff surface.
 UMask=0007
 WorkingDirectory=/opt/albert
+# The `albert` system user has no home; the browser connector's Chrome writes under
+# $HOME (crashpad, NSS) regardless of --user-data-dir and SIGTRAPs on a missing/blocked
+# one, so point HOME at a writable state dir.
+Environment=HOME=/opt/albert/state
 EnvironmentFile=/opt/albert/.env
 ExecStart=/opt/albert/albert
 Restart=always

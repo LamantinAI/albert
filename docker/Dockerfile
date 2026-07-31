@@ -94,6 +94,9 @@ RUN chown -R albert:albert /opt/albert
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
     OCTO_CODE_WORKSPACE=/data/workspace \
+    # The browser connector's Chrome writes under $HOME (crashpad/NSS) and SIGTRAPs on a
+    # missing one; point it at the writable volume.
+    HOME=/data \
     OCTO_SKILLS_DIR=/opt/albert/skills \
     # CODEX_HOME on the volume so the CLI's own state survives rebuilds. Deliberately
     # NOT /data itself: codex would then share Albert's auth.json and rewrite it on
