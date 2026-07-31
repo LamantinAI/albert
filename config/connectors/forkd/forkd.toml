@@ -15,6 +15,18 @@ run_as = "albert-scripts"
 # supplementary groups, so membership alone cannot open the setgid 2770 workspace.
 run_group = "albert"
 
+# Forward these env var names (and only these) from Albert's process into the otherwise
+# cleared script env. CODEX_HOME lets the `imagegen` skill drive the Codex CLI on the
+# shared ChatGPT subscription; the auth.json it points to must be readable by the
+# dropped script user (group `albert`). The *_PROXY names are forwarded too so codex
+# reaches ChatGPT through a proxy where it must (e.g. a geo-blocked region) — harmless
+# and unset where there is no proxy.
+env_passthrough = [
+    "CODEX_HOME",
+    "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+    "https_proxy", "http_proxy", "no_proxy",
+]
+
 timeout_secs     = 30    # default per-run wall-clock limit
 max_timeout_secs = 300   # ceiling a command may request
 max_output_bytes = 65536 # stdout/stderr each capped to this

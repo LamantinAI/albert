@@ -100,8 +100,10 @@ ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     OCTO_SKILLS_DIR=/opt/albert/skills \
     # CODEX_HOME on the volume so the CLI's own state survives rebuilds. Deliberately
     # NOT /data itself: codex would then share Albert's auth.json and rewrite it on
-    # refresh. To let codex use the subscription, link the token in once:
-    #   docker compose exec albert sh -c 'mkdir -p /data/codex && ln -sf /data/auth.json /data/codex/auth.json'
+    # refresh. The `imagegen` skill drives codex on this subscription; forkd forwards
+    # CODEX_HOME (config/connectors/forkd) and runs the script as `albert-scripts`, which
+    # must read the token and write codex state here — so the linked auth.json is group-
+    # readable and the dir group-writable. One-time link command: see docker-compose.yml.
     CODEX_HOME=/data/codex \
     RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_http_auth=info,octo_core=warn
 

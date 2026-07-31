@@ -13,8 +13,10 @@ model = "gpt-5.4"        # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4,
 # hearing = true
 # Image generation (imagegen skill): draws via the Codex CLI's built-in tool on a
 # ChatGPT subscription — a separate credential from the model auth, so its own switch.
-# Default off; needs the `codex` binary + a subscription auth.json on the host.
-# imagegen = true
+# On for the Docker image (it bakes the codex binary + sets CODEX_HOME; link a
+# subscription auth.json into it, see docker-compose). On a bare systemd host set this to
+# false unless you install codex and provision a subscription auth.json.
+imagegen = true
 # Live progress in chat (tool calls / thoughts as an edited status message).
 # stream_status = true
 
