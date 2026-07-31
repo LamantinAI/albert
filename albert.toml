@@ -14,6 +14,11 @@ openai_key_env = "ALBERT_OPENAI_KEY"
 # (subscription -> always yes; api_key -> guessed from the model name).
 # multimodal = true
 
+# Hearing: can Albert listen to voice messages? They are transcribed through the
+# ChatGPT dictation endpoint, which only accepts a subscription token — hence the
+# default (subscription -> yes; api_key -> no, whatever the model can do).
+# hearing = true
+
 # Live progress in chat while a turn runs (typing indicator is always on; this
 # also streams tool calls / thoughts as an in-place edited status message).
 # stream_status = true

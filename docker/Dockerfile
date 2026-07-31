@@ -33,9 +33,22 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # vendored pylib compiled for exactly CPython 3.12 / x86_64, which this matches.
 FROM python:3.12-slim-bookworm AS runtime
 
+# ffmpeg (with ffprobe) backs the `transcribe` skill: it measures a recording,
+# finds its silences and cuts it into chunks the dictation endpoint won't truncate.
+# curl is both a fetch tool for skill scripts and how codex is installed below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates libssl3 \
+        ca-certificates libssl3 ffmpeg curl \
     && rm -rf /var/lib/apt/lists/*
+
+# The Codex CLI, so skills can drive it directly on the same ChatGPT subscription
+# Albert already authenticates with. Shipped as one static musl binary (no node,
+# no runtime deps) — pinned, because "latest" would make the image unreproducible.
+ARG CODEX_VERSION=rust-v0.146.0
+RUN curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" \
+        | tar -xz -C /usr/local/bin \
+    && mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex \
+    && chmod 0755 /usr/local/bin/codex \
+    && codex --version
 
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
@@ -46,8 +59,14 @@ COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
 
+# CODEX_HOME on the volume so the CLI's own state survives rebuilds. Deliberately
+# NOT /data itself: codex would then share Albert's auth.json and rewrite it on
+# refresh, putting the running agent's token at the mercy of a CLI invocation. To
+# let codex use the subscription, link the token in once:
+#   docker compose -p deploy exec albert sh -c 'mkdir -p /data/codex && ln -sf /data/auth.json /data/codex/auth.json'
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
+    CODEX_HOME=/data/codex \
     RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_http_auth=info,octo_core=warn
 
 ENTRYPOINT ["albert"]

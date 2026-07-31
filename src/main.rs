@@ -18,6 +18,7 @@ mod routines;
 mod scratchpad;
 mod skills;
 mod status;
+mod transcribe;
 
 use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
 
@@ -161,7 +162,14 @@ async fn main() -> Result<()> {
     let scratchpad = ScratchpadStore::new();
 
     // ── Declarative skills: a folder Albert lists + applies (LRU-cached) ─────
-    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache);
+    // What this runtime can actually do gates which skills exist: transcription
+    // rides on the ChatGPT subscription token, so under an API key that skill is
+    // not merely unusable, it's absent.
+    let mut capabilities: Vec<&str> = Vec::new();
+    if config.auth == AuthMode::Subscription {
+        capabilities.push("subscription");
+    }
+    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, &capabilities);
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, "skills store");
 
     let mut builder = Octo::builder()

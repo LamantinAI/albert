@@ -53,6 +53,7 @@ use crate::{
     scratchpad::ScratchpadStore,
     skills::SkillStore,
     status::StatusFeed,
+    transcribe::{transcribe, MAX_INLINE_SECS},
 };
 
 pub(crate) const SCHEDULER_ID: &str = "scheduler";
@@ -135,15 +136,24 @@ impl AlbertCogitator {
         }
         match incoming.kind.as_str() {
             "chat.message" => {
-                // A text payload is a normal turn; a Blob payload is an image the
-                // connector downloaded (photo / image document), its caption in tags.
+                // A text payload is a normal turn; a Blob payload is media the
+                // connector downloaded, its caption in tags — an image goes to the
+                // model as-is, a voice message becomes text first (no Codex model
+                // takes audio) and from there is an ordinary turn.
                 let input = if let Some(text) = incoming.payload_as::<String>() {
                     Some(UserInput { text: text.clone(), image: None })
-                } else {
-                    incoming.payload_as::<Blob>().filter(|b| b.is_image()).map(|blob| UserInput {
+                } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_image()) {
+                    Some(UserInput {
                         text: incoming.tags.get("caption").cloned().unwrap_or_default(),
                         image: Some(blob.clone()),
                     })
+                } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_audio()) {
+                    // `None` means we already told the user why we couldn't listen.
+                    self.hear(&incoming, blob, ctx)
+                        .await
+                        .map(|text| UserInput { text, image: None })
+                } else {
+                    None
                 };
                 if let Some(input) = input {
                     self.respond(incoming, input, ctx).await;
@@ -151,6 +161,81 @@ impl AlbertCogitator {
             }
             "alarm.fired" => self.on_alarm(incoming, ctx).await,
             _ => {}
+        }
+    }
+
+    /// Perceive a voice message: transcribe it and hand back the text so the turn
+    /// proceeds as if it had been typed.
+    ///
+    /// `None` means the voice went unheard *and the user has been told why* —
+    /// silence is the one unacceptable answer to someone who just spoke.
+    async fn hear(
+        self: &Arc<Self>,
+        incoming: &Arc<Envelope>,
+        blob: &Blob,
+        ctx: &CogitatorContext,
+    ) -> Option<String> {
+        let decline = |reason: String| async move {
+            self.emit_reply(incoming, reason.clone(), ctx).await;
+            self.record(&channel_of(incoming), "(голосовое сообщение)".into(), reason).await;
+            None::<String>
+        };
+
+        if !self.config.hearing {
+            return decline(
+                "Я получил голосовое, но сейчас не могу его расслышать: расшифровка идёт \
+                 через подписку ChatGPT. (Включи `auth = \"subscription\"`, либо `hearing = \
+                 true` в albert.toml, если знаешь, что делаешь.)"
+                    .to_string(),
+            )
+            .await;
+        }
+
+        // The connector tags the length, so an over-long note is refused before a
+        // byte is uploaded — the endpoint would otherwise truncate it in silence.
+        let secs = incoming.tags.get("duration_secs").and_then(|s| s.parse::<u32>().ok());
+        if secs.is_some_and(|s| s > MAX_INLINE_SECS) {
+            return decline(format!(
+                "Это голосовое на {} мин — длиннее {} мин я расшифровываю не в диалоге, \
+                 иначе текст молча обрежется. Пришли файлом, и я разберу его целиком.",
+                secs.unwrap_or_default() / 60,
+                MAX_INLINE_SECS / 60,
+            ))
+            .await;
+        }
+
+        let sub = match ensure_fresh(&self.config.subscription_auth_json).await {
+            Ok(sub) => sub,
+            Err(e) => {
+                warn!(error = %e, "voice: subscription token unavailable");
+                return decline(
+                    "Не смог расшифровать голосовое: подписка ChatGPT сейчас недоступна \
+                     (токен просрочен — нужен `albert login`)."
+                        .to_string(),
+                )
+                .await;
+            }
+        };
+
+        let filename = blob.filename().unwrap_or("voice.ogg");
+        match transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await {
+            Ok(text) if text.is_empty() => {
+                warn!("voice: empty transcript");
+                decline("Голосовое пришло, но в нём не разобрать ни слова — пусто.".to_string())
+                    .await
+            }
+            Ok(text) => {
+                info!(chars = text.len(), secs = ?secs, "voice: transcribed");
+                // A caption (rare on voice, but possible) is context, not speech.
+                match incoming.tags.get("caption").filter(|c| !c.is_empty()) {
+                    Some(caption) => Some(format!("{text}\n\n(подпись к голосовому: {caption})")),
+                    None => Some(text),
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "voice: transcription failed");
+                decline(format!("Не смог расшифровать голосовое: {e}")).await
+            }
         }
     }
 

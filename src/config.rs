@@ -59,6 +59,11 @@ pub struct Config {
     /// heuristic: a ChatGPT subscription is always vision-capable, an API-key
     /// model is matched by name against the known multimodal families.
     pub multimodal: bool,
+    /// Whether voice messages are transcribed and heard. Explicit `hearing =
+    /// true/false` in the TOML wins; the default is the ChatGPT subscription,
+    /// whose token is what the dictation endpoint accepts — with an API key there
+    /// is nothing to authenticate a transcription with. See [`crate::transcribe`].
+    pub hearing: bool,
     /// Stream the agent's live progress (tool calls, reasoning summaries) into
     /// the chat as `chat.status` envelopes while a turn runs. Default: on.
     pub stream_status: bool,
@@ -129,6 +134,10 @@ impl Config {
         let multimodal = raw
             .multimodal
             .unwrap_or_else(|| default_multimodal(auth, &raw.model));
+        // Hearing rides on the subscription, not on the model: transcription goes
+        // through the ChatGPT dictation endpoint, which only takes a subscription
+        // token. An API key has nothing to offer it, whatever the model can do.
+        let hearing = raw.hearing.unwrap_or(auth == AuthMode::Subscription);
 
         // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
         // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
@@ -159,6 +168,7 @@ impl Config {
 
         Ok(Config {
             multimodal,
+            hearing,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
             auth,
@@ -257,6 +267,10 @@ struct Raw {
     /// Force vision on/off; absent → the [`default_multimodal`] heuristic.
     #[serde(default)]
     multimodal: Option<bool>,
+    /// Force hearing (voice transcription) on/off; absent → on under a ChatGPT
+    /// subscription, off with an API key.
+    #[serde(default)]
+    hearing: Option<bool>,
     /// Stream live turn progress (tool calls / thoughts) into the chat.
     #[serde(default)]
     stream_status: Option<bool>,
