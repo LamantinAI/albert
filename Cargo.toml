@@ -7,29 +7,29 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 [dependencies]
 # Octo — the Reaction skeleton, pulled from GitHub (pinned to a rev; no release
 # tags yet — bump the rev to track octo main). One repo, many crates.
-# (866ae79 = octo main; adds voice Blobs — Blob::is_audio + telegram audio delivery —
-#  for the hearing feature, on top of search/http/mail. NOTE: linking the mail crate
-#  pulls a second rustls provider (ring); main() MUST call ensure_crypto_provider().)
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598", features = ["sqlite"] }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+# (7ef2576 = octo main; adds octo-connector-browser (zendriver headless Chrome), on top
+#  of voice Blobs / search / http / mail. NOTE: linking the mail crate pulls a second
+#  rustls provider (ring); main() MUST call ensure_crypto_provider().)
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580", features = ["sqlite"] }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
 # to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
-octo-code = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-connector-storage — durable object store (put/get/list/delete + promote/
 # checkout); env-as-tools organ, backend swappable (local dir now, S3 later).
-octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
-octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-connector-mail — IMAP read + SMTP send mailbox organ (env-as-tools: mail.cmd.*).
 # Wired in but OFF by default: the factory is registered, but no config/connectors/mail
 # manifest is shipped (only mail.toml.example), so nothing is instantiated until you add
 # one + the creds. Its rustls provider (ring) forces the ensure_crypto_provider() call.
-octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-connector-search — web search organ (env-as-tools: search.web { query, limit? }).
 # Its DuckDuckGo backend fetches through the SYSTEM libcurl, because DDG's anti-bot
 # answers reqwest with a 202 challenge (and drops a vendored libcurl's handshake), while
@@ -38,11 +38,16 @@ octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "866ae
 # (present wherever `curl` is). If a build predates the dev headers, curl-sys silently
 # vendored its own copy — `cargo clean -p curl-sys` and rebuild.
 # Backend is swappable — Yandex Search API slots in behind the same trait later.
-octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 # octo-connector-http — the GENERIC configurable connector: a whole REST API becomes an
 # env-as-tools organ from a manifest alone (type = "http"), no code. Ported colleague
 # work (PR #3) wires Jira this way — config/connectors/jira/jira.toml.
-octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "866ae79e9b6923634c8a8dbe96682c2389363598" }
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
+# octo-connector-browser — stealth web-fetch organ (browser.fetch): drives a real headless
+# Chrome via zendriver for JS-heavy / anti-bot pages. Pulls the fetcher (downloads a pinned
+# Chrome-for-Testing) + a CDP tree — heavy build. The host needs Chrome's shared libs at
+# runtime (libnss3, libgbm1, libasound2, …); the deploy provisions them.
+octo-connector-browser = { git = "https://github.com/LamantinAI/octo", rev = "7ef257616000361b97fe4c801f277a18b75fd580" }
 
 # kaeru — the Memory substrate (v0.5.0 + the cozo-sqlite-dropped fix at 1ac19b6, so
 # it stops linking sqlite3 and Albert can use sqlx for its history store).
