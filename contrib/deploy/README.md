@@ -112,8 +112,11 @@ docker compose down              # stop (keeps the data volume)
 ```
 
 `soul.md` / `system.md` are hot-reloaded **only if bind-mounted** (see compose); baked
-copies need a rebuild. `albert.toml` and connector manifests are read at startup —
-restart after changing them.
+copies need a rebuild. `albert.toml` and connector manifests are bind-mounted too and
+are read at startup — edit, then `docker compose -p deploy restart albert`. Nothing
+about a model or a connector should ever cost an image rebuild; if it does, a mount is
+missing. (`albert.toml` is mounted read-write on purpose: the `self-config` skill edits
+this exact file, and a baked copy would silently discard Albert's own changes.)
 
 ## Build elsewhere (skip building on the 2 GB box)
 

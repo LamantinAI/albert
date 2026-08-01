@@ -38,6 +38,12 @@ services:
       # they're hot-reloaded by mtime (no rebuild, no restart).
       - ./soul.md:/opt/albert/soul.md:ro
       - ./system.md:/opt/albert/system.md:ro
+      # Main settings (model, auth, timezone, [history]…). Mounted read-WRITE for two
+      # reasons: changing `model` should cost a restart, not an image rebuild — and the
+      # self-config skill's config_write/config_edit name this very file, so without the
+      # mount Albert's own edits would vanish with the container. Read at startup, so
+      # `docker compose -p deploy restart albert` applies them.
+      - ./contrib/deploy/albert.toml:/opt/albert/albert.toml
     # `albert login` needs an interactive terminal for the paste fallback.
     stdin_open: true
     tty: true
