@@ -3,7 +3,12 @@
 # tokens, memory, history and alarms survive restarts and image rebuilds.
 
 auth  = "subscription"
-model = "gpt-5.4"        # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+# Codex slugs: gpt-5.6-sol (flagship) | terra (mid) | luna (fastest, cheapest).
+# Luna costs 5/0.5/30 credits per 1M tokens (in/cached/out) against terra's 50/5/300
+# and the old 5.4's 62.5/6.25/375 — the same subscription goes ~12x further, and a
+# turn measured 2.5s against ~10s. NB: gpt-5.4 / gpt-5.4-mini stop working on a
+# ChatGPT login after 2026-08-31; their replacements are gpt-5.6-terra / -luna.
+model = "gpt-5.6-luna"
 
 # Vision (photos in chat): defaults to on under a subscription. Uncomment to force.
 # multimodal = true
