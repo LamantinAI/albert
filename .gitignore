@@ -5,3 +5,7 @@ state/
 config/connectors/telegram/telegram_acl.json
 # docker deploy secrets (contrib/deploy/.env.example is the template)
 contrib/deploy/.env
+# live docker config — operator's own copy of contrib/deploy/albert.toml, mounted rw and
+# edited at runtime (by the operator or the self-config skill). Named .local so it never
+# collides with the tracked dev config (/albert.toml) or the deploy template.
+/albert.local.toml

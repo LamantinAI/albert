@@ -40,18 +40,27 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab      # persist across reboots
 ## 2. Configure + build
 
 ```sh
-cd albert/deploy
-cp .env.example .env            # edit later for Telegram; not needed for the console check
+cd albert                       # repo root, where docker-compose.yml lives
+cp contrib/deploy/.env.example contrib/deploy/.env   # edit later for Telegram
+cp contrib/deploy/albert.toml ./albert.local.toml    # your LIVE config (git-ignored) — edit this
 docker compose build            # first build ~10–25 min (cozo/rocksdb dominate)
 ```
+
+`./albert.local.toml` is your own copy, bind-mounted read-write; the tracked
+`contrib/deploy/albert.toml` stays a pristine default. Create it before the first `up` —
+Docker would otherwise put an empty directory in its place. It is NOT baked into the image
+on purpose: the `self-config` skill edits this file at runtime, and a baked copy would sit
+in the image's ephemeral layer, so those edits would report success and then vanish on the
+next `up -d`.
 
 Rebuilds are fast: the Dockerfile mounts BuildKit caches for the cargo registry and
 the target dir, so after the first build only what changed recompiles (a source edit
 → ~1–2 min). `docker builder prune` clears those caches back to a cold build.
 
-Model/timezone live in [`albert.toml`](albert.toml) (`model = "gpt-5.4"`; also
-`gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4-mini`, …). Edit before building, or bind-mount it
-(see the commented volume in `docker-compose.yml`) to change without a rebuild.
+Model/timezone live in `albert.toml`. Edit your live `./albert.local.toml` (bind-mounted, see
+`docker-compose.yml`) and `docker compose restart albert` — no rebuild. Nothing about a
+model, a connector or a prompt should ever cost an image rebuild; if it does, a mount is
+missing. Rebuilds are for Rust code and the Dockerfile.
 
 ## 3. Sign in with the ChatGPT subscription (once)
 
@@ -91,7 +100,7 @@ A background service needs a **channel** (console is interactive-only). Set up T
    (from `@userinfobot`). A placeholder locks you out — the ACL drops everyone until the
    owner is seeded.
 2. Put the bot token in `contrib/deploy/.env`: `OCTO_TELEGRAM_TOKEN=…` (from `@BotFather`).
-3. Rebuild if you edited the baked config (`docker compose build`), then:
+3. These are bind-mounted (manifests, `.env`, `./albert.local.toml`) — no rebuild needed, just:
 
 ```sh
 docker compose up -d
@@ -112,8 +121,14 @@ docker compose down              # stop (keeps the data volume)
 ```
 
 `soul.md` / `system.md` are hot-reloaded **only if bind-mounted** (see compose); baked
-copies need a rebuild. `albert.toml` and connector manifests are read at startup —
-restart after changing them.
+copies need a rebuild. `albert.toml` (your git-ignored `./albert.local.toml`) and connector
+manifests are bind-mounted and read at startup — edit, then restart. The self-config skill
+writes to that same mounted file, so its edits persist across restarts too.
+
+> Known limitation (docker): the live config is a single operator-owned mount today. The
+> cleaner shape — seed a default config TREE onto the `/data` volume on first start if it's
+> empty (the Postgres `initdb` pattern), with every config path pointed at the volume — is
+> queued for the platform/per-tenant work, not done yet.
 
 ## Build elsewhere (skip building on the 2 GB box)
 
