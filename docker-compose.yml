@@ -38,6 +38,13 @@ services:
       # they're hot-reloaded by mtime (no rebuild, no restart).
       - ./soul.md:/opt/albert/soul.md:ro
       - ./system.md:/opt/albert/system.md:ro
+      # Live config — an OPERATOR-OWNED, git-ignored file, NOT a tracked one.
+      # Seed it once before the first run:  cp contrib/deploy/albert.toml ./albert.local.toml
+      # Mounted read-write: the self-config skill edits this exact file, so its changes
+      # must land on a real persistent file, not the image's ephemeral layer. The tracked
+      # contrib/deploy/albert.toml stays a pristine default. (Create it first — Docker
+      # would otherwise make an empty directory in its place.)
+      - ./albert.local.toml:/opt/albert/albert.toml
     # `albert login` needs an interactive terminal for the paste fallback.
     stdin_open: true
     tty: true

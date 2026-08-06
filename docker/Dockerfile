@@ -83,9 +83,11 @@ RUN curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSIO
 
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
-# Config + persona + connector manifests + skills are baked in; mutable state lives on
-# /data (mounted volume).
-COPY contrib/deploy/albert.toml ./albert.toml
+# Persona + connector manifests + skills are baked in; mutable state lives on /data.
+# albert.toml is deliberately NOT baked: the self-config skill edits it at runtime, and a
+# baked copy lives in the image's ephemeral layer — writes would report success and then
+# vanish on the next `up -d`. It is bind-mounted from an operator-owned file instead (see
+# docker-compose.yml); the container will not start without that mount, which is the point.
 COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
