@@ -46,6 +46,9 @@ const SEARCH_MAX: usize = 25;
 struct SkillMeta {
     name: String,
     when: String,
+    /// For an `always: true` skill, its instructions — read once at scan time and
+    /// held in memory, since they go into every single turn.
+    standing: Option<String>,
     /// The skill's own folder (`skills/<name>/`) — holds `SKILL.md` and any bundled
     /// resources. `skill_file` reads are jailed to it.
     dir: PathBuf,
@@ -90,27 +93,44 @@ impl SkillStore {
     /// never floods context. Either way the bodies stay out until `skill_apply`.
     pub fn catalog(&self) -> String {
         let inner = self.inner.lock().unwrap();
-        let n = inner.catalog.len();
-        if n == 0 {
-            return "Skills: (none installed).".to_string();
+        // An `always: true` skill is not offered, it is IN FORCE: its body goes in
+        // verbatim every turn, so obeying it costs no tool call and it cannot lapse
+        // between turns. It is also never paginated away — a standing instruction
+        // that disappears once the catalog grows would be worse than none.
+        let mut out = String::new();
+        for skill in inner.catalog.iter() {
+            let Some(body) = &skill.standing else { continue };
+            out.push_str(&format!(
+                "STANDING INSTRUCTIONS — \"{}\", in force for EVERY reply, not optional and not \
+                 expiring between turns. They shape HOW you answer; your persona (who you are, \
+                 your voice) still governs. Where the two collide, keep the voice and follow the \
+                 shape.\n\n{body}\n\n---\n\n",
+                skill.name,
+            ));
         }
-        if n <= inner.page {
-            let lines: Vec<String> = inner
-                .catalog
-                .iter()
-                .map(|s| format!("- {}: {}", s.name, s.when))
-                .collect();
-            return format!(
+        // Only the selectable skills are listed or counted — an in-force one has
+        // already been applied.
+        let listable: Vec<&SkillMeta> =
+            inner.catalog.iter().filter(|s| s.standing.is_none()).collect();
+        let n = listable.len();
+        if n == 0 {
+            out.push_str("Skills: (none installed).");
+        } else if n <= inner.page {
+            let lines: Vec<String> =
+                listable.iter().map(|s| format!("- {}: {}", s.name, s.when)).collect();
+            out.push_str(&format!(
                 "Skills available (apply one with skill_apply when it fits the task; skill_list to \
                  re-list):\n{}",
                 lines.join("\n")
-            );
+            ));
+        } else {
+            out.push_str(&format!(
+                "Skills: {n} installed — too many to list here. When a task might match one, call \
+                 skill_search with a few keywords to find it (ranked by name/description), or \
+                 skill_list to browse by page; then skill_apply the one that fits."
+            ));
         }
-        format!(
-            "Skills: {n} installed — too many to list here. When a task might match one, call \
-             skill_search with a few keywords to find it (ranked by name/description), or \
-             skill_list to browse by page; then skill_apply the one that fits."
-        )
+        out
     }
 
     /// One page of the catalog (name + when-to-use), 1-indexed, `PAGE` per page.
@@ -259,9 +279,13 @@ fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
             debug!(skill = %name, requires = %req, "skills: hidden (capability unavailable)");
             continue;
         }
+        // An always-on skill's body is read once, here: it is in force from the first
+        // turn, so it must not depend on the agent choosing to load it.
+        let standing = front.always.then(|| body_of(&text).trim().to_string());
         out.push(SkillMeta {
             name,
             when: front.description.unwrap_or_else(|| "(no description)".to_string()),
+            standing,
             dir: p,
         });
     }
@@ -319,6 +343,8 @@ fn meta_of(text: &str) -> SkillFront {
             front.description = Some(field_value(v, &lines[i + 1..]));
         } else if let Some(v) = line.strip_prefix("requires:") {
             front.requires = Some(v.trim().to_string());
+        } else if let Some(v) = line.strip_prefix("always:") {
+            front.always = v.trim().eq_ignore_ascii_case("true");
         }
     }
     front
@@ -332,6 +358,9 @@ struct SkillFront {
     /// A capability the runtime must have for the skill to exist at all (today:
     /// `subscription`). Absent → always available.
     requires: Option<String>,
+    /// `always: true` — not a skill to reach for, a standing instruction. Its body
+    /// rides in the preamble every turn instead of waiting for `skill_apply`.
+    always: bool,
 }
 
 /// A frontmatter value, following YAML block scalars (`>`, `>-`, `|`, `|-`) into the
@@ -506,4 +535,83 @@ pub struct ApplyArgs {
 pub struct FileArgs {
     pub name: String,
     pub path: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{create_dir_all, remove_dir_all, write};
+
+    use super::{meta_of, scan, SkillStore};
+
+    /// A throwaway `skills/` tree; `skills` is a list of `(folder, SKILL.md body)`.
+    fn skills_dir(tag: &str, skills: &[(&str, &str)]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("albert-skills-test-{tag}"));
+        let _ = remove_dir_all(&root);
+        for (name, body) in skills {
+            create_dir_all(root.join(name)).unwrap();
+            write(root.join(name).join("SKILL.md"), body).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn always_is_parsed_from_frontmatter() {
+        assert!(meta_of("---\nname: s\nalways: true\n---\nbody").always);
+        assert!(!meta_of("---\nname: s\ndescription: d\n---\nbody").always);
+    }
+
+    #[test]
+    fn an_always_skill_is_in_force_not_offered() {
+        let dir = skills_dir(
+            "always",
+            &[
+                ("style", "---\nname: style\nalways: true\ndescription: how to write\n---\nLead with the next action."),
+                ("brief", "---\nname: brief\ndescription: pick me when asked\n---\nbody"),
+            ],
+        );
+        let catalog = SkillStore::load(dir.clone(), 5, 10, &[]).catalog();
+
+        // In force: the body itself is present, so no tool call is needed to obey it.
+        assert!(catalog.contains("Lead with the next action."), "got:\n{catalog}");
+        assert!(catalog.contains("STANDING INSTRUCTIONS"), "got:\n{catalog}");
+        // Not offered: absent from the pick-one list, which still holds the others.
+        assert!(!catalog.contains("- style:"), "an in-force skill must not be offered:\n{catalog}");
+        assert!(catalog.contains("- brief: pick me when asked"), "got:\n{catalog}");
+
+        let _ = remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn standing_instructions_survive_a_paginated_catalog() {
+        // With page=1 the list collapses to a count — the standing body must NOT
+        // collapse with it, or the contract would vanish as skills accumulate.
+        let dir = skills_dir(
+            "always-paged",
+            &[
+                ("style", "---\nname: style\nalways: true\n---\nAction first."),
+                ("a", "---\nname: a\ndescription: x\n---\nb"),
+                ("b", "---\nname: b\ndescription: y\n---\nb"),
+            ],
+        );
+        let catalog = SkillStore::load(dir.clone(), 5, 1, &[]).catalog();
+        assert!(catalog.contains("Action first."), "got:\n{catalog}");
+        assert!(catalog.contains("2 installed"), "in-force skills aren't counted:\n{catalog}");
+        let _ = remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skill_is_hidden_until_its_capability_is_present() {
+        let dir = skills_dir(
+            "gating",
+            &[
+                ("transcribe", "---\nname: transcribe\nrequires: subscription\n---\nbody"),
+                ("brief", "---\nname: brief\ndescription: always here\n---\nbody"),
+            ],
+        );
+        let without: Vec<String> = scan(&dir, &[]).into_iter().map(|s| s.name).collect();
+        assert_eq!(without, vec!["brief"], "no subscription -> transcribe is absent");
+        let with: Vec<String> = scan(&dir, &["subscription"]).into_iter().map(|s| s.name).collect();
+        assert_eq!(with, vec!["brief", "transcribe"], "subscription -> both, sorted");
+        let _ = remove_dir_all(&dir);
+    }
 }

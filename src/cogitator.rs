@@ -426,7 +426,16 @@ impl AlbertCogitator {
         owner: bool,
         feed: StatusFeed,
     ) -> (String, Option<String>) {
-        let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx));
+        // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
+        // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
+        // (max_timeout_secs), and the imagegen / transcribe skills request up to it — so
+        // at the default the rig would abort the await while the script was still running
+        // and the model would report a phantom "response timeout". The invariant is
+        // script < forkd < rig: this ceiling must sit ABOVE forkd's max (300s), so forkd
+        // (which knows the job) owns the kill. 360s = 300 + margin. Fast connectors
+        // (calendar/jira/storage/search/browser) answer far under it and never come near.
+        let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
+            .with_timeout(Duration::from_secs(360));
         let send_file =
             reply_target.map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
         // Owner-only: restarting a connector (to reload its manifest) or the whole
