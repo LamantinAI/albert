@@ -99,3 +99,32 @@ workspace = "state/workspace"
 # [clouds.work]
 # url       = "https://kaeru.work.example"
 # token_env = "ALBERT_CLOUD_WORK_TOKEN"
+
+# --- Deterministic commands (option) — `/name` runs a skill script via forkd and
+# renders its JSON output through a template, as a REFLEX: no model call, no agent
+# turn spent. This is how someone drives Albert's existing skills without an LLM turn
+# (fast, cheap, predictable) — the deterministic counterpart to the built-in owner-only
+# `/allow`/`/deny`/`/allowed`. `/help` (auto-generated from this table) is always on
+# when any command is defined. Absent = no `/commands` surface at all.
+#
+# Each [commands."/name"] maps to a skill's bundled script (skill_path, relative to the
+# skills dir — the same value forkd's skill_path tool takes). The script should print a
+# single JSON object to stdout; `reply` fills `{field}` / `{nested.field}` placeholders
+# from it (a missing path renders as —; non-JSON stdout is echoed as-is). A trailing
+# `{arg}` in `args` is replaced by whatever the user typed after the command word, so
+# `/echo hi` passes `hi` (and a command with an `{arg}` slot called with no text gets a
+# short usage hint instead of running). The keys below are the full setting surface.
+#
+# [commands."/status"]
+# skill_path   = "your-skill/scripts/run.py"   # a bundled skill's script under the skills dir
+# args         = ["status"]                     # the script's subcommand + flags
+# reply        = "Status: {state} (uptime {uptime})."
+# help         = "service status"               # shown by /help
+#
+# [commands."/echo"]                            # /echo hello
+# skill_path   = "your-skill/scripts/run.py"
+# args         = ["echo", "{arg}"]              # a trailing {arg} takes the user's text
+# reply        = "You said: {text}"
+# owner_only   = true                           # refuse the command outside the owner chat
+# timeout_secs = 15                             # per-run wall-clock ceiling (default 15)
+# interpreter  = "python3"                       # default; set for non-python scripts

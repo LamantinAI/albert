@@ -19,8 +19,13 @@ use std::{
 
 use serde::Deserialize;
 use toml::{from_str, Table, Value};
+use tracing::warn;
 
 use crate::error::{Error, Result};
+
+/// Built-in reflex commands the cogitator matches before the `[commands]` table; a
+/// configured command colliding with one of these would never fire.
+const BUILTIN_COMMANDS: [&str; 5] = ["/start", "/help", "/allow", "/deny", "/allowed"];
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -224,6 +229,19 @@ impl Config {
                         "cloud '{name}' needs both url and token_env"
                     )))
                 }
+            }
+        }
+
+        // Command names are slash-commands: enforce the leading '/', and warn on any that
+        // collide with a built-in reflex (matched earlier, so a collision never fires).
+        for name in raw.commands.keys() {
+            if !name.starts_with('/') {
+                return Err(Error::Config(format!(
+                    "command name {name:?} must start with '/' (e.g. [commands.\"/{name}\"])"
+                )));
+            }
+            if BUILTIN_COMMANDS.contains(&name.as_str()) {
+                warn!(command = %name, "shadows a built-in reflex and will never fire; rename it");
             }
         }
 
