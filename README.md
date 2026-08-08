@@ -59,6 +59,10 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
 - **Self-lifecycle control** — on an owner turn, Albert manages its own runtime: it can
   read and edit its own config/prompt files and then apply the change by restarting —
   reloading a connector's manifest, or its whole self (history + memory persist).
+- **Deterministic commands** — a config-declared `[commands]` table maps a `/name` to a
+  skill script run via forkd, rendering its JSON output through a template as a **reflex**
+  (no model call, no agent turn) — so someone drives Albert's skills fast, cheap, and
+  predictably; `/help` lists them. Joins the always-on owner-only ACL reflex below.
 - **Config-driven connectors** — Telegram (edge ACL + owner-only `/allow` `/deny`
   `/allowed`), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
   a **scheduler**, **storage**, **forkd**, **search** (web search over several engines —
