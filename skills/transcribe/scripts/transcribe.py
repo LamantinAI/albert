@@ -108,7 +108,7 @@ def post(path, language, tok, acct, retries=3):
         except urllib.error.HTTPError as e:
             last = f"HTTP {e.code}: {e.read().decode('utf-8','replace')[:200]}"
             if e.code == 401:
-                raise SystemExit("401 — токен подписки протух; нужен `albert login`.")
+                raise SystemExit("401 — the subscription token expired; run `albert login`.")
             if e.code < 500:
                 break
         except Exception as e:
@@ -142,8 +142,8 @@ def main():
     t0 = time.time()
     cuts = silences(a.file)
     segs = plan_cuts(total, cuts, a.chunk, HARD_LIMIT)
-    print(f"[cut] {len(cuts)} пауз найдено → {len(segs)} чанков "
-          f"(медиана {sorted(e-s for s,e in segs)[len(segs)//2]:.0f}s)")
+    print(f"[cut] {len(cuts)} pauses found → {len(segs)} chunks "
+          f"(median {sorted(e-s for s,e in segs)[len(segs)//2]:.0f}s)")
 
     tmp = tempfile.mkdtemp(prefix="tx_")
     files = [cut(a.file, s, e, tmp, i) for i, (s, e) in enumerate(segs)]
@@ -156,7 +156,7 @@ def main():
             i = futs[fut]
             texts[i] = fut.result()
             done += 1
-            print(f"\r[api] {done}/{len(files)} чанков", end="", flush=True)
+            print(f"\r[api] {done}/{len(files)} chunks", end="", flush=True)
     print()
 
     lines = [f"[{hms(s)}] {t.strip()}" for (s, _), t in zip(segs, texts) if t and t.strip()]
@@ -171,16 +171,16 @@ def main():
     # a chunk that ends without sentence-final punctuation was almost certainly cut off
     trunc = [i for i, t in enumerate(texts)
              if t and not t.startswith("[[chunk") and t.strip()[-1:] not in ".!?…»\"'"]
-    print(f"[out] {out}  {len(body)} знаков  за {wall:.0f}s = {total/wall:.1f}x реального времени"
-          + (f"  ОШИБОК: {fails}" if fails else ""))
+    print(f"[out] {out}  {len(body)} chars  in {wall:.0f}s = {total/wall:.1f}x real time"
+          + (f"  FAILURES: {fails}" if fails else ""))
     if trunc:
-        print(f"[!]   похоже на обрыв в чанках {trunc} — уменьши --chunk")
+        print(f"[!]   looks truncated in chunks {trunc} — reduce --chunk")
     if not a.keep:
         for f in files:
             os.unlink(f)
         os.rmdir(tmp)
     else:
-        print(f"[tmp] чанки: {tmp}")
+        print(f"[tmp] chunks: {tmp}")
 
 
 main()

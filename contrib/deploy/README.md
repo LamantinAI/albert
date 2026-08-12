@@ -89,7 +89,7 @@ docker compose run --rm albert
 ```
 
 Startup should log `auth=subscription … base_url=https://chatgpt.com/backend-api/codex`
-and `subscription auth loaded plan=…`. Type a message (e.g. `скажи одно слово: работает`)
+and `subscription auth loaded plan=…`. Type a message (e.g. `say one word: working`)
 — a reply means the Codex subscription is live on the server. `Ctrl-C` to exit.
 
 ## 5. Run as a service
