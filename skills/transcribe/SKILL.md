@@ -2,57 +2,57 @@
 name: transcribe
 requires: subscription
 description: >-
-  Расшифровывает аудио и видео в текст по подписке ChatGPT — без API-ключей и без
-  оплаты за минуты. Любой медиафайл (m4a, mp3, mp4, mov, wav, ogg, webm…) режется
-  по паузам на чанки, распознаётся параллельно, на выходе текст с метками
-  [ЧЧ:ММ:СС]. Активируй, когда просят расшифровать/транскрибировать запись,
-  встречу, созвон, надиктовку, лекцию, подкаст; «сделай текст из записи»,
-  «что на этой записи», «переведи аудио в текст», «транскрипт встречи».
-  Короткие голосовые в чате расшифровываются сами — этот скилл нужен для ФАЙЛОВ.
+  Transcribes audio and video to text on the ChatGPT subscription — no API keys, no
+  per-minute billing. Any media file (m4a, mp3, mp4, mov, wav, ogg, webm…) is split
+  by pauses into chunks, transcribed in parallel, and returned as text with
+  [HH:MM:SS] marks. Activate when asked to transcribe a recording, a meeting, a call,
+  a dictation, a lecture, a podcast; "make text from this recording", "what's on this
+  recording", "turn this audio into text", "meeting transcript". Short voice messages
+  in chat are transcribed automatically — this skill is for FILES.
 ---
 
-Расшифровка медиафайлов через эндпоинт диктовки ChatGPT на токене подписки.
+Transcribing media files through the ChatGPT dictation endpoint on the subscription token.
 
-**Когда он не нужен.** Голосовое сообщение, присланное прямо в чат, Альберт слышит
-сам: оно приходит уже текстом, вызывать скилл не надо. Скилл — для файлов: записи
-встреч, длинные надиктовки, видео, всё что прислали документом.
+**When it isn't needed.** A voice message sent straight to the chat Albert hears on his
+own: it already arrives as text, no need to call the skill. The skill is for files: meeting
+recordings, long dictations, video, anything sent as a document.
 
-Бэкенд — python-скрипт, запускается через **forkd**: `dispatch_to_connector`
-target `"forkd"`, kind `"forkd.run"`, payload
+The backend is a python script, run through **forkd**: `dispatch_to_connector` target
+`"forkd"`, kind `"forkd.run"`, payload
 `{ "skill_path": "transcribe/scripts/transcribe.py", "interpreter": "python3",
-"args": ["<путь к файлу>", "--language", "ru", "-o", "<путь к транскрипту>"],
+"args": ["<file path>", "--language", "en", "-o", "<transcript path>"],
 "timeout_secs": 300 }`.
 
-## Как работать
+## How to work
 
-1. **Возьми путь к файлу.** Присланный в чат файл коннектор кладёт в общий
-   workspace и сообщает путь в тексте вида «saved to workspace path `...`» —
-   передавай скрипту именно его.
-2. **Запусти скрипт** через forkd. `--language ru` ставь, когда язык известен —
-   без него язык определяется сам. `-o` задаёт файл результата; по умолчанию
-   рядом с исходным, с суффиксом `_transcript.txt`.
-3. **Подбери `timeout_secs`.** Расшифровка идёт ~15–30x реального времени, но
-   чанки грузятся параллельно. Часовая запись укладывается в 2–4 минуты: ставь
-   300 с, для многочасовых — до 600 с.
-4. **Прочитай результат** и ответь пользователю по существу: краткое содержание,
-   или полный текст, или ответ на его вопрос по записи — смотри, что просили.
-   Не вываливай простыню на несколько тысяч знаков, если просили суть.
+1. **Take the file path.** A file sent to the chat is placed by the connector into the
+   shared workspace, and the path is reported in text like "saved to workspace path
+   `...`" — pass exactly that to the script.
+2. **Run the script** through forkd. Set `--language <code>` (e.g. `en`, `ru`) when the
+   language is known — without it the language is auto-detected. `-o` sets the output
+   file; the default is next to the source with a `_transcript.txt` suffix.
+3. **Pick `timeout_secs`.** Transcription runs at ~15–30x real time, but chunks upload in
+   parallel. An hour-long recording fits in 2–4 minutes: use 300s, up to 600s for
+   multi-hour files.
+4. **Read the result** and answer the user to the point: a summary, or the full text, or
+   an answer to their question about the recording — whatever was asked. Don't dump a wall
+   of several thousand characters if they asked for the gist.
 
-## Что печатает скрипт
+## What the script prints
 
-`[in]` длительность, `[cut]` сколько чанков, `[api]` прогресс, `[out]` путь к
-файлу с текстом, число знаков и скорость. Транскрипт — в файле, а не в stdout:
-в stdout только эта сводка.
+`[in]` duration, `[cut]` how many chunks, `[api]` progress, `[out]` the path to the text
+file, the character count and speed. The transcript is in the file, not stdout: stdout
+carries only this summary.
 
-## Ограничения, о которых надо знать
+## Limits worth knowing
 
-- **Диаризации нет** — кто именно говорит, эндпоинт не различает. Если просят «по
-  ролям», честно скажи, что этого он не умеет.
-- **Обрыв без ошибки.** Эндпоинт молча обрезает слишком длинный кусок, поэтому
-  скрипт режет запись по паузам на ~5 минут. Если в конце появилось
-  `[!] похоже на обрыв в чанках …` — перезапусти с меньшим `--chunk` (например
-  180) и скажи пользователю, что часть могла потеряться.
-- **`[[chunk failed: …]]`** в тексте — этот кусок не расшифровался; повтори прогон
-  или предупреди, что там пропуск.
-- **Приватность.** Загруженное аудио остаётся на серверах OpenAI (asset_ttl 30
-  дней). Для явно чувствительной записи предупреди об этом перед запуском.
+- **No diarization** — the endpoint doesn't tell speakers apart. If asked "by speaker",
+  say honestly it can't do that.
+- **Silent truncation.** The endpoint quietly cuts an over-long chunk, so the script
+  splits the recording by pauses into ~5-minute pieces. If a `[!] looks truncated in
+  chunks …` appears at the end, rerun with a smaller `--chunk` (e.g. 180) and tell the
+  user part of it may have been lost.
+- **`[[chunk failed: …]]`** in the text — that piece didn't transcribe; rerun or warn that
+  there's a gap there.
+- **Privacy.** Uploaded audio stays on OpenAI's servers (asset_ttl 30 days). For a clearly
+  sensitive recording, warn about this before running.

@@ -2,14 +2,14 @@
 
 A good morning brief, for reference (read via skill_file, don't quote it verbatim):
 
-> Доброе утро. Сегодня спокойный день, сэр.
+> Good morning. A calm day ahead, sir.
 >
-> - 11:00 — созвон с командой (30 мин)
-> - 16:30 — стоматолог
+> - 11:00 — team call (30 min)
+> - 16:30 — dentist
 >
-> Из напоминалок к сегодняшнему: забрать посылку.
+> From your reminders for today: pick up the parcel.
 >
-> Ничего срочного больше не вижу. Если что — я рядом.
+> Nothing else pressing that I can see. I'm here if you need me.
 
 Notes: local times; events first, then reminders, then one gentle nudge; warm,
 unhurried, a touch of the butler. A few lines, no raw tool output.

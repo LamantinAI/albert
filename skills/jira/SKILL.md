@@ -1,6 +1,6 @@
 ---
 name: jira
-description: when the user asks about their Jira — issues, tasks, boards, statuses, assignees, comments, worklogs, or asks to update/comment/transition/assign a ticket. Triggers «что в жире», «мои задачи», «покажи задачу PROJ-…», «прокомментируй тикет», «переведи в In Progress», «залогируй время».
+description: when the user asks about their Jira — issues, tasks, boards, statuses, assignees, comments, worklogs, or asks to update/comment/transition/assign a ticket. Triggers "what's in Jira", "my tasks", "show issue PROJ-…", "comment on the ticket", "move to In Progress", "log time".
 ---
 
 Work with the owner's Jira through the **jira** connector — reach it with the
@@ -11,7 +11,7 @@ otherwise.
 
 ## Reading (safe — do freely)
 
-- **My open tasks / «что в жире» / «мои задачи»** → `jira.cmd.search` with
+- **My open tasks / "what's in Jira" / "my tasks"** → `jira.cmd.search` with
   `{ "jql": "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC", "max_results": 10 }`.
   Summarize each issue: key, status, assignee, summary, updated. `max_results` is
   REQUIRED (a number) — default 10.
@@ -27,11 +27,11 @@ Read only what the request needs; don't dump whole issue bodies unless asked.
 
 State what will change before doing it (except a plainly-requested comment).
 
-- **Comment** → `jira.cmd.comment` with `{ "key": "PROJ-123", "body": "текст" }`.
+- **Comment** → `jira.cmd.comment` with `{ "key": "PROJ-123", "body": "text" }`.
 - **Transition** — two steps: first `jira.cmd.transitions` with `{ "key": "…" }` to get
   the available transitions, pick the one whose `name` or `to.name` matches what the
   user wants, then `jira.cmd.transition` with `{ "key": "…", "transition_id": "<id>" }`.
-- **Log work** → `jira.cmd.worklog` with `{ "key": "…", "time": "2h 30m", "comment": "что делал" }`.
+- **Log work** → `jira.cmd.worklog` with `{ "key": "…", "time": "2h 30m", "comment": "what you did" }`.
   `time` accepts `2h`, `30m`, `1h 30m`. It stamps "now"; only pass a past time if asked.
 - **Reassign** → `jira.cmd.assign` with `{ "key": "…", "user": "<username>" }`.
 
