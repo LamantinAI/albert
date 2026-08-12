@@ -4,14 +4,15 @@
   <img src="resources/albert.png" alt="Albert" width="240">
 </p>
 
-<p align="center"><b>A personal, always-on AI assistant that grows with you — and stays fast doing it.</b></p>
+<p align="center"><b>An always-on AI assistant that grows with you — and stays fast doing it.</b></p>
 
 `Albert` is built as an **assembly** of maturing LamantinAI substrates rather than one
-model. Three things set the shape of it:
+model. Talk to him one-on-one or drop him into a group chat — he serves a person or a
+whole team. Three things set the shape of it:
 
 - **It grows with you.** Albert remembers with [kaeru](https://github.com/LamantinAI/kaeru),
-  its memory — it keeps learning the more you use it, far past what a single conversation
-  could hold.
+  its memory — it keeps learning the more you (and your group) use it, far past what a
+  single conversation could hold.
 - **It stays fast.** It reaches for memory only when it needs to, and pulls just what
   matters — so replies stay quick no matter how much it knows.
 - **It lives in an environment.** The [Octo](https://github.com/LamantinAI/octo) runtime
