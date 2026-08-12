@@ -14,7 +14,11 @@
 //! in [`crate::routines`].
 
 use std::{
-    sync::{Arc, Mutex},
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -27,7 +31,7 @@ use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, OctoResult, ReplyChannel, Subscription,
 };
-use octo_rig::{carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
+use octo_rig::{carry_out_cancel, carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
@@ -38,7 +42,7 @@ use rig::{
     OneOrMany,
 };
 use serde_json::{json, Value};
-use tokio::{select, spawn};
+use tokio::{select, spawn, task::AbortHandle};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -70,6 +74,15 @@ pub struct AlbertCogitator {
     scratchpad: Arc<ScratchpadStore>,
     skills: Arc<SkillStore>,
     prompt: Arc<PromptFiles>,
+    /// The in-flight LLM turn per channel: `channel -> (turn_id, abort handle)`. A turn
+    /// runs as its own task so the perceive loop stays free to receive the next message
+    /// (and a `/cancel`) while it runs. A new message on a channel supersedes the old
+    /// turn (abort + cancel); `/cancel` aborts with no successor. Cleared by a turn when
+    /// it finishes — guarded by `turn_id`, so a finishing turn never clears a newer one.
+    turns: Mutex<HashMap<String, (String, AbortHandle)>>,
+    /// Monotonic source of turn ids — also the cancellation scope stamped on the turn's
+    /// connector dispatches (see [`OctoDispatchTool::with_scope`]).
+    turn_seq: AtomicU64,
 }
 
 impl AlbertCogitator {
@@ -92,6 +105,8 @@ impl AlbertCogitator {
             scratchpad,
             skills,
             prompt,
+            turns: Mutex::new(HashMap::new()),
+            turn_seq: AtomicU64::new(0),
         })
     }
 }
@@ -242,6 +257,38 @@ impl AlbertCogitator {
 
         // Reflexes fire on text-only turns: instant, no LLM.
         if input.image.is_none() {
+            let owner = is_owner(&incoming);
+            let word = input.text.trim().split_whitespace().next().unwrap_or("");
+
+            // Owner-only /cancel: stop this channel's in-flight turn — abort its task AND
+            // cancel the connector work it started (forkd scripts) — with no successor.
+            // Non-owners can't halt Albert, so for them it falls through as ordinary text.
+            if owner && word == "/cancel" {
+                let stopped = self.cancel_channel(&channel_key, ctx).await;
+                let msg = if stopped {
+                    "Остановил."
+                } else {
+                    "Сейчас нечего останавливать."
+                };
+                self.emit_reply(&incoming, msg.to_string(), ctx).await;
+                self.record(&channel_key, input.text, "(cancel)".into()).await;
+                return;
+            }
+
+            // Owner-only /restart: a deterministic reflex onto the same control signal
+            // the model's `restart` tool uses — force a process restart, no LLM turn.
+            if owner && word == "/restart" {
+                self.emit_reply(
+                    &incoming,
+                    "Перезапускаюсь — вернусь через пару секунд.".to_string(),
+                    ctx,
+                )
+                .await;
+                self.record(&channel_key, input.text, "(restart)".into()).await;
+                self.apply_restart("process".to_string(), ctx).await;
+                return;
+            }
+
             if let Some(canned) = command_reply(&input.text) {
                 self.emit_reply(&incoming, canned.clone(), ctx).await;
                 self.record(&channel_key, input.text, "(reflex reply)".into()).await;
@@ -267,6 +314,67 @@ impl AlbertCogitator {
             return;
         }
 
+        // The actual agent turn runs as its own task, so the perceive loop stays free to
+        // receive the next message (and a /cancel) while it runs. A new message on the
+        // channel supersedes the turn already running there.
+        self.clone().spawn_turn(incoming, input, ctx).await;
+    }
+
+    /// Start an LLM turn as its own task, superseding any turn already in flight on this
+    /// channel (latest message wins). The task clears its own registry slot when it ends.
+    async fn spawn_turn(
+        self: Arc<Self>,
+        incoming: Arc<Envelope>,
+        input: UserInput,
+        ctx: &CogitatorContext,
+    ) {
+        let channel = channel_of(&incoming);
+        // Supersede: the newer message aborts the previous turn + its connector work.
+        self.cancel_channel(&channel, ctx).await;
+
+        let turn_id = format!("turn-{}", self.turn_seq.fetch_add(1, Ordering::Relaxed));
+        let me = self.clone();
+        let owned_ctx = ctx.clone();
+        let ch = channel.clone();
+        let tid = turn_id.clone();
+        let handle = spawn(async move {
+            me.run_turn(incoming, input, &owned_ctx, &tid).await;
+            // Clear our slot — but only if it is still ours (a supersede may have replaced
+            // it with a newer turn, whose slot must survive).
+            let mut turns = me.turns.lock().unwrap();
+            if turns.get(&ch).is_some_and(|(t, _)| t == &tid) {
+                turns.remove(&ch);
+            }
+        });
+        self.turns.lock().unwrap().insert(channel, (turn_id, handle.abort_handle()));
+    }
+
+    /// Stop the channel's in-flight turn: abort the task and publish
+    /// `octo.control.cancel` for its scope so the connector work it started (forkd
+    /// scripts) is killed too, not just left to finish. Returns whether there was one.
+    async fn cancel_channel(&self, channel: &str, ctx: &CogitatorContext) -> bool {
+        let entry = self.turns.lock().unwrap().remove(channel);
+        let Some((turn_id, abort)) = entry else {
+            return false;
+        };
+        abort.abort();
+        if let Err(e) = carry_out_cancel(&ctx.bus(), &self.self_source, &turn_id).await {
+            warn!(error = %e, turn = %turn_id, "failed to publish cancel signal");
+        }
+        true
+    }
+
+    /// One agent turn: gather context, drive the tool-loop, reply, persist. Runs inside
+    /// the per-channel task spawned by [`Self::spawn_turn`]; `turn_id` is its cancellation
+    /// scope, stamped on every connector dispatch so a `/cancel` can reach them.
+    async fn run_turn(
+        self: &Arc<Self>,
+        incoming: Arc<Envelope>,
+        input: UserInput,
+        ctx: &CogitatorContext,
+        turn_id: &str,
+    ) {
+        let channel_key = channel_of(&incoming);
         let shown = input.transcript();
         info!(source = %incoming.source, channel = %channel_key, "← {shown}");
 
@@ -301,6 +409,7 @@ impl AlbertCogitator {
                 Some(incoming.source.clone()),
                 is_owner(&incoming),
                 feed.clone(),
+                Some(turn_id),
             )
             .await;
 
@@ -369,7 +478,7 @@ impl AlbertCogitator {
         self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
         let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
         let (answer, _) = self
-            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed.clone())
+            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed.clone(), None)
             .await;
 
         self.emit_text(
@@ -404,7 +513,7 @@ impl AlbertCogitator {
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let (out, _) = self
-                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, false, StatusFeed::silent())
+                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, false, StatusFeed::silent(), None)
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
             }
@@ -425,6 +534,7 @@ impl AlbertCogitator {
         reply_target: Option<ConnectorId>,
         owner: bool,
         feed: StatusFeed,
+        scope: Option<&str>,
     ) -> (String, Option<String>) {
         // Owner-only: restarting a connector (to reload its manifest) or the whole
         // process (to apply albert.toml) is an admin action. The tool records the
@@ -441,8 +551,14 @@ impl AlbertCogitator {
             // script < forkd < rig: this ceiling must sit ABOVE forkd's max (300s), so forkd
             // (which knows the job) owns the kill. 360s = 300 + margin. Fast connectors
             // (calendar/jira/storage/search/browser) answer far under it and never come near.
-            let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
-                .with_timeout(Duration::from_secs(360));
+            let mut dispatch =
+                OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
+                    .with_timeout(Duration::from_secs(360));
+            // Stamp this turn's cancellation scope on every dispatch, so a /cancel can
+            // reach the connector work (forkd scripts) the model starts this turn.
+            if let Some(s) = scope {
+                dispatch = dispatch.with_scope(s);
+            }
             let send_file = reply_target
                 .clone()
                 .map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
@@ -1085,6 +1201,7 @@ fn command_reply(text: &str) -> Option<String> {
              • пришли фото (или картинку файлом) — посмотрю и отвечу по ней\n\
              • пока думаю — показываю «печатает…» и ход работы с инструментами\n\
              • владельцу: /allow <chat_id>, /deny <chat_id>, /allowed — доступ к боту\n\
+             • владельцу: /cancel — прервать текущий ответ, /restart — перезапуск\n\
              • /start, /help → мгновенно, без модели"
                 .to_string(),
         ),
