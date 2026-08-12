@@ -31,12 +31,12 @@ pub async fn command(
     };
     if !is_owner(incoming) {
         warn!(source = %incoming.source, "acl command from non-owner refused");
-        return Some("Управлять списком доступа может только владелец.".to_string());
+        return Some("Only the owner can manage the access list.".to_string());
     }
     let payload = match cmd {
         "/allow" | "/deny" => match arg.parse::<i64>() {
             Ok(id) => json!({ "chat_id": id, "role": "trusted" }),
-            Err(_) => return Some(format!("Использование: {cmd} <chat_id>")),
+            Err(_) => return Some(format!("Usage: {cmd} <chat_id>")),
         },
         _ => json!({}),
     };
@@ -44,7 +44,7 @@ pub async fn command(
         .with_target(ConnectorId::new("telegram"));
     match ctx.publish_and_await_response(req, Duration::from_secs(5)).await {
         Ok(resp) => Some(format_result(cmd, resp.payload_as::<Value>())),
-        Err(e) => Some(format!("Команда не выполнена: {e}")),
+        Err(e) => Some(format!("Command failed: {e}")),
     }
 }
 
@@ -62,30 +62,30 @@ pub(crate) fn is_owner(env: &Envelope) -> bool {
 fn format_result(cmd: &str, payload: Option<&Value>) -> String {
     let p = payload.cloned().unwrap_or(Value::Null);
     if p.get("ok").and_then(Value::as_bool) != Some(true) {
-        let err = p.get("error").and_then(Value::as_str).unwrap_or("неизвестная ошибка");
-        return format!("Ошибка: {err}");
+        let err = p.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        return format!("Error: {err}");
     }
     match cmd {
         "/allow" => {
             let id = p.get("chat_id").and_then(Value::as_i64).unwrap_or_default();
             if p.get("added").and_then(Value::as_bool) == Some(true) {
-                format!("Чат {id} добавлен (trusted).")
+                format!("Chat {id} added (trusted).")
             } else {
-                format!("Чат {id} уже был в списке.")
+                format!("Chat {id} was already on the list.")
             }
         }
         "/deny" => {
             let id = p.get("chat_id").and_then(Value::as_i64).unwrap_or_default();
             if p.get("removed").and_then(Value::as_bool) == Some(true) {
-                format!("Чат {id} удалён.")
+                format!("Chat {id} removed.")
             } else {
-                format!("Чата {id} не было в списке.")
+                format!("Chat {id} wasn't on the list.")
             }
         }
         _ => {
             let chats = p.get("chats").and_then(Value::as_array).cloned().unwrap_or_default();
             if chats.is_empty() {
-                return "Список доступа пуст.".to_string();
+                return "The access list is empty.".to_string();
             }
             let lines: Vec<String> = chats
                 .iter()
@@ -95,7 +95,7 @@ fn format_result(cmd: &str, payload: Option<&Value>) -> String {
                     format!("- {id} — {role}")
                 })
                 .collect();
-            format!("Список доступа:\n{}", lines.join("\n"))
+            format!("Access list:\n{}", lines.join("\n"))
         }
     }
 }

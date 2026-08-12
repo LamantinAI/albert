@@ -132,7 +132,7 @@ fn multipart_body(
 }
 
 /// A transcript that ends mid-sentence is the endpoint's silent-truncation
-/// signature. Short replies ("Да.", "Ок") are normal, so only longer text counts.
+/// signature. Short replies ("Yes.", "OK") are normal, so only longer text counts.
 fn looks_truncated(text: &str) -> bool {
     const TERMINAL: [char; 8] = ['.', '!', '?', '…', '"', ')', ':', ';'];
     text.chars().count() > 200 && !text.trim_end().ends_with(TERMINAL)
@@ -173,8 +173,8 @@ mod tests {
 
     #[test]
     fn truncation_heuristic_ignores_short_answers() {
-        assert!(!looks_truncated("Да"), "a short reply is not a truncated one");
-        let long_open = "слово ".repeat(60); // >200 chars, ends without punctuation
+        assert!(!looks_truncated("Yes"), "a short reply is not a truncated one");
+        let long_open = "word ".repeat(60); // >200 chars, ends without punctuation
         assert!(looks_truncated(&long_open));
         assert!(!looks_truncated(&format!("{long_open}.")));
     }

@@ -190,15 +190,15 @@ impl AlbertCogitator {
     ) -> Option<String> {
         let decline = |reason: String| async move {
             self.emit_reply(incoming, reason.clone(), ctx).await;
-            self.record(&channel_of(incoming), "(голосовое сообщение)".into(), reason).await;
+            self.record(&channel_of(incoming), "(voice message)".into(), reason).await;
             None::<String>
         };
 
         if !self.config.hearing {
             return decline(
-                "Я получил голосовое, но сейчас не могу его расслышать: расшифровка идёт \
-                 через подписку ChatGPT. (Включи `auth = \"subscription\"`, либо `hearing = \
-                 true` в albert.toml, если знаешь, что делаешь.)"
+                "I got a voice message but can't listen to it right now: transcription runs \
+                 through the ChatGPT subscription. (Set `auth = \"subscription\"`, or `hearing = \
+                 true` in albert.toml if you know what you're doing.)"
                     .to_string(),
             )
             .await;
@@ -209,8 +209,8 @@ impl AlbertCogitator {
         let secs = incoming.tags.get("duration_secs").and_then(|s| s.parse::<u32>().ok());
         if secs.is_some_and(|s| s > MAX_INLINE_SECS) {
             return decline(format!(
-                "Это голосовое на {} мин — длиннее {} мин я расшифровываю не в диалоге, иначе \
-                 текст молча обрежется. Пришли файлом, и я разберу его целиком.",
+                "This voice message is {} min — longer than {} min I don't transcribe inline, or \
+                 the text gets silently truncated. Send it as a file and I'll do the whole thing.",
                 secs.unwrap_or_default() / 60,
                 MAX_INLINE_SECS / 60,
             ))
@@ -222,8 +222,8 @@ impl AlbertCogitator {
             Err(e) => {
                 warn!(error = %e, "voice: subscription token unavailable");
                 return decline(
-                    "Не смог расшифровать голосовое: подписка ChatGPT сейчас недоступна \
-                     (токен просрочен — нужен `albert login`)."
+                    "Couldn't transcribe the voice message: the ChatGPT subscription is \
+                     unavailable right now (token expired — needs `albert login`)."
                         .to_string(),
                 )
                 .await;
@@ -234,19 +234,19 @@ impl AlbertCogitator {
         match transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await {
             Ok(text) if text.is_empty() => {
                 warn!("voice: empty transcript");
-                decline("Голосовое пришло, но в нём не разобрать ни слова — пусто.".to_string()).await
+                decline("The voice message came through but there's not a word in it — empty.".to_string()).await
             }
             Ok(text) => {
                 info!(chars = text.len(), secs = ?secs, "voice: transcribed");
                 // A caption (rare on voice, but possible) is context, not speech.
                 match incoming.tags.get("caption").filter(|c| !c.is_empty()) {
-                    Some(caption) => Some(format!("{text}\n\n(подпись к голосовому: {caption})")),
+                    Some(caption) => Some(format!("{text}\n\n(voice message caption: {caption})")),
                     None => Some(text),
                 }
             }
             Err(e) => {
                 warn!(error = %e, "voice: transcription failed");
-                decline(format!("Не смог расшифровать голосовое: {e}")).await
+                decline(format!("Couldn't transcribe the voice message: {e}")).await
             }
         }
     }
@@ -265,11 +265,7 @@ impl AlbertCogitator {
             // Non-owners can't halt Albert, so for them it falls through as ordinary text.
             if owner && word == "/cancel" {
                 let stopped = self.cancel_channel(&channel_key, ctx).await;
-                let msg = if stopped {
-                    "Остановил."
-                } else {
-                    "Сейчас нечего останавливать."
-                };
+                let msg = if stopped { "Stopped." } else { "Nothing to stop right now." };
                 self.emit_reply(&incoming, msg.to_string(), ctx).await;
                 self.record(&channel_key, input.text, "(cancel)".into()).await;
                 return;
@@ -280,7 +276,7 @@ impl AlbertCogitator {
             if owner && word == "/restart" {
                 self.emit_reply(
                     &incoming,
-                    "Перезапускаюсь — вернусь через пару секунд.".to_string(),
+                    "Restarting — back in a couple of seconds.".to_string(),
                     ctx,
                 )
                 .await;
@@ -305,9 +301,9 @@ impl AlbertCogitator {
 
         // An image on a text-only model: say so instead of silently ignoring it.
         if input.image.is_some() && !self.config.multimodal {
-            let reply = "Я получил изображение, но текущая модель не видит картинки — \
-                         опиши словами, что на ней. (Или включи мультимодальную модель: \
-                         `multimodal = true` + vision-модель в albert.toml.)"
+            let reply = "I got an image, but the current model can't see pictures — \
+                         describe in words what's on it. (Or switch on a multimodal model: \
+                         `multimodal = true` + a vision model in albert.toml.)"
                 .to_string();
             self.emit_reply(&incoming, reply.clone(), ctx).await;
             self.record(&channel_key, input.transcript(), reply).await;
@@ -964,8 +960,8 @@ impl UserInput {
         };
         let b64 = base64::engine::general_purpose::STANDARD.encode(blob.bytes());
         let caption = if self.text.trim().is_empty() {
-            "Пользователь прислал это изображение без подписи — рассмотри его и \
-             отреагируй по контексту разговора."
+            "The user sent this image with no caption — look at it and respond in the \
+             context of the conversation."
         } else {
             self.text.as_str()
         };
@@ -984,9 +980,9 @@ impl UserInput {
         match &self.image {
             None => self.text.clone(),
             Some(b) if self.text.trim().is_empty() => {
-                format!("(прислал изображение, {})", b.content_type())
+                format!("(sent an image, {})", b.content_type())
             }
-            Some(b) => format!("(прислал изображение, {}) {}", b.content_type(), self.text),
+            Some(b) => format!("(sent an image, {}) {}", b.content_type(), self.text),
         }
     }
 }
@@ -1082,22 +1078,22 @@ mod tests {
 
     #[test]
     fn text_input_stays_a_plain_user_message() {
-        let input = UserInput { text: "привет".into(), image: None };
+        let input = UserInput { text: "hello".into(), image: None };
         assert!(matches!(input.prompt(), Message::User { content } if content.len() == 1));
-        assert_eq!(input.transcript(), "привет");
+        assert_eq!(input.transcript(), "hello");
     }
 
     #[test]
     fn image_input_becomes_image_plus_caption() {
         let blob = Blob::new(vec![0xFFu8, 0xD8, 0xFF], "image/jpeg").with_filename("photo.jpg");
-        let input = UserInput { text: "что на фото?".into(), image: Some(blob) };
+        let input = UserInput { text: "what's in the photo?".into(), image: Some(blob) };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
         let items: Vec<_> = content.into_iter().collect();
         assert_eq!(items.len(), 2);
         assert!(matches!(items[0], UserContent::Image(_)));
-        assert!(matches!(&items[1], UserContent::Text(t) if t.text == "что на фото?"));
+        assert!(matches!(&items[1], UserContent::Text(t) if t.text == "what's in the photo?"));
         assert!(input.transcript().contains("image/jpeg"));
     }
 
@@ -1182,27 +1178,27 @@ mod tests {
             panic!("expected a user message");
         };
         let items: Vec<_> = content.into_iter().collect();
-        assert!(matches!(&items[1], UserContent::Text(t) if t.text.contains("без подписи")));
+        assert!(matches!(&items[1], UserContent::Text(t) if t.text.contains("no caption")));
     }
 }
 
 fn command_reply(text: &str) -> Option<String> {
     match text.trim() {
         "/start" => Some(
-            "Привет! Я Альберт — ассистент на рантайме Octo с памятью (kaeru) и планировщиком. \
-             Скажи «напомни …» — заведу напоминалку и буду напоминать, пока не скажешь, что сделал. \
-             /help — подробнее."
+            "Hi! I'm Albert — an assistant on the Octo runtime with graph memory (kaeru) and a \
+             scheduler. Say \"remind me …\" and I'll set a reminder and keep nudging you until \
+             you say it's done. /help for more."
                 .to_string(),
         ),
         "/help" => Some(
-            "Я помню контекст и умею напоминания:\n\
-             • «напомни каждые 30 минут попить воды» → поставлю повторяющееся напоминание\n\
-             • когда сработает — напишу; скажи «сделал» → отмечу выполненным и остановлю\n\
-             • пришли фото (или картинку файлом) — посмотрю и отвечу по ней\n\
-             • пока думаю — показываю «печатает…» и ход работы с инструментами\n\
-             • владельцу: /allow <chat_id>, /deny <chat_id>, /allowed — доступ к боту\n\
-             • владельцу: /cancel — прервать текущий ответ, /restart — перезапуск\n\
-             • /start, /help → мгновенно, без модели"
+            "I keep context and handle reminders:\n\
+             • \"remind me to drink water every 30 minutes\" → I set a repeating reminder\n\
+             • when it fires I message you; say \"done\" → I mark it complete and stop\n\
+             • send a photo (or an image as a file) — I'll look and answer about it\n\
+             • while I think I show \"typing…\" and my tool-use trace\n\
+             • owner: /allow <chat_id>, /deny <chat_id>, /allowed — bot access\n\
+             • owner: /cancel — stop the current reply, /restart — restart me\n\
+             • /start, /help → instant, no model"
                 .to_string(),
         ),
         _ => None,
