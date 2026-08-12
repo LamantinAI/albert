@@ -6,7 +6,9 @@
 //! token fresh in place. Each turn calls [`ensure_fresh`]: it loads the store and,
 //! only when the access token is at/near expiry, refreshes it via the OAuth token
 //! endpoint and writes the new tokens back. The bearer + account id then flow into
-//! the Codex request headers ([`crate::cogitator`]).
+//! the Codex request headers ([`crate::cogitator`]). When the server rejects a
+//! token that `exp` still calls valid (revocation), the caller escalates to
+//! [`force_refresh`], which refreshes unconditionally.
 
 use std::{fs::read_to_string, path::Path};
 
@@ -111,6 +113,29 @@ pub async fn ensure_fresh(path: &Path) -> Result<Subscription> {
         }
     }
 
+    subscription_from(&auth.tokens)
+}
+
+/// Refresh NOW, ignoring what the JWT `exp` claims. The server can revoke an access
+/// token ahead of its stated expiry (seen live 2026-08-10: a 401 `token_expired`
+/// with `exp` still eight days out), and [`ensure_fresh`] trusts `exp` — so it would
+/// keep serving the revoked token forever. This is the escape hatch for a caller
+/// that has just watched the token bounce off the server. A rejected refresh errors
+/// through [`refresh`], which already points at `albert login`.
+pub async fn force_refresh(path: &Path) -> Result<Subscription> {
+    let mut auth = AuthDotJson::load(path)?;
+    if auth.tokens.refresh_token.is_empty() {
+        return Err(Error::Auth(format!(
+            "the server no longer accepts the access token in {} and there is no \
+             refresh_token; run `albert login` (or `codex login`)",
+            path.display()
+        )));
+    }
+    info!("server rejected the access token ahead of its exp; forcing a refresh");
+    let refreshed = refresh(&auth.tokens.refresh_token).await?;
+    apply_refresh(&mut auth.tokens, refreshed);
+    auth.last_refresh = Some(now_rfc3339());
+    auth.save(path)?;
     subscription_from(&auth.tokens)
 }
 
@@ -255,7 +280,10 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{account_id_from_jwt, jwt_claims, plan_from_jwt};
+    use super::{
+        account_id_from_jwt, apply_refresh, force_refresh, jwt_claims, plan_from_jwt,
+        AuthDotJson, RefreshResponse, Tokens,
+    };
 
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use serde_json::{json, Value};
@@ -289,6 +317,84 @@ mod tests {
         assert!(account_id_from_jwt("x.y").is_none());
     }
 
+    fn stored_tokens() -> Tokens {
+        Tokens {
+            id_token: "old-id".into(),
+            access_token: "old-access".into(),
+            refresh_token: "old-refresh".into(),
+            account_id: "acc-old".into(),
+        }
+    }
+
+    /// An access-token-only refresh response (the common case) must not clobber the
+    /// fields the server didn't re-issue — losing the refresh_token here would turn
+    /// the NEXT refresh into a forced re-login.
+    #[test]
+    fn apply_refresh_keeps_what_the_server_did_not_reissue() {
+        let mut tokens = stored_tokens();
+        apply_refresh(
+            &mut tokens,
+            RefreshResponse {
+                access_token: Some("new-access".into()),
+                refresh_token: None,
+                id_token: None,
+            },
+        );
+        assert_eq!(tokens.access_token, "new-access");
+        assert_eq!(tokens.refresh_token, "old-refresh");
+        assert_eq!(tokens.id_token, "old-id");
+        assert_eq!(tokens.account_id, "acc-old");
+    }
+
+    #[test]
+    fn apply_refresh_rederives_account_from_a_fresh_id_token() {
+        let id = jwt(&json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acc-new" },
+        }));
+        let mut tokens = stored_tokens();
+        apply_refresh(
+            &mut tokens,
+            RefreshResponse {
+                access_token: None,
+                refresh_token: Some("new-refresh".into()),
+                id_token: Some(id.clone()),
+            },
+        );
+        assert_eq!(tokens.account_id, "acc-new");
+        assert_eq!(tokens.id_token, id);
+        assert_eq!(tokens.refresh_token, "new-refresh");
+        assert_eq!(tokens.access_token, "old-access");
+    }
+
+    /// The force path exists for a live 401 despite an unexpired JWT — so it must
+    /// run even when `exp` says the token is fine, and without a refresh_token it
+    /// must point the user at re-login rather than 401-looping.
+    #[tokio::test]
+    async fn force_refresh_without_refresh_token_points_at_login() {
+        use std::fs::remove_file;
+
+        let path =
+            std::env::temp_dir().join(format!("albert_auth_force_{}.json", std::process::id()));
+        AuthDotJson::new(Tokens {
+            id_token: String::new(),
+            // exp far in the future: irrelevant to the force path by design.
+            access_token: jwt(&json!({ "exp": 9_999_999_999_i64 })),
+            refresh_token: String::new(),
+            account_id: "acc".into(),
+        })
+        .save(&path)
+        .expect("save");
+
+        // No expect_err: Subscription deliberately has no Debug (it holds the token).
+        let err = match force_refresh(&path).await {
+            Ok(_) => panic!("no refresh_token must fail"),
+            Err(e) => e,
+        };
+        let _ = remove_file(&path);
+        let msg = err.to_string();
+        assert!(msg.contains("albert login"), "must point at `albert login`, got: {msg}");
+    }
+
     /// The token store lands at `0600`, even when overwriting a pre-existing
     /// world-readable file (the tokens must never be readable at a looser mode).
     #[cfg(unix)]
@@ -298,8 +404,6 @@ mod tests {
             fs::{metadata, remove_file, set_permissions, write},
             os::unix::fs::PermissionsExt,
         };
-
-        use super::{AuthDotJson, Tokens};
 
         let path = std::env::temp_dir().join(format!("albert_auth_test_{}.json", std::process::id()));
         write(&path, b"{}").unwrap();

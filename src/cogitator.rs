@@ -31,7 +31,7 @@ use octo_rig::{carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
-    completion::{CompletionModel, Message, Prompt},
+    completion::{CompletionModel, Message, Prompt, PromptError},
     http_client::{HeaderMap, HeaderValue},
     message::{ImageMediaType, UserContent},
     providers::{openai, openrouter::Client as OpenRouterClient},
@@ -49,7 +49,7 @@ use crate::{
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
     transcribe::{transcribe, MAX_INLINE_SECS},
-    openai_auth::{ensure_fresh, Subscription as SubscriptionAuth},
+    openai_auth::{ensure_fresh, force_refresh, Subscription as SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -426,26 +426,32 @@ impl AlbertCogitator {
         owner: bool,
         feed: StatusFeed,
     ) -> (String, Option<String>) {
-        // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
-        // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
-        // (max_timeout_secs), and the imagegen / transcribe skills request up to it — so
-        // at the default the rig would abort the await while the script was still running
-        // and the model would report a phantom "response timeout". The invariant is
-        // script < forkd < rig: this ceiling must sit ABOVE forkd's max (300s), so forkd
-        // (which knows the job) owns the kill. 360s = 300 + margin. Fast connectors
-        // (calendar/jira/storage/search/browser) answer far under it and never come near.
-        let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
-            .with_timeout(Duration::from_secs(360));
-        let send_file =
-            reply_target.map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
         // Owner-only: restarting a connector (to reload its manifest) or the whole
         // process (to apply albert.toml) is an admin action. The tool records the
         // requested target here; the caller carries it out after the reply is sent.
         let pending: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let restart = owner.then(|| RestartTool::new(pending.clone()));
-        // Owner-only: read/edit its own config + prompt + skill files (jailed to the
-        // deploy dir, allow-listed). Applied via the restart tool above.
-        let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
+        // One drive run consumes its tool instances, and the forced-refresh retry
+        // below needs a second set — so the tools are built per attempt.
+        let make_tools = || {
+            // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
+            // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
+            // (max_timeout_secs), and the imagegen / transcribe skills request up to it — so
+            // at the default the rig would abort the await while the script was still running
+            // and the model would report a phantom "response timeout". The invariant is
+            // script < forkd < rig: this ceiling must sit ABOVE forkd's max (300s), so forkd
+            // (which knows the job) owns the kill. 360s = 300 + margin. Fast connectors
+            // (calendar/jira/storage/search/browser) answer far under it and never come near.
+            let dispatch = OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
+                .with_timeout(Duration::from_secs(360));
+            let send_file = reply_target
+                .clone()
+                .map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
+            let restart = owner.then(|| RestartTool::new(pending.clone()));
+            // Owner-only: read/edit its own config + prompt + skill files (jailed to the
+            // deploy dir, allow-listed). Applied via the restart tool above.
+            let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
+            (dispatch, send_file, restart, selfconfig)
+        };
         let answer = match self.config.auth {
             AuthMode::ApiKey => {
                 let Some(key) = self.config.api_key.as_deref() else {
@@ -455,8 +461,10 @@ impl AlbertCogitator {
                     Ok(c) => c,
                     Err(e) => return (format!("(llm client error: {e})"), None),
                 };
+                let (dispatch, send_file, restart, selfconfig) = make_tools();
                 self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
                     .await
+                    .unwrap_or_else(llm_error)
             }
             AuthMode::Subscription => {
                 // Load (and, if it's expiring, refresh) the OAuth tokens, then build
@@ -465,18 +473,58 @@ impl AlbertCogitator {
                     Ok(s) => s,
                     Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
-                let client = match self.subscription_client(&sub) {
-                    Ok(c) => c,
-                    Err(e) => return (format!("(subscription auth: {e})"), None),
-                };
-                let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-                self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
-                    .await
+                let first = self
+                    .subscription_attempt(&sub, preamble, make_tools(), channel, prompt.clone(), history.clone(), feed.clone())
+                    .await;
+                match first {
+                    Ok(answer) => answer,
+                    // The server can revoke an access token ahead of its JWT `exp`
+                    // (live incident 2026-08-10: 401 token_expired with exp on 08-18),
+                    // and `ensure_fresh` trusts `exp` — so without this the turn (and
+                    // every turn after it) would 401 forever. Force the refresh and
+                    // retry the whole turn once; a rejected refresh surfaces the auth
+                    // error, which already points at `albert login`.
+                    Err(e) if token_rejected(&e) => {
+                        warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
+                        match force_refresh(&self.config.subscription_auth_json).await {
+                            Ok(sub) => self
+                                .subscription_attempt(&sub, preamble, make_tools(), channel, prompt, history, feed)
+                                .await
+                                .unwrap_or_else(llm_error),
+                            Err(e) => format!("(subscription auth: {e})"),
+                        }
+                    }
+                    Err(e) => llm_error(e),
+                }
             }
         };
         // Drain any restart the model requested during the loop (owner turns only).
         let restart_target = pending.lock().ok().and_then(|mut p| p.take());
         (answer, restart_target)
+    }
+
+    /// One subscription-mode attempt: build the per-turn Codex client from `sub` and
+    /// run the tool-loop. A client-build failure is config-shaped and no retry can
+    /// fix it, so it lands in `Ok` as the final user-facing answer; `Err` is the live
+    /// tool-loop error, which the caller inspects for a revoked-token 401.
+    async fn subscription_attempt(
+        &self,
+        sub: &SubscriptionAuth,
+        preamble: &str,
+        tools: TurnTools,
+        channel: &str,
+        prompt: Message,
+        history: Vec<Message>,
+        feed: StatusFeed,
+    ) -> Result<String, PromptError> {
+        let client = match self.subscription_client(sub) {
+            Ok(c) => c,
+            Err(e) => return Ok(format!("(subscription auth: {e})")),
+        };
+        let model = CodexResponsesModel::make(&client, self.config.model.as_str());
+        let (dispatch, send_file, restart, selfconfig) = tools;
+        self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
+            .await
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
@@ -504,7 +552,9 @@ impl AlbertCogitator {
     /// Attach the toolset (kaeru memory + dispatch + scratchpad + skills) to a
     /// fresh agent builder and run one bounded tool-loop. Generic over the model
     /// so both auth modes share it; `install` takes the no-tools-yet builder, so
-    /// it runs before the dispatch/scratchpad tools are chained on.
+    /// it runs before the dispatch/scratchpad tools are chained on. Returns the
+    /// raw loop error so the caller can decide (retry a revoked-token 401, or
+    /// render it via [`llm_error`]).
     async fn drive<M>(
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
@@ -516,7 +566,7 @@ impl AlbertCogitator {
         prompt: Message,
         history: Vec<Message>,
         feed: StatusFeed,
-    ) -> String
+    ) -> Result<String, PromptError>
     where
         M: CompletionModel + 'static,
     {
@@ -571,19 +621,12 @@ impl AlbertCogitator {
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to
         // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
         let agent = code_tools!(with_tools).build();
-        match agent
+        agent
             .prompt(prompt)
             .with_hook(feed)
             .max_turns(self.config.max_tool_turns)
             .with_history(history)
             .await
-        {
-            Ok(a) => a,
-            Err(e) => {
-                warn!(error = %e, "llm tool-call failed");
-                format!("(llm error: {e})")
-            }
-        }
     }
 
     /// Query the scheduler for active alarms and render them for the preamble, so
@@ -707,6 +750,28 @@ impl AlbertCogitator {
             warn!(error = %e, "failed to publish chat.reply");
         }
     }
+}
+
+/// The per-attempt tool instances for one drive run (dispatch + the optional
+/// send-file / owner-only restart and self-config tools). A run consumes them, so
+/// the forced-refresh retry in [`AlbertCogitator::run_agent`] builds a fresh set.
+type TurnTools = (OctoDispatchTool, Option<SendFileTool>, Option<RestartTool>, Option<SelfConfig>);
+
+/// The user-facing stand-in when the tool-loop itself failed — rendered as the
+/// turn's answer (explain, don't vanish).
+fn llm_error(e: PromptError) -> String {
+    warn!(error = %e, "llm tool-call failed");
+    format!("(llm error: {e})")
+}
+
+/// True when the completion failed because the server no longer accepts the access
+/// token — an HTTP 401 or an explicit `token_expired` from the provider. Detected
+/// from the LIVE response only, never from JWT claims: the server can revoke a
+/// token well before its `exp` (which is exactly why [`force_refresh`] exists).
+fn token_rejected(e: &PromptError) -> bool {
+    let PromptError::CompletionError(ce) = e else { return false };
+    let msg = ce.to_string();
+    msg.contains("token_expired") || msg.contains("401 Unauthorized")
 }
 
 /// One user turn as perceived: text, optionally with an image the connector
@@ -861,6 +926,38 @@ mod tests {
         assert!(matches!(items[0], UserContent::Image(_)));
         assert!(matches!(&items[1], UserContent::Text(t) if t.text == "что на фото?"));
         assert!(input.transcript().contains("image/jpeg"));
+    }
+
+    /// The forced-refresh retry keys off the LIVE provider response. The first shape
+    /// is the real incident (2026-08-10): HTTP 401 `token_expired` while the JWT
+    /// `exp` was still eight days out.
+    #[test]
+    fn token_rejection_is_detected_from_the_live_response() {
+        use rig::completion::CompletionError;
+
+        let incident = PromptError::CompletionError(CompletionError::ProviderError(
+            "Invalid status code 401 Unauthorized with message: \
+             {\"detail\":\"token_expired\"}"
+                .into(),
+        ));
+        assert!(token_rejected(&incident));
+
+        // Either signal alone suffices: a bare 401 (rig's SSE connect path strips
+        // the body) or a token_expired that arrives without the status line.
+        let bare_401 = PromptError::CompletionError(CompletionError::ProviderError(
+            "Invalid status code: 401 Unauthorized".into(),
+        ));
+        assert!(token_rejected(&bare_401));
+        let expired_only = PromptError::CompletionError(CompletionError::ProviderError(
+            "response failed: token_expired".into(),
+        ));
+        assert!(token_rejected(&expired_only));
+
+        // An unrelated provider failure must NOT trigger a forced refresh.
+        let unrelated = PromptError::CompletionError(CompletionError::ProviderError(
+            "Invalid status code 500 Internal Server Error with message: boom".into(),
+        ));
+        assert!(!token_rejected(&unrelated));
     }
 
     #[test]
