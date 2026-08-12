@@ -487,10 +487,17 @@ impl AlbertCogitator {
                     Err(e) if token_rejected(&e) => {
                         warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
                         match force_refresh(&self.config.subscription_auth_json).await {
-                            Ok(sub) => self
-                                .subscription_attempt(&sub, preamble, make_tools(), channel, prompt, history, feed)
-                                .await
-                                .unwrap_or_else(llm_error),
+                            Ok(sub) => {
+                                // The aborted first attempt may have recorded a restart
+                                // target in `pending`; clear it so only what the retried
+                                // turn actually asks for is carried out — otherwise a
+                                // restart requested by the failed attempt leaks into an
+                                // otherwise-clean retry and fires unbidden.
+                                let _ = pending.lock().map(|mut p| p.take());
+                                self.subscription_attempt(&sub, preamble, make_tools(), channel, prompt, history, feed)
+                                    .await
+                                    .unwrap_or_else(llm_error)
+                            }
                             Err(e) => format!("(subscription auth: {e})"),
                         }
                     }

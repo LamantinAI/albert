@@ -132,10 +132,23 @@ pub async fn force_refresh(path: &Path) -> Result<Subscription> {
         )));
     }
     info!("server rejected the access token ahead of its exp; forcing a refresh");
+    let rejected = auth.tokens.access_token.clone();
     let refreshed = refresh(&auth.tokens.refresh_token).await?;
     apply_refresh(&mut auth.tokens, refreshed);
     auth.last_refresh = Some(now_rfc3339());
     auth.save(path)?;
+    // A refresh response can rotate the refresh/id token while omitting a new access
+    // token; `apply_refresh` then keeps the OLD one — i.e. the very token the server
+    // just rejected. Persist whatever the server DID rotate (saved above), but don't
+    // hand the caller a token we already know is dead: force a re-login rather than
+    // let it bounce off the server again.
+    if auth.tokens.access_token == rejected {
+        return Err(Error::Auth(format!(
+            "the token endpoint did not reissue the access token for {}; it is still \
+             the one the server rejected — run `albert login` (or `codex login`)",
+            path.display()
+        )));
+    }
     subscription_from(&auth.tokens)
 }
 
