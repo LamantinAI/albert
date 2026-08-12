@@ -5,7 +5,7 @@
 //! "all verified", not "the model felt finished".
 //!
 //! One active scratchpad per channel (the current task in that conversation),
-//! kept in memory (lost on restart, by design — consolidate durable итоги to
+//! kept in memory (lost on restart, by design — consolidate durable takeaways to
 //! kaeru first). The agent mutates it via the tools below; the cogitator renders
 //! the current state into the preamble every turn.
 
