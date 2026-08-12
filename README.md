@@ -9,17 +9,15 @@
 `Albert` is built as an **assembly** of maturing LamantinAI substrates rather than one
 model. Three things set the shape of it:
 
-- **It grows with you.** Albert's memory is [kaeru](https://github.com/LamantinAI/kaeru)
-  — a bi-temporal cognitive graph it *queries as a tool*, not a file re-read every turn.
-  It keeps learning the more you use it, and remembers far past what any context window
+- **It grows with you.** Albert remembers with [kaeru](https://github.com/LamantinAI/kaeru),
+  its memory — it keeps learning the more you use it, far past what a single conversation
   could hold.
-- **It stays fast as it learns.** Because it calls memory only when it *needs* it and
-  recalls just what's relevant, the context per turn stays small — replies stay quick
-  and cheap no matter how much it knows.
-- **It lives in an environment, not a chat loop.** The [Octo](https://github.com/LamantinAI/octo)
-  runtime wakes it — reminders, routines, and connectors fire on their own — and turns
-  integrating a new system into a small manifest. So Albert is proactive, multi-channel,
-  and easy to extend.
+- **It stays fast.** It reaches for memory only when it needs to, and pulls just what
+  matters — so replies stay quick no matter how much it knows.
+- **It lives in an environment.** The [Octo](https://github.com/LamantinAI/octo) runtime
+  wakes it on its own — reminders and routines just happen — and makes connecting a new
+  app or service easy. So Albert is proactive, works across your channels, and picks up
+  new skills without a rebuild.
 
 You talk to it; it remembers, it reminds, and it keeps a verifiable scratchpad for
 multi-step work.
