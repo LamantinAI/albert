@@ -179,6 +179,41 @@ With at least one cloud declared Albert installs the cloud tools (`kaeru_share`,
 `kaeru_pull`, `kaeru_cloud_recall`, `kaeru_policy`, `kaeru_link_cloud`,
 `kaeru_cloud_links`, `kaeru_sync_review`); with none it stays local-only.
 
+### Deterministic commands (`[commands]`)
+
+Optional. Each `[commands."/name"]` binds a slash-command to a skill script run via
+forkd and answers it as a **reflex** — before, and instead of, the LLM. No model call,
+no agent turn: it's how someone drives Albert's skills fast, cheap, and predictably (the
+deterministic counterpart to the built-in owner-only `/allow` `/deny` `/allowed`). `/help`
+lists every configured command; it is always available once any command is declared.
+
+```toml
+[commands."/status"]
+skill_path = "your-skill/scripts/run.py"   # relative to the skills dir (forkd skill_path)
+args       = ["status"]                     # the script's subcommand + flags
+reply      = "Status: {state} (uptime {uptime})."
+help       = "service status"
+
+[commands."/echo"]                            # /echo hello
+skill_path   = "your-skill/scripts/run.py"
+args         = ["echo", "{arg}"]              # a trailing {arg} takes the user's text
+reply        = "You said: {text}"
+help         = "echo the argument back"
+owner_only   = true      # refuse outside the owner chat (default false)
+timeout_secs = 15        # per-run wall-clock ceiling, clamped to forkd's max (default 15)
+interpreter  = "python3" # default; set for non-python scripts
+```
+
+The named script must be a bundled skill script (`skill_path`, the same value forkd's
+`skill_path` tool takes) and should print a **single JSON object** to stdout. `reply` is a
+template: `{field}` / `{nested.field}` placeholders are filled from that JSON (an
+unresolved path renders as `—`), and non-JSON stdout is echoed as-is. A single trailing
+`{arg}` slot in `args` receives whatever the user typed after the command word; calling
+such a command with no text returns a short usage hint instead of running. Command names
+must start with `/`; a name that collides with a built-in reflex (`/start` `/help`
+`/allow` `/deny` `/allowed`) is warned about at load and never fires. Long replies are
+truncated to stay under Telegram's message limit.
+
 ## Connector manifests — `config/`
 
 Connectors are config-driven through Octo's `from_config_file`: `main.rs` registers

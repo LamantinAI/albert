@@ -43,6 +43,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     acl::{command as acl_command, is_owner},
+    commands::{command as run_command, help_listing},
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
@@ -242,6 +243,20 @@ impl AlbertCogitator {
 
         // Reflexes fire on text-only turns: instant, no LLM.
         if input.image.is_none() {
+            // Reflex: `/help` — the built-in capabilities, plus any configured `[commands]`
+            // appended. Owned here (not in the command dispatcher) so it answers even with
+            // no commands configured and can't be shadowed by a `[commands."/help"]` entry.
+            if input.text.trim().split_whitespace().next() == Some("/help") {
+                let mut reply = BASE_HELP.to_string();
+                if let Some(list) = help_listing(&self.config.commands) {
+                    reply.push_str("\n\n");
+                    reply.push_str(&list);
+                }
+                self.emit_reply(&incoming, reply, ctx).await;
+                self.record(&channel_key, input.text, "(reflex reply)".into()).await;
+                return;
+            }
+
             if let Some(canned) = command_reply(&input.text) {
                 self.emit_reply(&incoming, canned.clone(), ctx).await;
                 self.record(&channel_key, input.text, "(reflex reply)".into()).await;
@@ -252,6 +267,18 @@ impl AlbertCogitator {
             if let Some(reply) = acl_command(&self.self_source, &input.text, &incoming, ctx).await {
                 self.emit_reply(&incoming, reply, ctx).await;
                 self.record(&channel_key, input.text, "(acl command)".into()).await;
+                return;
+            }
+
+            // Reflex: declarative `[commands]` — a `/name` runs a skill script via forkd
+            // and renders its JSON output, no model call. Lets a user drive Albert's
+            // skills without spending an agent turn. Falls through when it's not a command.
+            if let Some(reply) =
+                run_command(&self.self_source, &self.config.commands, &input.text, &incoming, ctx)
+                    .await
+            {
+                self.emit_reply(&incoming, reply, ctx).await;
+                self.record(&channel_key, input.text, "(command)".into()).await;
                 return;
             }
         }
@@ -979,22 +1006,22 @@ mod tests {
     }
 }
 
+/// The base `/help` text — Albert's built-in capabilities. The cogitator appends the
+/// configured `[commands]` listing (if any) before replying; see `respond`.
+const BASE_HELP: &str = "Я помню контекст и умею напоминания:\n\
+     • «напомни каждые 30 минут попить воды» → поставлю повторяющееся напоминание\n\
+     • когда сработает — напишу; скажи «сделал» → отмечу выполненным и остановлю\n\
+     • пришли фото (или картинку файлом) — посмотрю и отвечу по ней\n\
+     • пока думаю — показываю «печатает…» и ход работы с инструментами\n\
+     • владельцу: /allow <chat_id>, /deny <chat_id>, /allowed — доступ к боту\n\
+     • /start, /help → мгновенно, без модели";
+
 fn command_reply(text: &str) -> Option<String> {
     match text.trim() {
         "/start" => Some(
             "Привет! Я Альберт — ассистент на рантайме Octo с памятью (kaeru) и планировщиком. \
              Скажи «напомни …» — заведу напоминалку и буду напоминать, пока не скажешь, что сделал. \
              /help — подробнее."
-                .to_string(),
-        ),
-        "/help" => Some(
-            "Я помню контекст и умею напоминания:\n\
-             • «напомни каждые 30 минут попить воды» → поставлю повторяющееся напоминание\n\
-             • когда сработает — напишу; скажи «сделал» → отмечу выполненным и остановлю\n\
-             • пришли фото (или картинку файлом) — посмотрю и отвечу по ней\n\
-             • пока думаю — показываю «печатает…» и ход работы с инструментами\n\
-             • владельцу: /allow <chat_id>, /deny <chat_id>, /allowed — доступ к боту\n\
-             • /start, /help → мгновенно, без модели"
                 .to_string(),
         ),
         _ => None,

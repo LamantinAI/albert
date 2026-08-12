@@ -19,8 +19,13 @@ use std::{
 
 use serde::Deserialize;
 use toml::{from_str, Table, Value};
+use tracing::warn;
 
 use crate::error::{Error, Result};
+
+/// Built-in reflex commands the cogitator matches before the `[commands]` table; a
+/// configured command colliding with one of these would never fire.
+const BUILTIN_COMMANDS: [&str; 5] = ["/start", "/help", "/allow", "/deny", "/allowed"];
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -107,6 +112,48 @@ pub struct Config {
     /// `system.md`, `config/`, `skills/`. The owner-only self-config tools jail their
     /// (allow-listed) reads/writes to it, so Albert can edit its own configuration.
     pub deploy_dir: PathBuf,
+    /// Declarative deterministic slash-commands (`[commands]`). Each maps a `/name`
+    /// to a skill script run via forkd whose JSON output is rendered through a
+    /// template — answered as a reflex, before (and instead of) the LLM. Empty when
+    /// none are configured.
+    pub commands: HashMap<String, CommandSpec>,
+}
+
+/// A declarative deterministic command. Runs a skill's bundled script through forkd
+/// and renders its JSON stdout via `reply` (a `{field}` / `{nested.field}` template)
+/// — no model call. Configured under `[commands."/name"]` in `albert.toml`.
+#[derive(Clone, Deserialize)]
+pub struct CommandSpec {
+    /// The skill's bundled script, as forkd's `skill_path`, e.g.
+    /// `"uzs-money/scripts/money.py"`.
+    pub skill_path: String,
+    /// Interpreter forkd runs it with. Defaults to `python3`.
+    #[serde(default = "d_cmd_interpreter")]
+    pub interpreter: String,
+    /// Fixed arguments handed to the script (its subcommand + flags). A trailing
+    /// `{arg}` placeholder, if present, is replaced by the user's text after the
+    /// command word (so `/weight 82.1` can pass `82.1`).
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Reply template. `{field}` placeholders are filled from the script's JSON
+    /// stdout; dotted paths (`{remaining.kcal}`) index nested objects.
+    pub reply: String,
+    /// Restrict the command to the owner chat (default: false).
+    #[serde(default)]
+    pub owner_only: bool,
+    /// Per-run wall-clock timeout in seconds (default: 15).
+    #[serde(default = "d_cmd_timeout")]
+    pub timeout_secs: u64,
+    /// One-line description shown by `/help`.
+    #[serde(default)]
+    pub help: String,
+}
+
+fn d_cmd_interpreter() -> String {
+    "python3".to_string()
+}
+fn d_cmd_timeout() -> u64 {
+    15
 }
 
 impl Config {
@@ -185,6 +232,19 @@ impl Config {
             }
         }
 
+        // Command names are slash-commands: enforce the leading '/', and warn on any that
+        // collide with a built-in reflex (matched earlier, so a collision never fires).
+        for name in raw.commands.keys() {
+            if !name.starts_with('/') {
+                return Err(Error::Config(format!(
+                    "command name {name:?} must start with '/' (e.g. [commands.\"/{name}\"])"
+                )));
+            }
+            if BUILTIN_COMMANDS.contains(&name.as_str()) {
+                warn!(command = %name, "shadows a built-in reflex and will never fire; rename it");
+            }
+        }
+
         Ok(Config {
             multimodal,
             hearing,
@@ -214,6 +274,7 @@ impl Config {
             clouds_default,
             code_workspace: resolve(dir, &raw.code.workspace),
             deploy_dir: dir.to_path_buf(),
+            commands: raw.commands,
         })
     }
 }
@@ -325,6 +386,8 @@ struct Raw {
     clouds: Table,
     #[serde(default)]
     code: RawCode,
+    #[serde(default)]
+    commands: HashMap<String, CommandSpec>,
 }
 
 #[derive(Deserialize)]
