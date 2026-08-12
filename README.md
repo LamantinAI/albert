@@ -1,11 +1,28 @@
 # Albert
 
-`Albert` is a personal, always-on assistant — built as an **assembly** of maturing
-LamantinAI substrates rather than one model. It lives inside the [Octo](https://github.com/LamantinAI/octo)
-event-driven runtime (the Reaction skeleton: bus, connectors, supervision), thinks
-with persistent [kaeru](https://github.com/LamantinAI/kaeru) memory, and reaches the
-world through connectors (Telegram, calendar, a scheduler). You talk to it; it
-remembers, it reminds, and it keeps a verifiable scratchpad for multi-step work.
+<p align="center">
+  <img src="resources/albert.png" alt="Albert" width="240">
+</p>
+
+<p align="center"><b>A personal, always-on AI assistant that grows with you — and stays fast doing it.</b></p>
+
+`Albert` is built as an **assembly** of maturing LamantinAI substrates rather than one
+model. Three things set the shape of it:
+
+- **It grows with you.** Albert's memory is [kaeru](https://github.com/LamantinAI/kaeru)
+  — a bi-temporal cognitive graph it *queries as a tool*, not a file re-read every turn.
+  It keeps learning the more you use it, and remembers far past what any context window
+  could hold.
+- **It stays fast as it learns.** Because it calls memory only when it *needs* it and
+  recalls just what's relevant, the context per turn stays small — replies stay quick
+  and cheap no matter how much it knows.
+- **It lives in an environment, not a chat loop.** The [Octo](https://github.com/LamantinAI/octo)
+  runtime wakes it — reminders, routines, and connectors fire on their own — and turns
+  integrating a new system into a small manifest. So Albert is proactive, multi-channel,
+  and easy to extend.
+
+You talk to it; it remembers, it reminds, and it keeps a verifiable scratchpad for
+multi-step work.
 
 ## Why Albert
 
@@ -127,6 +144,21 @@ routines; Experience/Reflection are one rig tool-loop turn. Richer cognition is 
 work — the agent building and reusing **its own** task structure (a self-built graph it
 authors, grown from the per-turn scratchpad), **not** a LangGraph-style control-flow
 engine over fixed stages. The architecture is laid out in
+[`docs/architecture.md`](docs/architecture.md).
+
+## Roadmap
+
+Albert is early and moving fast. Near-term:
+
+- **More integrations.** More connectors — Albert's action space *is* its set of
+  connectors, and each is a small manifest, so new systems (messaging, task trackers,
+  home/devices, more calendars and mailboxes) slot in without touching the core.
+- **More model providers.** Beyond an API key and a ChatGPT subscription — first-class
+  support for more providers and their subscription plans, chosen from config.
+- **An admin panel.** A UI for setup and day-to-day configuration (connectors, secrets,
+  persona, skills), so running your own Albert doesn't mean hand-editing TOML.
+
+Longer-term cognition work is sketched in **The long arc** above and in
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Built on
