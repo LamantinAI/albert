@@ -768,7 +768,57 @@ type TurnTools = (OctoDispatchTool, Option<SendFileTool>, Option<RestartTool>, O
 /// turn's answer (explain, don't vanish).
 fn llm_error(e: PromptError) -> String {
     warn!(error = %e, "llm tool-call failed");
-    format!("(llm error: {e})")
+    user_facing_llm_error(&e)
+}
+
+/// A short, polite English message for an LLM failure — never the raw provider payload.
+/// On a non-2xx the provider (via rig) hands back the whole response body as the error
+/// string; dumping that at the user is a wall of JSON that may echo request detail. The
+/// full error is already in the log above; the user gets one clean line, with the status
+/// code when we can recover it.
+fn user_facing_llm_error(e: &PromptError) -> String {
+    // Our own ceiling, not a provider failure — say so in its own words.
+    if let PromptError::MaxTurnsError { .. } = e {
+        return "I couldn't finish this within my step budget — try narrowing the request."
+            .to_string();
+    }
+    match provider_status_code(&e.to_string()) {
+        Some(code) => format!("LLM provider error: {code}. Please try again in a moment."),
+        None => "LLM provider error. Please try again in a moment.".to_string(),
+    }
+}
+
+/// Best-effort HTTP status out of a provider error string. rig drops the HTTP status on
+/// a non-2xx and surfaces the raw body, so recover the code from that body:
+/// OpenRouter-style `{"error":{"code":400}}` first (parsed from the first brace, past
+/// rig's `ProviderError:` prefix), then explicit `HTTP <n>` / `status <n>` markers. Only
+/// a 100..=599 is accepted, and a bare integer is never guessed — a wrong code is worse
+/// than none, so an unrecognised shape yields `None` (generic message).
+fn provider_status_code(raw: &str) -> Option<u16> {
+    let in_range = |n: u64| (100..=599).contains(&n).then_some(n as u16);
+    // Structured error body.
+    if let Some(start) = raw.find('{') {
+        if let Ok(v) = serde_json::from_str::<Value>(&raw[start..]) {
+            let code = v.get("error").and_then(|e| e.get("code")).or_else(|| v.get("code"));
+            if let Some(c) = code {
+                if let Some(n) = c.as_u64().or_else(|| c.as_str().and_then(|s| s.parse().ok())) {
+                    if let Some(code) = in_range(n) {
+                        return Some(code);
+                    }
+                }
+            }
+        }
+    }
+    // Explicit textual markers.
+    for marker in ["HTTP ", "status: ", "status ", "code: ", "code "] {
+        for seg in raw.split(marker).skip(1) {
+            let digits: String = seg.trim_start().chars().take_while(char::is_ascii_digit).collect();
+            if let Some(code) = digits.parse::<u64>().ok().and_then(in_range) {
+                return Some(code);
+            }
+        }
+    }
+    None
 }
 
 /// True when the completion failed because the server no longer accepts the access
@@ -965,6 +1015,47 @@ mod tests {
             "Invalid status code 500 Internal Server Error with message: boom".into(),
         ));
         assert!(!token_rejected(&unrelated));
+    }
+
+    #[test]
+    fn provider_errors_are_shown_politely_not_dumped() {
+        use rig::completion::CompletionError;
+        let err = |s: &str| {
+            user_facing_llm_error(&PromptError::CompletionError(CompletionError::ProviderError(
+                s.into(),
+            )))
+        };
+
+        // OpenRouter-style body: the code is recovered from the JSON, and the raw blob
+        // (message, request detail) never reaches the user.
+        let openrouter = err("{\"error\":{\"message\":\"Provider returned error\",\"code\":400}}");
+        assert_eq!(openrouter, "LLM provider error: 400. Please try again in a moment.");
+        assert!(!openrouter.contains("Provider returned error"));
+
+        // A textual status marker is honoured too.
+        assert_eq!(
+            err("Invalid status code 502 Bad Gateway"),
+            "LLM provider error: 502. Please try again in a moment."
+        );
+
+        // No recoverable code -> a clean generic line, still no raw text leaked.
+        let opaque = err("upstream connection reset by peer");
+        assert_eq!(opaque, "LLM provider error. Please try again in a moment.");
+
+        // A bare integer in range is never guessed as a status (would misreport).
+        assert_eq!(provider_status_code("used 500 tokens of context"), None);
+    }
+
+    #[test]
+    fn max_turns_is_its_own_message_not_a_provider_error() {
+        let e = PromptError::MaxTurnsError {
+            max_turns: 10,
+            chat_history: Box::new(vec![]),
+            prompt: Box::new(Message::user("x")),
+        };
+        let msg = user_facing_llm_error(&e);
+        assert!(msg.contains("step budget"), "got: {msg}");
+        assert!(!msg.contains("provider"), "got: {msg}");
     }
 
     #[test]
