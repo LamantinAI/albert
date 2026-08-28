@@ -203,6 +203,6 @@ managed / SaaS platform for third parties. Each released version converts to the
 **Apache License 2.0** four years after it ships (the Change Date in `LICENSE`).
 Contributions are accepted under the [Contributor License Agreement](CLA.md).
 
-Earlier versions were released under the MIT License and remain available under
-it; the move to BSL applies from the relicensing commit forward and is not
+Version v0.1.0 was released under the MIT License and remains available under it;
+the move to BSL applies from the relicensing commit forward and is not
 retroactive.
