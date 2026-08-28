@@ -193,4 +193,16 @@ rev); there is no local sibling-checkout requirement.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**Business Source License 1.1** — see [LICENSE](LICENSE), with a plain-language
+summary in [LICENSING.md](LICENSING.md).
+
+Albert is *source-available*: read it, modify it, run it in production, and embed
+it as a component or tool inside your own systems and products — including what
+you sell. The one thing you may not do is operate Albert itself as a hosted /
+managed / SaaS platform for third parties. Each released version converts to the
+**Apache License 2.0** four years after it ships (the Change Date in `LICENSE`).
+Contributions are accepted under the [Contributor License Agreement](CLA.md).
+
+Earlier versions were released under the MIT License and remain available under
+it; the move to BSL applies from the relicensing commit forward and is not
+retroactive.
