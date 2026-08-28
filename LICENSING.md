@@ -56,6 +56,6 @@ MIT / Apache-2.0. Nothing in the dependency tree forces albert open.
 
 ## History
 
-albert has had no tagged releases; earlier development was under the MIT License.
-The move to BSL applies from the relicensing commit forward — it is not
+Version **v0.1.0** was released under the MIT License and remains available under
+it. The move to BSL applies from the relicensing commit forward — it is not
 retroactive, and any copy obtained earlier under MIT remains available under it.
