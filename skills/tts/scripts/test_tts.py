@@ -32,6 +32,15 @@ class SessionTests(unittest.TestCase):
         self.assertIn("usage window", tts.explain_http(429, ""))
         self.assertTrue(tts.explain_http(500, "boom").startswith("HTTP 500"))
 
+    def test_ogg_writer_produces_a_playable_file(self):
+        import subprocess, tempfile
+        pcm = bytes(48000 * 4)  # one second of stereo silence
+        out = os.path.join(tempfile.mkdtemp(), "t.ogg"); tts.write_ogg(out, pcm)
+        self.assertGreater(os.path.getsize(out), 100)   # a second of silence encodes tiny
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name",
+                                "-of", "csv=p=0", out], capture_output=True, text=True)
+        self.assertEqual(probe.stdout.strip(), "opus")
+
     def test_voice_list_is_the_v1_set(self):
         self.assertIn("cove", tts.VOICES); self.assertNotIn("marin", tts.VOICES)
 

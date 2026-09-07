@@ -5,12 +5,17 @@ per-character billing. It rides the desktop ChatGPT Voice call: a WebRTC "call" 
 GPT-Live whose instructions are "read this text verbatim", recorded until the model
 finishes its turn.
 
+Recording taps the raw RTP packets and decodes them with libopus itself, so a lost
+packet is concealed (PLC, or the in-band FEC the next packet carries) instead of
+being cut out of the audio — aiortc's own recorder drops the time of a lost packet,
+which on a lossy link sounds like the voice stuttering.
+
   python3 tts.py "Привет, Иван." --voice cove -o reply.ogg
 
 The token store is Albert's own (`/data/auth.json` in the container), overridable
 with ALBERT_AUTH_JSON; it falls back to ~/.codex/auth.json outside the container.
 """
-import argparse, asyncio, fractions, json, os, sys, time, uuid
+import argparse, asyncio, ctypes, ctypes.util, fractions, json, os, sys, time, uuid
 import urllib.error, urllib.request
 
 URL = "https://chatgpt.com/backend-api/wham/realtime/calls?intent=quicksilver&architecture=avas"
@@ -88,10 +93,62 @@ def create_call(offer_sdp, text, voice, tok, acct):
         sys.exit(explain_http(e.code, e.read().decode("utf-8", "replace")))
 
 
+FRAME = 960          # one 20 ms Opus frame at 48 kHz
+MAX_GAP = 50         # conceal up to 1 s of lost packets; beyond that it's a dead link
+
+
+class OpusDecoder:
+    """libopus via ctypes: the one thing PyAV's wrapper can't do is conceal a loss."""
+
+    def __init__(self):
+        name = ctypes.util.find_library("opus") or "/opt/homebrew/lib/libopus.dylib"
+        try:
+            self.lib = ctypes.CDLL(name)
+        except OSError:
+            sys.exit("libopus not found — install libopus0 (Debian/Ubuntu) or `brew install opus`")
+        self.lib.opus_decoder_create.restype = ctypes.c_void_p
+        self.lib.opus_decode.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
+                                         ctypes.POINTER(ctypes.c_int16), ctypes.c_int, ctypes.c_int]
+        self.lib.opus_packet_get_nb_samples.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
+        err = ctypes.c_int()
+        self.dec = self.lib.opus_decoder_create(48000, 2, ctypes.byref(err))
+        if err.value:
+            sys.exit(f"opus_decoder_create failed: {err.value}")
+        self.buf = (ctypes.c_int16 * (5760 * 2))()
+
+    def samples(self, pkt):
+        return self.lib.opus_packet_get_nb_samples(pkt, len(pkt), 48000)
+
+    def decode(self, pkt, fec=0, frame=FRAME):
+        """`pkt=None` → PLC for one frame; `fec=1` → the FEC copy of the PREVIOUS frame
+        carried in `pkt` (libopus falls back to PLC when there is none)."""
+        n = self.lib.opus_decode(self.dec, pkt, len(pkt) if pkt else 0, self.buf, frame, fec)
+        return ctypes.string_at(self.buf, n * 4) if n > 0 else b""
+
+
+def write_ogg(out, pcm_s16_stereo_48k):
+    """PCM → Ogg/Opus, mono 48 kbit/s: what Telegram plays as a voice note."""
+    import av
+    from av import AudioFrame
+    c = av.open(out, "w")
+    s = c.add_stream("libopus", rate=48000)
+    s.layout = "mono"; s.bit_rate = 48000
+    step = FRAME * 4; pts = 0
+    for i in range(0, len(pcm_s16_stereo_48k) - step + 1, step):
+        f = AudioFrame(format="s16", layout="stereo", samples=FRAME)
+        f.planes[0].update(pcm_s16_stereo_48k[i:i + step])
+        f.sample_rate = 48000; f.pts = pts; f.time_base = fractions.Fraction(1, 48000); pts += FRAME
+        for p in s.encode(f):
+            c.mux(p)
+    for p in s.encode(None):
+        c.mux(p)
+    c.close()
+
+
 async def speak(text, voice, out, max_wait):
     # aiortc is imported here so `--help` and the unit tests don't need it.
     from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
-    from aiortc.contrib.media import MediaRecorder
+    from aiortc.rtcrtpreceiver import RTCRtpReceiver
     from av import AudioFrame
 
     class Silence(MediaStreamTrack):
@@ -113,9 +170,34 @@ async def speak(text, voice, out, max_wait):
     tok, acct = creds()
     pc = RTCPeerConnection()
     dc = pc.createDataChannel("oai-events")    # JSON events: transcript, turn.done, errors
-    rec = MediaRecorder(out)
     started, done = asyncio.Event(), asyncio.Event()
-    state = {"transcript": "", "error": None}
+    state = {"transcript": "", "error": None, "seq": None, "got": 0, "lost": 0}
+    dec = OpusDecoder(); pcm = []
+
+    # Tap the audio RTP before aiortc decodes it: sequence numbers tell us what was
+    # lost, and libopus conceals it. aiortc's own decode still runs, unused.
+    orig_handle = RTCRtpReceiver._handle_rtp_packet
+
+    async def tap(receiver, packet, arrival_time_ms):
+        try:
+            if packet.payload:
+                data = bytes(packet.payload)
+                if state["seq"] is not None:
+                    gap = (packet.sequence_number - state["seq"] - 1) & 0xFFFF
+                    if 0 < gap < MAX_GAP:
+                        for _ in range(gap - 1):
+                            pcm.append(dec.decode(None))         # PLC
+                        pcm.append(dec.decode(data, fec=1))      # FEC (or PLC) for the last one
+                        state["lost"] += gap
+                state["seq"] = packet.sequence_number; state["got"] += 1
+                pcm.append(dec.decode(data, 0, dec.samples(data)))
+                if not started.is_set():
+                    started.set()
+        except Exception as e:                                   # never break the receiver
+            print(f"[!]   tap: {e!r}")
+        return await orig_handle(receiver, packet, arrival_time_ms)
+
+    RTCRtpReceiver._handle_rtp_packet = tap
 
     @dc.on("message")
     def on_msg(m):
@@ -129,10 +211,6 @@ async def speak(text, voice, out, max_wait):
         elif ty == "error":
             state["error"] = j.get("error", {}).get("message", "?"); done.set()
 
-    @pc.on("track")
-    def on_track(track):
-        rec.addTrack(track); asyncio.ensure_future(rec.start()); started.set()
-
     pc.addTrack(Silence())
     await pc.setLocalDescription(await pc.createOffer())
     while pc.iceGatheringState != "complete":
@@ -145,15 +223,18 @@ async def speak(text, voice, out, max_wait):
     try:
         await asyncio.wait_for(started.wait(), 20)
     except asyncio.TimeoutError:
-        await pc.close(); sys.exit("no audio track within 20 s — WebRTC did not connect")
+        await pc.close(); sys.exit("no audio within 20 s — WebRTC did not connect")
     try:
         await asyncio.wait_for(done.wait(), max_wait)
     except asyncio.TimeoutError:
         print(f"[!]   no turn.done within {max_wait}s — the recording may be cut short")
-    await asyncio.sleep(1.0)      # let the audio tail land
-    await rec.stop(); await pc.close()
+    await asyncio.sleep(0.8)      # let the audio tail land
+    await pc.close()
     if state["error"]:
         sys.exit(f"voice session error: {state['error']}")
+    write_ogg(out, b"".join(pcm))
+    if state["lost"]:
+        print(f"[net] {state['lost']} of {state['got'] + state['lost']} packets lost — concealed")
     return state["transcript"], time.time() - t0
 
 

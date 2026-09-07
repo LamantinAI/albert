@@ -60,9 +60,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 #  - python3-pip + aiortc: the `tts` skill speaks through a WebRTC call to ChatGPT
 #    Voice; aiortc is the WebRTC stack (its `av` wheel bundles the codecs). Pinned, and
 #    installed system-wide (`--break-system-packages`) so forkd's plain `python3` sees it.
+#  - libopus0: the same skill decodes the received audio with libopus directly (via
+#    ctypes) so a lost packet is concealed rather than cut out. ffmpeg pulls it in
+#    anyway; named here because the skill depends on it, not on ffmpeg's choice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
-        curl wget python3 python3-pip ffmpeg \
+        curl wget python3 python3-pip ffmpeg libopus0 \
     && pip3 install --no-cache-dir --break-system-packages aiortc==1.15.0 \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
