@@ -57,9 +57,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
 #  - ffmpeg (with ffprobe): backs the `transcribe` skill — it measures a recording,
 #    finds its silences and cuts it into chunks the dictation endpoint won't truncate.
+#  - python3-pip + aiortc: the `tts` skill speaks through a WebRTC call to ChatGPT
+#    Voice; aiortc is the WebRTC stack (its `av` wheel bundles the codecs). Pinned, and
+#    installed system-wide (`--break-system-packages`) so forkd's plain `python3` sees it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
-        curl wget python3 ffmpeg \
+        curl wget python3 python3-pip ffmpeg \
+    && pip3 install --no-cache-dir --break-system-packages aiortc==1.15.0 \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
