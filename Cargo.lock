@@ -2439,8 +2439,8 @@ dependencies = [
 
 [[package]]
 name = "kaeru-core"
-version = "0.5.0"
-source = "git+https://github.com/LamantinAI/kaeru?rev=1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97#1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97"
+version = "0.7.3"
+source = "git+https://github.com/LamantinAI/kaeru?tag=v0.7.3#566b6c6efbc2a080e64059609c7423f38d6892be"
 dependencies = [
  "chrono",
  "config",
@@ -2453,8 +2453,8 @@ dependencies = [
 
 [[package]]
 name = "kaeru-rig"
-version = "0.5.0"
-source = "git+https://github.com/LamantinAI/kaeru?rev=1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97#1ac19b6ea2288dee6a1c6f4c0fb254b5b6572d97"
+version = "0.7.3"
+source = "git+https://github.com/LamantinAI/kaeru?tag=v0.7.3#566b6c6efbc2a080e64059609c7423f38d6892be"
 dependencies = [
  "kaeru-core",
  "reqwest 0.12.28",
@@ -2462,6 +2462,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
