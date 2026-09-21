@@ -72,10 +72,17 @@ def plan_cuts(total, cuts, target, hard):
 
 
 def cut(path, start, end, outdir, idx):
+    """Cut one chunk of the source as audio-only Opus.
+
+    `-vn` is not cosmetic. The chunk is a `.webm`, so given a video input ffmpeg
+    also maps the video stream and re-encodes it to VP9 — minutes of CPU per
+    chunk and a file tens of times too large, for pixels the dictation endpoint
+    never looks at. Audio-only inputs hid this: they have no video stream to map.
+    """
     out = os.path.join(outdir, f"chunk_{idx:03d}.webm")
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
-         "-i", path, "-ac", "1", "-c:a", "libopus", "-b:a", "24k", out], check=True)
+         "-i", path, "-vn", "-ac", "1", "-c:a", "libopus", "-b:a", "24k", out], check=True)
     return out
 
 
@@ -183,4 +190,5 @@ def main():
         print(f"[tmp] chunks: {tmp}")
 
 
-main()
+if __name__ == "__main__":
+    main()
