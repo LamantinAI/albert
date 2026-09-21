@@ -81,6 +81,30 @@ RUN curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSIO
     && chmod 0755 /usr/local/bin/codex \
     && codex --version
 
+# yt-dlp + deno, for the `video-link` skill: pull a video's audio from a link (YouTube,
+# Shorts, VK, Rutube, …) so `transcribe` can read what is said in it. The standalone
+# yt-dlp_linux build bundles its YouTube challenge solver; deno is the JavaScript runtime
+# yt-dlp now needs to solve YouTube's challenges — without it formats go missing and
+# downloads turn flaky. Both pinned and checksum-verified (a downloader that runs on
+# every video link is worth not trusting blindly). yt-dlp breaks as YouTube changes, so
+# expect to bump YTDLP_VERSION every few weeks: new tag + its line from SHA2-256SUMS.
+ARG YTDLP_VERSION=2026.08.19
+ARG YTDLP_SHA256=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a
+ARG DENO_VERSION=v2.9.7
+ARG DENO_SHA256=c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490
+RUN curl -fsSL -o /usr/local/bin/yt-dlp \
+        "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_linux" \
+    && echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/yt-dlp \
+    && curl -fsSL -o /tmp/deno.zip \
+        "https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" \
+    && echo "${DENO_SHA256}  /tmp/deno.zip" | sha256sum -c - \
+    && python3 -c 'import zipfile; zipfile.ZipFile("/tmp/deno.zip").extractall("/usr/local/bin")' \
+    && chmod 0755 /usr/local/bin/deno \
+    && rm /tmp/deno.zip \
+    && yt-dlp --version \
+    && deno --version
+
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
 # Persona + connector manifests + skills are baked in; mutable state lives on /data.
