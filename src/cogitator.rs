@@ -29,7 +29,7 @@ use kaeru_rig::KaeruMemory;
 use octo_code::code_tools;
 use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
-    Filter, OctoResult, ReplyChannel, Subscription,
+    Filter, InboundMessage, OctoResult, ReplyChannel, Subscription,
 };
 use octo_rig::{carry_out_cancel, carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
@@ -157,15 +157,20 @@ impl AlbertCogitator {
                 // model as-is, a voice message becomes text first (no Codex model
                 // takes audio) and from there is an ordinary turn.
                 let input = if let Some(text) = incoming.payload_as::<String>() {
-                    Some(UserInput { text: text.clone(), image: None })
+                    Some(UserInput { text: text.clone(), images: Vec::new() })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_image()) {
                     Some(UserInput {
                         text: incoming.tags.get("caption").cloned().unwrap_or_default(),
-                        image: Some(blob.clone()),
+                        images: vec![blob.clone()],
                     })
+                } else if let Some(msg) = incoming.payload_as::<InboundMessage>() {
+                    // A coalesced burst the connector grouped into one message: every
+                    // photo of an album (shared media_group_id), or a forwarded run.
+                    let images = msg.images.iter().filter(|b| b.is_image()).cloned().collect();
+                    Some(UserInput { text: msg.text.clone().unwrap_or_default(), images })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_audio()) {
                     // `None` means we already told the user why we couldn't listen.
-                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput { text, image: None })
+                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput { text, images: Vec::new() })
                 } else {
                     None
                 };
@@ -256,7 +261,7 @@ impl AlbertCogitator {
         let channel_key = channel_of(&incoming);
 
         // Reflexes fire on text-only turns: instant, no LLM.
-        if input.image.is_none() {
+        if input.images.is_empty() {
             let owner = is_owner(&incoming);
             let word = input.text.trim().split_whitespace().next().unwrap_or("");
 
@@ -299,8 +304,8 @@ impl AlbertCogitator {
             }
         }
 
-        // An image on a text-only model: say so instead of silently ignoring it.
-        if input.image.is_some() && !self.config.multimodal {
+        // Images on a text-only model: say so instead of silently ignoring them.
+        if !input.images.is_empty() && !self.config.multimodal {
             let reply = "I got an image, but the current model can't see pictures — \
                          describe in words what's on it. (Or switch on a multimodal model: \
                          `multimodal = true` + a vision model in albert.toml.)"
@@ -990,46 +995,59 @@ fn transient(e: &PromptError) -> bool {
     matches!(provider_status_code(&msg), Some(429 | 500 | 502 | 503 | 504))
 }
 
-/// One user turn as perceived: text, optionally with an image the connector
-/// downloaded (a Telegram photo / image document; the caption rides in `text`).
+/// One user turn as perceived: text, plus any images the connector downloaded
+/// (a Telegram photo / image document, or every photo of an album; the caption
+/// rides in `text`). Empty `images` is a plain text turn.
 struct UserInput {
     text: String,
-    image: Option<Blob>,
+    images: Vec<Blob>,
 }
 
 impl UserInput {
-    /// The turn as the rig prompt message: plain text, or image + caption for a
-    /// vision model (base64 travels fine through both the OpenRouter and the
-    /// Codex Responses providers).
+    /// The turn as the rig prompt message: plain text, or the image(s) + caption
+    /// for a vision model (base64 travels fine through both the OpenRouter and the
+    /// Codex Responses providers). An album sends every image in one message.
     fn prompt(&self) -> Message {
-        let Some(blob) = &self.image else {
+        if self.images.is_empty() {
             return Message::user(self.text.clone());
-        };
-        let b64 = base64::engine::general_purpose::STANDARD.encode(blob.bytes());
-        let caption = if self.text.trim().is_empty() {
+        }
+        let caption = if !self.text.trim().is_empty() {
+            self.text.as_str()
+        } else if self.images.len() == 1 {
             "The user sent this image with no caption — look at it and respond in the \
              context of the conversation."
         } else {
-            self.text.as_str()
+            "The user sent these images with no caption — look at them and respond in the \
+             context of the conversation."
         };
+        let mut content: Vec<UserContent> = self
+            .images
+            .iter()
+            .map(|blob| {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(blob.bytes());
+                UserContent::image_base64(b64, Some(media_type(blob.content_type())), None)
+            })
+            .collect();
+        content.push(UserContent::text(caption));
         Message::User {
-            content: OneOrMany::many(vec![
-                UserContent::image_base64(b64, Some(media_type(blob.content_type())), None),
-                UserContent::text(caption),
-            ])
-            .expect("two content items"),
+            content: OneOrMany::many(content).expect("at least one image plus the caption"),
         }
     }
 
     /// A text stand-in for logs and the history transcript (raw bytes don't
     /// belong in either).
     fn transcript(&self) -> String {
-        match &self.image {
-            None => self.text.clone(),
-            Some(b) if self.text.trim().is_empty() => {
-                format!("(sent an image, {})", b.content_type())
-            }
-            Some(b) => format!("(sent an image, {}) {}", b.content_type(), self.text),
+        if self.images.is_empty() {
+            return self.text.clone();
+        }
+        let noun = match self.images.as_slice() {
+            [one] => format!("(sent an image, {})", one.content_type()),
+            many => format!("(sent {} images)", many.len()),
+        };
+        if self.text.trim().is_empty() {
+            noun
+        } else {
+            format!("{noun} {}", self.text)
         }
     }
 }
@@ -1125,7 +1143,7 @@ mod tests {
 
     #[test]
     fn text_input_stays_a_plain_user_message() {
-        let input = UserInput { text: "hello".into(), image: None };
+        let input = UserInput { text: "hello".into(), images: Vec::new() };
         assert!(matches!(input.prompt(), Message::User { content } if content.len() == 1));
         assert_eq!(input.transcript(), "hello");
     }
@@ -1133,7 +1151,7 @@ mod tests {
     #[test]
     fn image_input_becomes_image_plus_caption() {
         let blob = Blob::new(vec![0xFFu8, 0xD8, 0xFF], "image/jpeg").with_filename("photo.jpg");
-        let input = UserInput { text: "what's in the photo?".into(), image: Some(blob) };
+        let input = UserInput { text: "what's in the photo?".into(), images: vec![blob] };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
@@ -1142,6 +1160,25 @@ mod tests {
         assert!(matches!(items[0], UserContent::Image(_)));
         assert!(matches!(&items[1], UserContent::Text(t) if t.text == "what's in the photo?"));
         assert!(input.transcript().contains("image/jpeg"));
+    }
+
+    #[test]
+    fn an_album_becomes_every_image_plus_one_caption() {
+        let images = vec![
+            Blob::new(vec![1], "image/jpeg").with_filename("a.jpg"),
+            Blob::new(vec![2], "image/png").with_filename("b.png"),
+            Blob::new(vec![3], "image/jpeg").with_filename("c.jpg"),
+        ];
+        let input = UserInput { text: String::new(), images };
+        let Message::User { content } = input.prompt() else {
+            panic!("expected a user message");
+        };
+        let items: Vec<_> = content.into_iter().collect();
+        // Three image blocks, then a single caption — not one photo, not three captions.
+        assert_eq!(items.len(), 4);
+        assert!(items[0..3].iter().all(|i| matches!(i, UserContent::Image(_))));
+        assert!(matches!(&items[3], UserContent::Text(t) if t.text.contains("these images")));
+        assert_eq!(input.transcript(), "(sent 3 images)");
     }
 
     /// The forced-refresh retry keys off the LIVE provider response. The first shape
@@ -1220,7 +1257,7 @@ mod tests {
     #[test]
     fn captionless_image_gets_a_default_instruction() {
         let blob = Blob::new(vec![1u8, 2, 3], "image/png");
-        let input = UserInput { text: "  ".into(), image: Some(blob) };
+        let input = UserInput { text: "  ".into(), images: vec![blob] };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
