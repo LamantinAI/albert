@@ -9,3 +9,4 @@ contrib/deploy/.env
 # edited at runtime (by the operator or the self-config skill). Named .local so it never
 # collides with the tracked dev config (/albert.toml) or the deploy template.
 /albert.local.toml
+__pycache__/

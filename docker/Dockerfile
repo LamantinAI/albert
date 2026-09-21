@@ -64,12 +64,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    — silently, since the connector doesn't log the launch error. The last line is
 #    what Chrome dlopen()s at runtime (GBM, ALSA, xkbcommon — ldd doesn't list those)
 #    plus its text rendering stack and a base font.
+#  - python3-pip + aiortc: the `tts` skill speaks through a WebRTC call to ChatGPT
+#    Voice; aiortc is the WebRTC stack (its `av` wheel bundles the codecs). Pinned, and
+#    installed system-wide (`--break-system-packages`) so forkd's plain `python3` sees it.
+#  - libopus0: the same skill decodes the received audio with libopus directly (via
+#    ctypes) so a lost packet is concealed rather than cut out. ffmpeg pulls it in
+#    anyway; named here because the skill depends on it, not on ffmpeg's choice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
-        curl wget python3 ffmpeg \
+        curl wget python3 python3-pip ffmpeg libopus0 \
         libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
         libcups2t64 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libdrm2 \
         libgbm1 libasound2t64 libxkbcommon0 libpango-1.0-0 libcairo2 fonts-liberation \
+    && pip3 install --no-cache-dir --break-system-packages aiortc==1.15.0 \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
