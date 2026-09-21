@@ -585,35 +585,55 @@ impl AlbertCogitator {
                     Ok(s) => s,
                     Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
-                let first = self
-                    .subscription_attempt(&sub, preamble, make_tools(), channel, prompt.clone(), history.clone(), feed.clone())
-                    .await;
-                match first {
-                    Ok(answer) => answer,
-                    // The server can revoke an access token ahead of its JWT `exp`
-                    // (live incident 2026-08-10: 401 token_expired with exp on 08-18),
-                    // and `ensure_fresh` trusts `exp` — so without this the turn (and
-                    // every turn after it) would 401 forever. Force the refresh and
-                    // retry the whole turn once; a rejected refresh surfaces the auth
-                    // error, which already points at `albert login`.
-                    Err(e) if token_rejected(&e) => {
-                        warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
-                        match force_refresh(&self.config.subscription_auth_json).await {
-                            Ok(sub) => {
-                                // The aborted first attempt may have recorded a restart
-                                // target in `pending`; clear it so only what the retried
-                                // turn actually asks for is carried out — otherwise a
-                                // restart requested by the failed attempt leaks into an
-                                // otherwise-clean retry and fires unbidden.
-                                let _ = pending.lock().map(|mut p| p.take());
-                                self.subscription_attempt(&sub, preamble, make_tools(), channel, prompt, history, feed)
-                                    .await
-                                    .unwrap_or_else(llm_error)
+                // Two different failures both want the turn run again, so the attempt
+                // lives in a loop rather than in two hand-written retries.
+                let mut sub = sub;
+                let mut refreshed = false;
+                let mut hiccups = 0usize;
+                loop {
+                    let attempt = self
+                        .subscription_attempt(&sub, preamble, make_tools(), channel, prompt.clone(), history.clone(), feed.clone())
+                        .await;
+                    match attempt {
+                        Ok(answer) => break answer,
+                        // The server can revoke an access token ahead of its JWT `exp`
+                        // (live incident 2026-08-10: 401 token_expired with exp on 08-18),
+                        // and `ensure_fresh` trusts `exp` — so without this the turn (and
+                        // every turn after it) would 401 forever. Force the refresh and
+                        // retry the whole turn once; a rejected refresh surfaces the auth
+                        // error, which already points at `albert login`.
+                        Err(e) if token_rejected(&e) && !refreshed => {
+                            warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
+                            match force_refresh(&self.config.subscription_auth_json).await {
+                                Ok(fresh) => {
+                                    // The aborted attempt may have recorded a restart
+                                    // target in `pending`; clear it so only what the retried
+                                    // turn actually asks for is carried out — otherwise a
+                                    // restart requested by the failed attempt leaks into an
+                                    // otherwise-clean retry and fires unbidden.
+                                    let _ = pending.lock().map(|mut p| p.take());
+                                    sub = fresh;
+                                    refreshed = true;
+                                    continue;
+                                }
+                                Err(e) => break format!("(subscription auth: {e})"),
                             }
-                            Err(e) => format!("(subscription auth: {e})"),
                         }
+                        // A busy provider is not an answer. Upstream returns
+                        // `server_is_overloaded` in bursts (live: 5 of 13 turns on
+                        // 2026-08-27), and handing that straight to the user turns a
+                        // hiccup lasting seconds into a failed request. Wait and run the
+                        // turn again; the user sees the delay, not the error.
+                        Err(e) if transient(&e) && hiccups < TRANSIENT_BACKOFF_SECS.len() => {
+                            let wait = TRANSIENT_BACKOFF_SECS[hiccups];
+                            warn!(error = %e, attempt = hiccups + 1, wait_s = wait, "provider hiccup; retrying the turn");
+                            let _ = pending.lock().map(|mut p| p.take());
+                            tokio::time::sleep(Duration::from_secs(wait)).await;
+                            hiccups += 1;
+                            continue;
+                        }
+                        Err(e) => break llm_error(e),
                     }
-                    Err(e) => llm_error(e),
                 }
             }
         };
@@ -941,6 +961,33 @@ fn token_rejected(e: &PromptError) -> bool {
     let PromptError::CompletionError(ce) = e else { return false };
     let msg = ce.to_string();
     msg.contains("token_expired") || msg.contains("401 Unauthorized")
+}
+
+/// Backoff between retries of a turn the provider failed to serve, in seconds. The
+/// array length also sets the attempt count: two waits = three attempts and at most
+/// eight extra seconds of delay. A slump longer than that is not a hiccup and is not
+/// fixed by waiting here.
+const TRANSIENT_BACKOFF_SECS: [u64; 2] = [2, 6];
+
+/// A provider-side failure that clears on its own — overload, a rate limit, a dropped
+/// connection. Distinct from a malformed request, which no retry can fix.
+fn transient(e: &PromptError) -> bool {
+    let PromptError::CompletionError(ce) = e else { return false };
+    let msg = ce.to_string();
+    let low = msg.to_ascii_lowercase();
+    if low.contains("server_is_overloaded")
+        || low.contains("overloaded")
+        || low.contains("rate_limit")
+        || low.contains("temporarily unavailable")
+        || low.contains("timed out")
+        || low.contains("connection reset")
+        || low.contains("connection closed")
+    {
+        return true;
+    }
+    // Numeric codes go through the parser instead of a substring search: "500" turns
+    // up in harmless error prose, and a retry would fire for nothing.
+    matches!(provider_status_code(&msg), Some(429 | 500 | 502 | 503 | 504))
 }
 
 /// One user turn as perceived: text, optionally with an image the connector
