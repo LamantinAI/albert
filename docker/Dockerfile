@@ -57,9 +57,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
 #  - ffmpeg (with ffprobe): backs the `transcribe` skill — it measures a recording,
 #    finds its silences and cuts it into chunks the dictation endpoint won't truncate.
+#  - Chrome's shared libraries: the browser connector downloads Chrome-for-Testing on
+#    its first fetch, but that binary links against the system NSS/NSPR, ATK, AT-SPI,
+#    CUPS and X libraries, which a slim base doesn't have. Without them Chrome dies at
+#    load ("libnspr4.so: cannot open shared object file") and every browser.fetch fails
+#    — silently, since the connector doesn't log the launch error. The last line is
+#    what Chrome dlopen()s at runtime (GBM, ALSA, xkbcommon — ldd doesn't list those)
+#    plus its text rendering stack and a base font.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
         curl wget python3 ffmpeg \
+        libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
+        libcups2t64 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libdrm2 \
+        libgbm1 libasound2t64 libxkbcommon0 libpango-1.0-0 libcairo2 fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
