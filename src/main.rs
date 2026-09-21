@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
                 if token.is_empty() {
                     warn!(cloud = %name, env = %ep.token_env, "cloud token env is unset");
                 }
-                (name.clone(), CloudClient::new(ep.url.clone(), token))
+                (name.clone(), CloudClient::new(name.clone(), ep.url.clone(), token))
             })
             .collect();
         let names: Vec<&str> = config.clouds.keys().map(String::as_str).collect();
