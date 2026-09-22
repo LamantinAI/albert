@@ -64,15 +64,6 @@ pub struct Config {
     /// token is what the dictation endpoint accepts — with an API key there is nothing
     /// to authenticate a transcription with. See [`crate::transcribe`].
     pub hearing: bool,
-    /// Whether Albert can answer with a voice note (the `speak` connector: a WebRTC call to
-    /// ChatGPT Voice on the same subscription token). Explicit `speaking = true/false` wins;
-    /// the default follows [`Self::hearing`] — both ride on the subscription, not the model.
-    pub speaking: bool,
-    /// Whether Albert can draw (the `imagegen` connector: gpt-image-2 through the
-    /// subscription Images endpoint, plus the `imagegen` prompting skill). It rides on the
-    /// subscription token, not the model, so it has its own switch; the default follows
-    /// the subscription like [`Self::hearing`].
-    pub imagegen: bool,
     /// Stream the agent's live progress (tool calls, reasoning summaries) into
     /// the chat as `chat.status` envelopes while a turn runs. Default: on.
     pub stream_status: bool,
@@ -156,13 +147,7 @@ impl Config {
         // through the ChatGPT dictation endpoint, which only takes a subscription
         // token. An API key has nothing to offer it, whatever the model can do.
         let hearing = raw.hearing.unwrap_or(auth == AuthMode::Subscription);
-        // Speaking rides on the same subscription token, so it follows hearing.
-        let speaking = raw.speaking.unwrap_or(hearing);
 
-        // Image generation rides on the subscription token too (the Images endpoint),
-        // so it defaults like hearing; with an API key, turn it on next to a
-        // [subscription] auth_json.
-        let imagegen = raw.imagegen.unwrap_or(auth == AuthMode::Subscription);
 
         // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
         // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
@@ -194,8 +179,6 @@ impl Config {
         Ok(Config {
             multimodal,
             hearing,
-            speaking,
-            imagegen,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
             auth,
@@ -300,12 +283,7 @@ struct Raw {
     /// subscription, off with an API key.
     #[serde(default)]
     hearing: Option<bool>,
-    /// Force speaking (voice-note replies) on/off; absent → follows `hearing`.
-    #[serde(default)]
-    speaking: Option<bool>,
-    /// Force image generation on/off; absent → on under a subscription, off with an API key.
-    #[serde(default)]
-    imagegen: Option<bool>,
+
     /// Stream live turn progress (tool calls / thoughts) into the chat.
     #[serde(default)]
     stream_status: Option<bool>,

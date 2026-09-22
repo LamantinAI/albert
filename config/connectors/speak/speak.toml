@@ -1,0 +1,14 @@
+# Speak connector — text to a voice note on the ChatGPT subscription, as an env-as-tools
+# organ: speak.run { text, voice? } -> { path } (an Ogg/Opus file; chat.send_file sends it
+# as a voice note). A native WebRTC call to ChatGPT Voice; the host needs outbound UDP.
+#
+# Rides on the subscription token ([subscription] auth_json in albert.toml): without a
+# token on disk it is skipped at startup with a log line. Remove this file to turn it off.
+
+[connector]
+id   = "speak"
+type = "speak"
+
+# The voice a call falls back to. Lower to higher: cove, spruce, arbor, ember (male);
+# vale, breeze, juniper, sol, maple.
+voice = "cove"
