@@ -53,7 +53,7 @@ use crate::{
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
     transcribe::{transcribe, MAX_INLINE_SECS},
-    openai_auth::{ensure_fresh, force_refresh, Subscription as SubscriptionAuth},
+    openai_auth::{Subscription as SubToken, SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -74,6 +74,9 @@ pub struct AlbertCogitator {
     scratchpad: Arc<ScratchpadStore>,
     skills: Arc<SkillStore>,
     prompt: Arc<PromptFiles>,
+    /// Shared, refresh-serialised ChatGPT-subscription auth — ONE refresh owner across
+    /// the LLM backend and the voice (transcribe/speak) paths. See [`SubscriptionAuth`].
+    auth: Arc<SubscriptionAuth>,
     /// The in-flight LLM turn per channel: `channel -> (turn_id, abort handle)`. A turn
     /// runs as its own task so the perceive loop stays free to receive the next message
     /// (and a `/cancel`) while it runs. A new message on a channel supersedes the old
@@ -94,6 +97,7 @@ impl AlbertCogitator {
         scratchpad: Arc<ScratchpadStore>,
         skills: Arc<SkillStore>,
         prompt: Arc<PromptFiles>,
+        auth: Arc<SubscriptionAuth>,
     ) -> Arc<Self> {
         let id = id.into();
         Arc::new(Self {
@@ -105,6 +109,7 @@ impl AlbertCogitator {
             scratchpad,
             skills,
             prompt,
+            auth,
             turns: Mutex::new(HashMap::new()),
             turn_seq: AtomicU64::new(0),
         })
@@ -222,7 +227,7 @@ impl AlbertCogitator {
             .await;
         }
 
-        let sub = match ensure_fresh(&self.config.subscription_auth_json).await {
+        let sub = match self.auth.fresh().await {
             Ok(sub) => sub,
             Err(e) => {
                 warn!(error = %e, "voice: subscription token unavailable");
@@ -586,7 +591,7 @@ impl AlbertCogitator {
             AuthMode::Subscription => {
                 // Load (and, if it's expiring, refresh) the OAuth tokens, then build
                 // the Codex client for this turn.
-                let sub = match ensure_fresh(&self.config.subscription_auth_json).await {
+                let sub = match self.auth.fresh().await {
                     Ok(s) => s,
                     Err(e) => return (format!("(subscription auth: {e})"), None),
                 };
@@ -609,7 +614,7 @@ impl AlbertCogitator {
                         // error, which already points at `albert login`.
                         Err(e) if token_rejected(&e) && !refreshed => {
                             warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
-                            match force_refresh(&self.config.subscription_auth_json).await {
+                            match self.auth.force_refresh().await {
                                 Ok(fresh) => {
                                     // The aborted attempt may have recorded a restart
                                     // target in `pending`; clear it so only what the retried
@@ -653,7 +658,7 @@ impl AlbertCogitator {
     /// tool-loop error, which the caller inspects for a revoked-token 401.
     async fn subscription_attempt(
         &self,
-        sub: &SubscriptionAuth,
+        sub: &SubToken,
         preamble: &str,
         tools: TurnTools,
         channel: &str,
@@ -674,7 +679,7 @@ impl AlbertCogitator {
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
     /// default) pointed at the Codex backend, with the OAuth access token as the
     /// bearer and the account id in the mandatory `ChatGPT-Account-ID` header.
-    fn subscription_client(&self, sub: &SubscriptionAuth) -> Result<openai::Client<CodexHttp>, String> {
+    fn subscription_client(&self, sub: &SubToken) -> Result<openai::Client<CodexHttp>, String> {
         if let Some(plan) = &sub.plan {
             info!(plan, "subscription auth loaded");
         }
