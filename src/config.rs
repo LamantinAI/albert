@@ -68,10 +68,10 @@ pub struct Config {
     /// ChatGPT Voice on the same subscription token). Explicit `speaking = true/false` wins;
     /// the default follows [`Self::hearing`] — both ride on the subscription, not the model.
     pub speaking: bool,
-    /// Whether the `imagegen` skill is offered. It generates images by driving the
-    /// Codex CLI's built-in tool on a ChatGPT subscription (a separate credential from
-    /// Albert's own model auth), so it is gated on its own flag, not on [`AuthMode`].
-    /// Default off: the host needs the `codex` binary + a subscription `auth.json`.
+    /// Whether Albert can draw (the `imagegen` connector: gpt-image-2 through the
+    /// subscription Images endpoint, plus the `imagegen` prompting skill). It rides on the
+    /// subscription token, not the model, so it has its own switch; the default follows
+    /// the subscription like [`Self::hearing`].
     pub imagegen: bool,
     /// Stream the agent's live progress (tool calls, reasoning summaries) into
     /// the chat as `chat.status` envelopes while a turn runs. Default: on.
@@ -159,10 +159,10 @@ impl Config {
         // Speaking rides on the same subscription token, so it follows hearing.
         let speaking = raw.speaking.unwrap_or(hearing);
 
-        // Image generation rides on Codex's subscription, not on Albert's model auth,
-        // so it defaults off and is turned on explicitly where codex + a subscription
-        // auth.json are provisioned.
-        let imagegen = raw.imagegen.unwrap_or(false);
+        // Image generation rides on the subscription token too (the Images endpoint),
+        // so it defaults like hearing; with an API key, turn it on next to a
+        // [subscription] auth_json.
+        let imagegen = raw.imagegen.unwrap_or(auth == AuthMode::Subscription);
 
         // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
         // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
@@ -303,7 +303,7 @@ struct Raw {
     /// Force speaking (voice-note replies) on/off; absent → follows `hearing`.
     #[serde(default)]
     speaking: Option<bool>,
-    /// Force image generation on/off; absent → off. Needs codex + a subscription auth.
+    /// Force image generation on/off; absent → on under a subscription, off with an API key.
     #[serde(default)]
     imagegen: Option<bool>,
     /// Stream live turn progress (tool calls / thoughts) into the chat.

@@ -23,10 +23,10 @@ openai_key_env = "ALBERT_OPENAI_KEY"
 # hearing = true
 # speaking = true
 
-# Image generation: offer the `imagegen` skill? It draws via the Codex CLI's built-in
-# tool on a ChatGPT subscription (no API-key billing) — a SEPARATE credential from
-# Albert's own model auth, so it has its own switch. Default off; turn on only where the
-# host has the `codex` binary and a subscription auth.json (see the skill).
+# Image generation: can Albert draw? gpt-image-2 through the subscription Images endpoint
+# (no API-key billing, no codex CLI) — it rides on the subscription token, not the model, so
+# it has its own switch. Default: subscription -> yes; api_key -> no (turn on next to
+# [subscription].auth_json, like hearing).
 # imagegen = true
 
 # Live progress in chat while a turn runs (typing indicator is always on; this

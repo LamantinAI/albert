@@ -50,6 +50,9 @@ openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
 # speaking      = true   # answer with voice notes (speak connector, WebRTC to
                          # ChatGPT Voice); omit -> follows hearing. With api_key,
                          # both need [subscription] auth_json (see below)
+# imagegen      = true   # draw / edit images (imagegen connector, gpt-image-2 on
+                         # the subscription Images endpoint); omit -> on only under
+                         # a subscription
 
 # Owner's timezone (IANA name). The agent's "current time" — and any reminder times
 # it computes — render in this zone, not UTC. Match the calendar connector's own
