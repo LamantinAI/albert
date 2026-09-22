@@ -3,7 +3,7 @@
 //! An OAuth 2.0 Authorization-Code + PKCE flow against `auth.openai.com`, using the
 //! first-party Codex client. It spins up a throwaway loopback server to catch the
 //! redirect, opens the browser, exchanges the code for tokens, and writes them to
-//! the same codex-style `auth.json` the runtime reads ([`crate::openai_auth`]) — so
+//! the same codex-style `auth.json` the runtime reads (via `octo-openai-auth`) — so
 //! Albert no longer depends on the `codex` CLI being installed or logged in.
 
 use std::{path::Path, process::Command, time::Duration};
@@ -21,10 +21,11 @@ use tokio::{
 use tracing::warn;
 use url::Url;
 
-use crate::{
-    error::{Error, Result},
-    openai_auth::{account_id_from_jwt, plan_from_jwt, AuthDotJson, Tokens, CLIENT_ID, TOKEN_URL},
+use octo_openai_auth::{
+    account_id_from_jwt, plan_from_jwt, AuthDotJson, Tokens, CLIENT_ID, TOKEN_URL,
 };
+
+use crate::error::{Error, Result};
 
 const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const SCOPE: &str = "openid profile email offline_access";

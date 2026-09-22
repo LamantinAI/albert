@@ -31,6 +31,7 @@ use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, InboundMessage, OctoResult, ReplyChannel, Subscription,
 };
+use octo_openai_auth::{Subscription as SubToken, SubscriptionAuth};
 use octo_rig::{carry_out_cancel, carry_out_restart, OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
     agent::{AgentBuilder, NoToolConfig},
@@ -53,7 +54,6 @@ use crate::{
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
     transcribe::{transcribe, MAX_INLINE_SECS},
-    openai_auth::{Subscription as SubToken, SubscriptionAuth},
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
