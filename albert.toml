@@ -14,10 +14,14 @@ openai_key_env = "ALBERT_OPENAI_KEY"
 # (subscription -> always yes; api_key -> guessed from the model name).
 # multimodal = true
 
-# Hearing: can Albert listen to voice messages? They are transcribed through the
-# ChatGPT dictation endpoint, which only accepts a subscription token — hence the
-# default (subscription -> yes; api_key -> no, whatever the model can do).
+# Voice: can Albert listen to voice messages (hearing) and answer with voice notes
+# (speaking)? Both ride on a ChatGPT subscription token — the dictation endpoint and a
+# WebRTC call to ChatGPT Voice — hence the default (subscription -> yes; api_key -> no,
+# whatever the model can do). With auth = "api_key" they can still be turned on: point
+# [subscription].auth_json at a subscription token store (`albert login` writes one).
+# speaking follows hearing unless set.
 # hearing = true
+# speaking = true
 
 # Image generation: offer the `imagegen` skill? It draws via the Codex CLI's built-in
 # tool on a ChatGPT subscription (no API-key billing) — a SEPARATE credential from

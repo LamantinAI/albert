@@ -11,30 +11,30 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 # next release is cut deliberately). One repo, many crates; bump this rev to move forward.
 # NOTE: linking the mail crate pulls a second rustls provider (ring); main() MUST call
 # ensure_crypto_provider().
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-openai-auth — the ChatGPT-subscription credential component (auth.json store +
 # refresh + the shared, refresh-serialised SubscriptionAuth handle). Moved out of Albert
 # so the voice connectors (synth + transcribe) and other assemblies share one token owner.
-octo-openai-auth = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927", features = ["sqlite"] }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-openai-auth = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1", features = ["sqlite"] }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
 # to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
-octo-code = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-storage — durable object store (put/get/list/delete + promote/
 # checkout); env-as-tools organ, backend swappable (local dir now, S3 later).
-octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
-octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-mail — IMAP read + SMTP send mailbox organ (env-as-tools: mail.cmd.*).
 # Wired in but OFF by default: the factory is registered, but no config/connectors/mail
 # manifest is shipped (only mail.toml.example), so nothing is instantiated until you add
 # one + the creds. Its rustls provider (ring) forces the ensure_crypto_provider() call.
-octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-search — web search organ (env-as-tools: search.web { query, limit? }).
 # Its DuckDuckGo backend fetches through the SYSTEM libcurl, because DDG's anti-bot
 # answers reqwest with a 202 challenge (and drops a vendored libcurl's handshake), while
@@ -43,20 +43,25 @@ octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "11474
 # (present wherever `curl` is). If a build predates the dev headers, curl-sys silently
 # vendored its own copy — `cargo clean -p curl-sys` and rebuild.
 # Backend is swappable — Yandex Search API slots in behind the same trait later.
-octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-transcribe — voice-in as an env-as-tools organ: transcribe.run { path } ->
 # { text } via the ChatGPT-subscription dictation endpoint. Takes the shared SubscriptionAuth
 # (constructed in main.rs), so it shares the LLM path's one token owner. Subscription mode only.
-octo-connector-transcribe = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-transcribe = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
+# octo-connector-speak — voice-out as an env-as-tools organ: speak.run { text, voice? } ->
+# { path } via a native WebRTC call to ChatGPT Voice (str0m, sans-IO). Writes an Ogg/Opus
+# voice note into the workspace; shares the same SubscriptionAuth as transcribe. Subscription
+# mode only. Needs a routable host to receive media (public IP on the deploy; STUN is TODO).
+octo-connector-speak = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-http — the GENERIC configurable connector: a whole REST API becomes an
 # env-as-tools organ from a manifest alone (type = "http"), no code. Ported colleague
 # work (PR #3) wires Jira this way — config/connectors/jira/jira.toml.
-octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 # octo-connector-browser — stealth web-fetch organ (browser.fetch): drives a real headless
 # Chrome via zendriver for JS-heavy / anti-bot pages. Pulls the fetcher (downloads a pinned
 # Chrome-for-Testing) + a CDP tree — heavy build. The host needs Chrome's shared libs at
 # runtime (libnss3, libgbm1, libasound2, …); the deploy provisions them.
-octo-connector-browser = { git = "https://github.com/LamantinAI/octo", rev = "11474945e2487f4feea5ba713b20b1c9babc1927" }
+octo-connector-browser = { git = "https://github.com/LamantinAI/octo", rev = "a195cf5795d3447d19cc608cd2c30b9e031ae8f1" }
 
 # kaeru — the Memory substrate, pinned to a release tag. v0.7.3 already carries the
 # cozo-sqlite-dropped change (cozo no longer links sqlite3), so Albert's octo-history
@@ -70,8 +75,8 @@ futures = "0.3"
 # bytes: rewrite the Codex request/response body in the custom rig HttpClientExt
 # (codex_http). The reqwest client itself comes via rig's `http_client::ReqwestClient`.
 bytes = "1"
-# Subscription login/refresh (openai_login / openai_auth): the OAuth PKCE flow and
-# token-endpoint calls. reqwest reuses rig's already-built TLS (default-features off,
+# Subscription login (openai_login): the OAuth PKCE flow and the code exchange (refresh
+# lives in octo-openai-auth). reqwest reuses rig's already-built TLS (default-features off,
 # just add `json`); sha2 for the PKCE S256 challenge; rand for the verifier/state;
 # url to build the authorize URL safely.
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
@@ -82,8 +87,8 @@ async-trait = "0.1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# base64: decode the JWT access-token payload (subscription auth) to read `exp`
-# and the ChatGPT plan claim. URL-safe, no-pad. Already in the tree transitively.
+# base64: the PKCE verifier/state (URL-safe, no-pad) in openai_login, and inline images
+# for vision models in the cogitator. Already in the tree transitively.
 base64 = "0.22"
 chrono = "0.4"
 chrono-tz = "0.10"

@@ -27,6 +27,7 @@ use base64::Engine as _;
 use chrono::Utc;
 use kaeru_rig::KaeruMemory;
 use octo_code::code_tools;
+use octo_connector_transcribe::{transcribe, TranscribeError};
 use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, InboundMessage, OctoResult, ReplyChannel, Subscription,
@@ -53,7 +54,7 @@ use crate::{
     config::{AuthMode, Config},
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
-    transcribe::{transcribe, MAX_INLINE_SECS},
+    transcribe::MAX_INLINE_SECS,
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -241,7 +242,18 @@ impl AlbertCogitator {
         };
 
         let filename = blob.filename().unwrap_or("voice.ogg");
-        match transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await {
+        let heard = match transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await {
+            // The server can revoke a token ahead of its `exp`: refresh once and retry.
+            Err(TranscribeError::Unauthorized(_)) => {
+                warn!("voice: token refused; forcing a refresh and retrying once");
+                match self.auth.force_refresh().await {
+                    Ok(sub) => transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await,
+                    Err(e) => Err(TranscribeError::Failed(e.to_string())),
+                }
+            }
+            other => other,
+        };
+        match heard {
             Ok(text) if text.is_empty() => {
                 warn!("voice: empty transcript");
                 decline("The voice message came through but there's not a word in it — empty.".to_string()).await

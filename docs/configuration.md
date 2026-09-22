@@ -45,6 +45,11 @@ openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
                          # subscription = yes; api_key = guessed from the model name
 # stream_status = true   # stream tool calls / thoughts into the chat while a
                          # turn runs (one in-place edited status message)
+# hearing       = true   # transcribe incoming voice messages; omit -> on only
+                         # under a subscription (the dictation endpoint takes its token)
+# speaking      = true   # answer with voice notes (speak connector, WebRTC to
+                         # ChatGPT Voice); omit -> follows hearing. With api_key,
+                         # both need [subscription] auth_json (see below)
 
 # Owner's timezone (IANA name). The agent's "current time" — and any reminder times
 # it computes — render in this zone, not UTC. Match the calendar connector's own
