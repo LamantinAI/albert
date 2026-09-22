@@ -45,6 +45,10 @@ octo-connector-mail = { git = "https://github.com/LamantinAI/octo", tag = "v0.1.
 # vendored its own copy — `cargo clean -p curl-sys` and rebuild.
 # Backend is swappable — Yandex Search API slots in behind the same trait later.
 octo-connector-search = { git = "https://github.com/LamantinAI/octo", tag = "v0.1.0" }
+# octo-connector-transcribe — voice-in as an env-as-tools organ: transcribe.run { path } ->
+# { text } via the ChatGPT-subscription dictation endpoint. Takes the shared SubscriptionAuth
+# (constructed in main.rs), so it shares the LLM path's one token owner. Subscription mode only.
+octo-connector-transcribe = { git = "https://github.com/LamantinAI/octo", tag = "v0.1.0" }
 # octo-connector-http — the GENERIC configurable connector: a whole REST API becomes an
 # env-as-tools organ from a manifest alone (type = "http"), no code. Ported colleague
 # work (PR #3) wires Jira this way — config/connectors/jira/jira.toml.

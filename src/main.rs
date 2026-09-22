@@ -32,6 +32,7 @@ use octo_connector_browser::factory as browser_factory;
 use octo_connector_http::factory as http_factory;
 use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
+use octo_connector_transcribe::TranscribeConnector;
 use octo_connector_search::factory as search_factory;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
@@ -201,9 +202,16 @@ async fn main() -> Result<()> {
             scratchpad,
             skills,
             prompt,
-            auth,
+            auth.clone(),
         ))
         .add_connector(scheduler);
+
+    // Voice organs share the cogitator's subscription token (the same `auth`), so they
+    // exist only in subscription mode — an API key has no token this endpoint accepts.
+    if config.auth == AuthMode::Subscription {
+        builder = builder.add_connector(TranscribeConnector::new("transcribe", auth.clone(), None));
+        info!("voice: transcribe connector enabled (subscription)");
+    }
 
     // ── Connectors: config-driven Telegram (ACL) + calendar, or console ──────
     // With a token present, the Telegram channel and the calendar are assembled
