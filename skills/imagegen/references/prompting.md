@@ -1,8 +1,8 @@
 # Prompting best practices
 
 Depth material for the `imagegen` skill. These are principles of prompt structure,
-specificity, and iteration for a diffusion image model (driven through Codex's built-in
-`image_gen` tool on the ChatGPT subscription). Copy/paste recipes live in
+specificity, and iteration for a diffusion image model (`gpt-image-2`, reached through
+the `imagegen` connector on the ChatGPT subscription). Copy/paste recipes live in
 `sample-prompts.md`.
 
 ## Structure

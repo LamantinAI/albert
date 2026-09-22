@@ -11,46 +11,41 @@ description: >-
   diagrams that are better built in SVG/HTML/CSS code.
 ---
 
-Image generation runs through Codex's built-in `image_gen` tool, which works on the
-shared **ChatGPT subscription** (an `auth.json` in `chatgpt` mode) — no OpenAI key, no
-per-image charge. We drive `codex exec` from the sandbox; it renders and saves a PNG, and
-the script copies it into the workspace.
+Image generation runs natively on the shared **ChatGPT subscription**: the `imagegen`
+connector sends your spec to `gpt-image-2` through the subscription Images endpoint — no
+OpenAI key, no per-image charge, no scripts. One call, usually 20-60 seconds.
 
 ## How to run
 
-The backend is a bash script, run through **forkd**: `dispatch_to_connector` target
-`"forkd"`, kind `"forkd.run"`, payload:
+`dispatch_to_connector` target `"imagegen"`, kind `"imagegen.run"`, payload:
 
 ```
-{ "skill_path": "imagegen/scripts/imagegen.sh",
-  "interpreter": "bash",
-  "args": ["--prompt", "<the assembled spec, see below>",
-           "--out", "image.png",
-           "--size", "1024x1024"],
-  "timeout_secs": 300 }
+{ "prompt": "<the assembled spec, see below>",
+  "size": "1024x1024",
+  "quality": "auto",
+  "background": "auto",
+  "images": ["<workspace path>", ...] }
 ```
 
-- `--prompt` (required) — the spec you assemble (see "Building the prompt").
-- `--out` — the workspace filename (default `image_<time>.png`).
-- `--size` — gpt-image-2 size: `1024x1024` (square, fastest), `1536x1024` (landscape),
-  `1024x1536` (portrait), `2048x1152` (2K), `auto`. Both edges multiples of 16, ratio no
-  steeper than 3:1.
-- `--image <path>` — an input image (a reference or an edit target), repeatable. Describe
-  each one's role in words inside `--prompt` ("Image 1 — style reference", "Image 2 — edit
-  target").
+- `prompt` (required) — the spec you assemble (see "Building the prompt").
+- `size` — `1024x1024` (square, fastest), `1536x1024` (landscape), `1024x1536` (portrait),
+  `2048x1152` (2K), `auto`. Both edges multiples of 16, ratio no steeper than 3:1. Omitted,
+  the endpoint picks.
+- `quality` — `low` (fast drafts), `medium`, `high` (slowest), `auto`.
+- `background` — `transparent` for a cutout (logos, stickers, sprites), `opaque`, `auto`.
+- `images` — up to 5 workspace paths (a reference or an edit target). Present, the call
+  **edits** them. Describe each one's role in words inside `prompt` ("Image 1 — style
+  reference", "Image 2 — edit target").
 
-The script prints a summary to stdout: `[out] <path>`, `[size]`, `[src]`. Set the timeout
-to ~300s (one image is usually 1-2 minutes); for a batch, call the script once per image
-and raise the timeout.
+The result is `{ "path": "image-<id>.png" }` in the workspace (or `{ "error": ... }` — read
+it: a 400 usually means the content policy or a bad size).
 
 ## Delivering the result to the user
 
-The image sits in the workspace at the path from `[out]`. Send it to the chat with
-**`chat.send_file`**: `dispatch_to_connector` target — the telegram connector's id, kind
-`"chat.send_file"`, payload `{ "path": "image.png", "caption": "<caption>" }`. It goes out
-as a **photo with a preview** (not a document); `caption` is a short caption, optional.
-Don't paste the image bytes into the reply text — deliver it only by reference via
-`chat.send_file`.
+Send the image with **`chat.send_file`**: `dispatch_to_connector` target — the telegram
+connector's id, kind `"chat.send_file"`, payload `{ "path": "<the path>", "caption":
+"<caption>" }`. It goes out as a **photo with a preview** (not a document); `caption` is
+optional. Don't paste image bytes into the reply text — deliver it only by reference.
 
 ## Building the prompt (this is half the battle)
 
@@ -107,10 +102,10 @@ More principles and ready recipes are in `references/prompting.md` and
 
 ## Transparent background
 
-The built-in tool gives no true transparency. Ask for a flat solid chroma-key background
-(`#00ff00`, or `#ff00ff` for green subjects), with no shadows or gradients and generous
-padding — the background can then be removed locally. For hard edges (hair, fur, glass,
-smoke) a clean cutout won't happen — tell the user honestly.
+Pass `"background": "transparent"` and the image comes back with a real alpha channel —
+right for logos, stickers, sprites and cutouts. Keep generous padding around the subject.
+Very fine edges (hair, fur, smoke, glass) may still come out imperfect — say so honestly
+if it matters.
 
 ## Iterating and checking
 
@@ -121,10 +116,10 @@ time.
 
 ## If it fails
 
-The script returns a non-zero code and the reason on `stderr`:
-- "codex binary not found" — the Codex CLI isn't installed on this stand (needed for
-  subscription image generation). Tell the user honestly, don't invent an image.
-- "auth_mode is not chatgpt" — codex isn't logged in on the subscription; the script
-  refuses so it doesn't bill an API key.
-- "image was not produced" — the model didn't save a file; retry with a clearer prompt.
-Report the `stderr` error as-is.
+The connector answers `{ "error": "..." }` with the reason:
+- `HTTP 400` — the request was rejected: usually the content policy, sometimes a bad size.
+  Rephrase the prompt (or fix the size) rather than repeating it.
+- `HTTP 429` — the subscription's usage window is exhausted; tell the user to try later.
+- `HTTP 401` / "sign in again" — the subscription token is gone; the owner needs to re-run
+  the login.
+Report the error honestly; never describe an image you did not get.

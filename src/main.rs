@@ -30,6 +30,7 @@ use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
 use octo_connector_browser::factory as browser_factory;
 use octo_connector_http::factory as http_factory;
+use octo_connector_imagegen::ImagegenConnector;
 use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
 use octo_connector_speak::SpeakConnector;
@@ -72,7 +73,8 @@ async fn main() -> Result<()> {
              octo_connector_storage=info,octo_connector_forkd=info,\
              octo_connector_mail=info,octo_connector_search=info,\
              octo_connector_http=info,octo_connector_browser=info,\
-             octo_connector_transcribe=info,octo_connector_speak=info,octo_core=warn"
+             octo_connector_transcribe=info,octo_connector_speak=info,\
+             octo_connector_imagegen=info,octo_core=warn"
                 .into()
         }))
         .with_target(true)
@@ -210,21 +212,26 @@ async fn main() -> Result<()> {
         ))
         .add_connector(scheduler);
 
-    // Voice organs share the cogitator's subscription token (the same `auth`), so they
-    // follow the voice flags, not the model's auth: with `auth = "api_key"` the LLM runs on
-    // a key while `hearing`/`speaking` still ride on a subscription auth.json.
+    // Subscription organs (voice in/out, image synthesis) share the cogitator's token (the
+    // same `auth`), so each follows its own flag, not the model's auth: with
+    // `auth = "api_key"` the LLM runs on a key while `hearing`/`speaking`/`imagegen` still
+    // ride on a subscription auth.json.
     if config.hearing {
         builder = builder.add_connector(TranscribeConnector::new("transcribe", auth.clone(), None));
     }
     if config.speaking {
         builder = builder.add_connector(SpeakConnector::new("speak", auth.clone(), None));
     }
-    if config.hearing || config.speaking {
+    if config.imagegen {
+        builder = builder.add_connector(ImagegenConnector::new("imagegen", auth.clone(), None));
+    }
+    if config.hearing || config.speaking || config.imagegen {
         info!(
             hearing = config.hearing,
             speaking = config.speaking,
+            imagegen = config.imagegen,
             auth_json = %config.subscription_auth_json.display(),
-            "voice: subscription connectors enabled"
+            "subscription connectors enabled"
         );
     }
 
