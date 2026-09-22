@@ -10,13 +10,17 @@
 //! token that `exp` still calls valid (revocation), the caller escalates to
 //! [`force_refresh`], which refreshes unconditionally.
 
-use std::{fs::read_to_string, path::Path};
+use std::{
+    fs::read_to_string,
+    path::{Path, PathBuf},
+};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, from_str, json, to_string_pretty, Map, Value};
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::error::{Error, Result};
@@ -150,6 +154,37 @@ pub async fn force_refresh(path: &Path) -> Result<Subscription> {
         )));
     }
     subscription_from(&auth.tokens)
+}
+
+/// A shared, refresh-serialised handle over the subscription token store. Wraps the
+/// stateless [`ensure_fresh`] / [`force_refresh`] with a lock so the refresh is
+/// SINGLE-OWNER: cheap to clone behind an `Arc` and safe to share across the cogitator's
+/// LLM backend and the voice connectors, because two concurrent callers can never both
+/// POST a refresh and invalidate each other's token — the second waits, re-reads the
+/// store the first has just refreshed, and returns it without a second POST.
+pub struct SubscriptionAuth {
+    path: PathBuf,
+    refresh: Mutex<()>,
+}
+
+impl SubscriptionAuth {
+    /// A handle over the codex-style `auth.json` at `path`.
+    pub fn new(path: PathBuf) -> Self {
+        Self { path, refresh: Mutex::new(()) }
+    }
+
+    /// A fresh [`Subscription`], refreshing the access token first if it is near expiry.
+    pub async fn fresh(&self) -> Result<Subscription> {
+        let _serialise = self.refresh.lock().await;
+        ensure_fresh(&self.path).await
+    }
+
+    /// Force a refresh now — the escape hatch for a live 401 the JWT `exp` still calls
+    /// valid (revocation). Serialised the same way, so it can't race a concurrent `fresh`.
+    pub async fn force_refresh(&self) -> Result<Subscription> {
+        let _serialise = self.refresh.lock().await;
+        force_refresh(&self.path).await
+    }
 }
 
 /// True when the access token expires within [`REFRESH_WINDOW_SECS`] (or already
@@ -295,7 +330,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 mod tests {
     use super::{
         account_id_from_jwt, apply_refresh, force_refresh, jwt_claims, plan_from_jwt,
-        AuthDotJson, RefreshResponse, Tokens,
+        AuthDotJson, RefreshResponse, SubscriptionAuth, Tokens,
     };
 
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -433,6 +468,36 @@ mod tests {
         let mode = metadata(&path).unwrap().permissions().mode() & 0o777;
         let _ = remove_file(&path);
         assert_eq!(mode, 0o600, "auth.json must be 0600, got {mode:o}");
+    }
+
+    /// The shared provider delegates to the store and is Send + Sync, so one `Arc` can
+    /// back the LLM path and the voice connectors. A non-expiring token needs no refresh,
+    /// so this touches no network.
+    #[tokio::test]
+    async fn shared_auth_returns_a_token_without_refresh() {
+        use std::fs::remove_file;
+
+        let path =
+            std::env::temp_dir().join(format!("albert_shared_auth_{}.json", std::process::id()));
+        AuthDotJson::new(Tokens {
+            id_token: String::new(),
+            access_token: jwt(&json!({
+                "exp": 9_999_999_999_i64,
+                "https://api.openai.com/auth": { "chatgpt_account_id": "acc-1" },
+            })),
+            refresh_token: "r".into(),
+            account_id: "acc-1".into(),
+        })
+        .save(&path)
+        .expect("save");
+
+        let auth = SubscriptionAuth::new(path.clone());
+        let sub = auth.fresh().await.expect("a non-expiring token needs no refresh");
+        assert_eq!(sub.account_id, "acc-1");
+        let _ = remove_file(&path);
+
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<SubscriptionAuth>();
     }
 
     /// Live check that the refresh request reaches the token endpoint and a bad

@@ -46,6 +46,7 @@ use crate::{
     console::ConsoleConnector,
     error::{Error, Result},
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
+    openai_auth::SubscriptionAuth,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
@@ -187,6 +188,11 @@ async fn main() -> Result<()> {
     let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, config.skills_page, &capabilities);
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 
+    // Shared, refresh-serialised subscription auth — ONE refresh owner across the LLM
+    // backend and the voice (transcribe/speak) paths, and, later, the transcribe/speak
+    // connectors it will be injected into.
+    let auth = Arc::new(SubscriptionAuth::new(config.subscription_auth_json.clone()));
+
     let mut builder = Octo::builder()
         .cogitator(AlbertCogitator::new(
             "albert",
@@ -196,6 +202,7 @@ async fn main() -> Result<()> {
             scratchpad,
             skills,
             prompt,
+            auth,
         ))
         .add_connector(scheduler);
 
