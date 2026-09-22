@@ -55,8 +55,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    search backend uses).
 #  - curl, wget, python3: what the forkd sandbox runs skill scripts with (python3 is
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
-#  - ffmpeg (with ffprobe): backs the `transcribe` skill — it measures a recording,
-#    finds its silences and cuts it into chunks the dictation endpoint won't truncate.
+#  - ffmpeg (with ffprobe): backs the `transcribe` skill (it measures a long recording,
+#    finds its silences and cuts it into chunks the dictation endpoint won't truncate)
+#    and the `video` / `video-link` skills.
 #  - Chrome's shared libraries: the browser connector downloads Chrome-for-Testing on
 #    its first fetch, but that binary links against the system NSS/NSPR, ATK, AT-SPI,
 #    CUPS and X libraries, which a slim base doesn't have. Without them Chrome dies at
@@ -64,19 +65,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    — silently, since the connector doesn't log the launch error. The last line is
 #    what Chrome dlopen()s at runtime (GBM, ALSA, xkbcommon — ldd doesn't list those)
 #    plus its text rendering stack and a base font.
-#  - python3-pip + aiortc: the `tts` skill speaks through a WebRTC call to ChatGPT
-#    Voice; aiortc is the WebRTC stack (its `av` wheel bundles the codecs). Pinned, and
-#    installed system-wide (`--break-system-packages`) so forkd's plain `python3` sees it.
-#  - libopus0: the same skill decodes the received audio with libopus directly (via
-#    ctypes) so a lost packet is concealed rather than cut out. ffmpeg pulls it in
-#    anyway; named here because the skill depends on it, not on ffmpeg's choice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libcurl4 \
-        curl wget python3 python3-pip ffmpeg libopus0 \
+        curl wget python3 ffmpeg \
         libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
         libcups2t64 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libdrm2 \
         libgbm1 libasound2t64 libxkbcommon0 libpango-1.0-0 libcairo2 fonts-liberation \
-    && pip3 install --no-cache-dir --break-system-packages aiortc==1.15.0 \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
@@ -87,16 +81,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
     # Runtime state lives on the /data volume; a fresh named volume inherits this owner.
     && mkdir -p /data && chown albert:albert /data
-
-# The Codex CLI, so skills can drive it directly on the same ChatGPT subscription
-# Albert already authenticates with. One static musl binary (no node, no runtime deps)
-# — pinned, because "latest" would make the image unreproducible.
-ARG CODEX_VERSION=rust-v0.146.0
-RUN curl -fsSL "https://github.com/openai/codex/releases/download/${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin \
-    && mv /usr/local/bin/codex-x86_64-unknown-linux-musl /usr/local/bin/codex \
-    && chmod 0755 /usr/local/bin/codex \
-    && codex --version
 
 # yt-dlp + deno, for the `video-link` skill: pull a video's audio from a link (YouTube,
 # Shorts, VK, Rutube, …) so `transcribe` can read what is said in it. The standalone
@@ -141,14 +125,7 @@ ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     # missing one; point it at the writable volume.
     HOME=/data \
     OCTO_SKILLS_DIR=/opt/albert/skills \
-    # CODEX_HOME on the volume so the CLI's own state survives rebuilds. Deliberately
-    # NOT /data itself: codex would then share Albert's auth.json and rewrite it on
-    # refresh. The `imagegen` skill drives codex on this subscription; forkd forwards
-    # CODEX_HOME (config/connectors/forkd) and runs the script as `albert-scripts`, which
-    # must read the token and write codex state here — so the linked auth.json is group-
-    # readable and the dir group-writable. One-time link command: see docker-compose.yml.
-    CODEX_HOME=/data/codex \
-    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_http_auth=info,octo_core=warn
+    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_connector_browser=info,octo_connector_transcribe=info,octo_connector_speak=info,octo_connector_imagegen=info,octo_http_auth=info,octo_core=warn
 
 # Run as the unprivileged service user. forkd still drops scripts to albert-scripts —
 # from non-root that needs CAP_SETUID/CAP_SETGID, granted in docker-compose (cap_add).
