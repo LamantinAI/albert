@@ -179,9 +179,9 @@ async fn main() -> Result<()> {
     let scratchpad = ScratchpadStore::new();
 
     // ── Declarative skills: a folder Albert lists + applies (LRU-cached) ─────
-    // What this runtime can actually do gates which skills exist: transcription rides
-    // on the ChatGPT subscription token, so under an API key that skill is not merely
-    // unusable, it's absent (a skill's `requires:` is matched against this list).
+    // What this runtime can actually do gates which skills exist: a skill that needs,
+    // say, image generation is not merely unusable without it, it's absent (a skill's
+    // `requires:` is matched against this list).
     let mut capabilities: Vec<&str> = Vec::new();
     if config.auth == AuthMode::Subscription {
         capabilities.push("subscription");

@@ -7,12 +7,10 @@
 #   docker compose up -d                        # run the service
 #   docker compose logs -f                      # live logs
 #
-# Voice (hearing / speaking) and image generation run natively on the ChatGPT
-# subscription through Albert's own connectors, reading /data/auth.json as the service
-# user — nothing to set up beyond `login`. One exception: the `transcribe` SKILL (long
-# recordings, cut on silences) is a script forkd runs as the sandboxed `albert-scripts`
-# user, which must READ the token. Only if you use it, once after `login`:
-#   docker compose exec albert chmod 0640 /data/auth.json
+# Voice (hearing / speaking, long recordings included) and image generation run natively
+# on the ChatGPT subscription through Albert's own connectors, reading /data/auth.json as
+# the service user — nothing to set up beyond `login`. No sandboxed script reads the
+# token, so it stays 0600.
 
 services:
   albert:

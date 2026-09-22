@@ -55,9 +55,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 #    search backend uses).
 #  - curl, wget, python3: what the forkd sandbox runs skill scripts with (python3 is
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
-#  - ffmpeg (with ffprobe): backs the `transcribe` skill (it measures a long recording,
-#    finds its silences and cuts it into chunks the dictation endpoint won't truncate)
-#    and the `video` / `video-link` skills.
+#  - ffmpeg (with ffprobe): the transcribe connector measures a long recording (or a
+#    video), finds its silences and cuts it into audio chunks the dictation endpoint
+#    won't truncate; the `video` / `video-link` skills use it too.
 #  - Chrome's shared libraries: the browser connector downloads Chrome-for-Testing on
 #    its first fetch, but that binary links against the system NSS/NSPR, ATK, AT-SPI,
 #    CUPS and X libraries, which a slim base doesn't have. Without them Chrome dies at
