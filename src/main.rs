@@ -11,7 +11,6 @@ mod config;
 mod console;
 mod error;
 mod history;
-mod openai_auth;
 mod openai_login;
 mod prompt;
 mod routines;
@@ -37,6 +36,7 @@ use octo_connector_search::factory as search_factory;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
 use octo_core::Octo;
+use octo_openai_auth::SubscriptionAuth;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -46,7 +46,6 @@ use crate::{
     console::ConsoleConnector,
     error::{Error, Result},
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
-    openai_auth::SubscriptionAuth,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,

@@ -5,6 +5,7 @@ use std::{io::Error as IoError, result::Result as StdResult};
 
 use octo_core::{ConfigError, OctoError};
 use octo_history::HistoryError;
+use octo_openai_auth::AuthError as SubscriptionAuthError;
 use rig::{completion::PromptError, http_client::Error as HttpError};
 use thiserror::Error;
 use toml::de::Error as TomlError;
@@ -29,10 +30,16 @@ pub enum Error {
     #[error("history: {0}")]
     History(#[from] HistoryError),
 
-    /// OpenAI ChatGPT-subscription auth: reading/parsing the token store,
-    /// an expired access token, or a missing account id.
+    /// OpenAI ChatGPT-subscription auth (the login flow's own failures): binding the
+    /// callback port, a bad callback URL, no code in the paste, …
     #[error("subscription auth: {0}")]
     Auth(String),
+
+    /// A subscription-auth failure from the `octo-openai-auth` credential component —
+    /// the token store read/parse, a refresh the endpoint rejected, or a missing
+    /// account id — surfaced as-is.
+    #[error("subscription auth: {0}")]
+    SubscriptionAuth(#[from] SubscriptionAuthError),
 
     #[error("llm client: {0}")]
     LlmClient(#[from] HttpError),

@@ -18,10 +18,9 @@ use reqwest::Client as HttpClient;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::{
-    error::{Error, Result},
-    openai_auth::Subscription,
-};
+use octo_openai_auth::Subscription;
+
+use crate::error::{Error, Result};
 
 const TRANSCRIBE_URL: &str = "https://chatgpt.com/backend-api/transcribe";
 
