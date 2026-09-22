@@ -11,6 +11,7 @@ mod config;
 mod console;
 mod error;
 mod history;
+mod manifests;
 mod openai_login;
 mod prompt;
 mod routines;
@@ -30,11 +31,11 @@ use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
 use octo_connector_browser::factory as browser_factory;
 use octo_connector_http::factory as http_factory;
-use octo_connector_imagegen::ImagegenConnector;
+use octo_connector_imagegen::factory as imagegen_factory;
 use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
-use octo_connector_speak::SpeakConnector;
-use octo_connector_transcribe::TranscribeConnector;
+use octo_connector_speak::factory as speak_factory;
+use octo_connector_transcribe::factory as transcribe_factory;
 use octo_connector_search::factory as search_factory;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
@@ -49,6 +50,7 @@ use crate::{
     console::ConsoleConnector,
     error::{Error, Result},
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
+    manifests::declared_types,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
@@ -182,11 +184,16 @@ async fn main() -> Result<()> {
     // What this runtime can actually do gates which skills exist: a skill that needs,
     // say, image generation is not merely unusable without it, it's absent (a skill's
     // `requires:` is matched against this list).
+    // Connector-backed capabilities follow the manifests (the octo loader instantiates
+    // them only in the telegram setup, and the subscription organs only with a token).
+    let has_telegram = var("OCTO_TELEGRAM_TOKEN").map(|t| !t.trim().is_empty()).unwrap_or(false);
+    let declared = if has_telegram { declared_types(&config.connectors_manifest) } else { Default::default() };
+    let token = config.subscription_auth_json.exists();
     let mut capabilities: Vec<&str> = Vec::new();
     if config.auth == AuthMode::Subscription {
         capabilities.push("subscription");
     }
-    if config.imagegen {
+    if token && declared.contains("imagegen") {
         capabilities.push("imagegen");
     }
     let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, config.skills_page, &capabilities);
@@ -212,35 +219,11 @@ async fn main() -> Result<()> {
         ))
         .add_connector(scheduler);
 
-    // Subscription organs (voice in/out, image synthesis) share the cogitator's token (the
-    // same `auth`), so each follows its own flag, not the model's auth: with
-    // `auth = "api_key"` the LLM runs on a key while `hearing`/`speaking`/`imagegen` still
-    // ride on a subscription auth.json.
-    if config.hearing {
-        builder = builder.add_connector(TranscribeConnector::new("transcribe", auth.clone(), None));
-    }
-    if config.speaking {
-        builder = builder.add_connector(SpeakConnector::new("speak", auth.clone(), None));
-    }
-    if config.imagegen {
-        builder = builder.add_connector(ImagegenConnector::new("imagegen", auth.clone(), None));
-    }
-    if config.hearing || config.speaking || config.imagegen {
-        info!(
-            hearing = config.hearing,
-            speaking = config.speaking,
-            imagegen = config.imagegen,
-            auth_json = %config.subscription_auth_json.display(),
-            "subscription connectors enabled"
-        );
-    }
-
     // ── Connectors: config-driven Telegram (ACL) + calendar, or console ──────
     // With a token present, the Telegram channel and the calendar are assembled
     // from config/connectors/*/*.toml via their factories (secrets stay in env,
     // named in each manifest; owner_chat + the ACL live in telegram's manifest).
     // Otherwise a console channel (no calendar in that dev mode).
-    let has_telegram = var("OCTO_TELEGRAM_TOKEN").map(|t| !t.trim().is_empty()).unwrap_or(false);
     if has_telegram {
         info!(manifest = %config.connectors_manifest.display(), "channels: telegram (ACL) + calendar + storage + forkd + search + browser + http (+ mail if a manifest is present)");
         // The mail factory is registered so the organ CAN be enabled, but no
@@ -255,7 +238,24 @@ async fn main() -> Result<()> {
             .register_connector_type("browser", browser_factory())
             .register_connector_type("http", http_factory())
             .register_connector_type("mail", mail_factory())
+            // Subscription organs (voice in/out, image synthesis): each is on while its
+            // manifest is present, with its settings in that manifest. Every factory shares
+            // the cogitator's `auth` (one token owner) and skips itself without a token, so
+            // `auth = "api_key"` for the LLM and a subscription auth.json for these combine.
+            .register_connector_type("transcribe", transcribe_factory(auth.clone()))
+            .register_connector_type("speak", speak_factory(auth.clone()))
+            .register_connector_type("imagegen", imagegen_factory(auth.clone()))
             .from_config_file(&config.connectors_manifest)?;
+        let subscription: Vec<&str> =
+            ["transcribe", "speak", "imagegen"].into_iter().filter(|t| declared.contains(*t)).collect();
+        if !subscription.is_empty() {
+            info!(
+                organs = %subscription.join(", "),
+                token = token,
+                auth_json = %config.subscription_auth_json.display(),
+                "subscription organs declared"
+            );
+        }
     } else {
         info!("channel: console (set OCTO_TELEGRAM_TOKEN for telegram + calendar)");
         builder = builder.add_connector(ConsoleConnector::new("console"));

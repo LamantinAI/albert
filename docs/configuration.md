@@ -46,13 +46,10 @@ openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
 # stream_status = true   # stream tool calls / thoughts into the chat while a
                          # turn runs (one in-place edited status message)
 # hearing       = true   # transcribe incoming voice messages; omit -> on only
-                         # under a subscription (the dictation endpoint takes its token)
-# speaking      = true   # answer with voice notes (speak connector, WebRTC to
-                         # ChatGPT Voice); omit -> follows hearing. With api_key,
-                         # both need [subscription] auth_json (see below)
-# imagegen      = true   # draw / edit images (imagegen connector, gpt-image-2 on
-                         # the subscription Images endpoint); omit -> on only under
-                         # a subscription
+                         # under a subscription (the dictation endpoint takes its
+                         # token). With api_key it needs [subscription] auth_json.
+                         # Speaking, file transcription and drawing are connectors:
+                         # see "Subscription organs" below.
 
 # Owner's timezone (IANA name). The agent's "current time" — and any reminder times
 # it computes — render in this zone, not UTC. Match the calendar connector's own
@@ -352,6 +349,23 @@ fails at **startup** rather than at query time.
 > package *after* a build needs `cargo clean -p curl-sys` before rebuilding. The
 > connector logs the linked libcurl version at startup so a vendored build is visible
 > immediately. An engine talking to a real API (Yandex) carries no such requirement.
+
+### Subscription organs — `connectors/{transcribe,speak,imagegen}/*.toml`
+
+Three organs ride on the ChatGPT-subscription token (`[subscription] auth_json` in
+`albert.toml` — independent of `auth`, so the LLM can run on an API key while these use a
+subscription). Each is **on while its manifest is present** and skipped at startup, with a
+log line, when there is no token on disk. Remove a manifest to turn its organ off.
+
+| manifest | tool | settings (all optional) |
+|---|---|---|
+| `transcribe/transcribe.toml` | `transcribe.run { path, language? }` → `{ text }` — any length; a long recording or a video is cut on its pauses (needs `ffmpeg`) and comes back with `[hh:mm:ss]` timecodes | `language` (default hint), `chunk_secs` (60–1380, default 300), `parallel_uploads` (1–8, default 4) |
+| `speak/speak.toml` | `speak.run { text, voice? }` → `{ path }` — an Ogg/Opus voice note via a WebRTC call to ChatGPT Voice (needs outbound UDP) | `voice` (default `cove`; lower to higher: cove, spruce, arbor, ember, vale, breeze, juniper, sol, maple) |
+| `imagegen/imagegen.toml` | `imagegen.run { prompt, size?, quality?, background?, images? }` → `{ path }` — gpt-image-2; `images` makes it an edit | `size`, `quality` (`low`…`high`, `auto`), `background` (`transparent`, `opaque`, `auto`) — a call always wins |
+
+The files land in the workspace; `chat.send_file` delivers them (`.ogg` as a voice note,
+`.png` as a photo). The `imagegen` skill — the prompting guide — is offered only while the
+imagegen organ is on.
 
 ### `connectors/mail/mail.toml` — off by default
 

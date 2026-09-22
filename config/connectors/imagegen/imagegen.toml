@@ -1,0 +1,16 @@
+# Imagegen connector — draw or edit images with gpt-image-2 on the ChatGPT subscription, as
+# an env-as-tools organ: imagegen.run { prompt, size?, quality?, background?, images? } ->
+# { path } (a PNG; chat.send_file sends it as a photo). The `imagegen` skill is the
+# prompting guide for it and appears only while this organ is on.
+#
+# Rides on the subscription token ([subscription] auth_json in albert.toml): without a
+# token on disk it is skipped at startup with a log line. Remove this file to turn it off.
+
+[connector]
+id   = "imagegen"
+type = "imagegen"
+
+# Defaults a call falls back to when it omits them (a call always wins):
+# size       = "1024x1024"   # or 1536x1024, 1024x1536, 2048x1152, auto (edges multiples of 16)
+# quality    = "auto"        # low | medium | high | auto — low is the fastest
+# background = "auto"        # transparent | opaque | auto

@@ -14,20 +14,16 @@ openai_key_env = "ALBERT_OPENAI_KEY"
 # (subscription -> always yes; api_key -> guessed from the model name).
 # multimodal = true
 
-# Voice: can Albert listen to voice messages (hearing) and answer with voice notes
-# (speaking)? Both ride on a ChatGPT subscription token — the dictation endpoint and a
-# WebRTC call to ChatGPT Voice — hence the default (subscription -> yes; api_key -> no,
-# whatever the model can do). With auth = "api_key" they can still be turned on: point
-# [subscription].auth_json at a subscription token store (`albert login` writes one).
-# speaking follows hearing unless set.
+# Hearing: can Albert listen to voice messages sent in chat? They are transcribed through
+# the ChatGPT dictation endpoint, which only takes a subscription token — hence the default
+# (subscription -> yes; api_key -> no, whatever the model can do). With auth = "api_key" it
+# can still be turned on: point [subscription].auth_json at a subscription token store
+# (`albert login` writes one).
 # hearing = true
-# speaking = true
-
-# Image generation: can Albert draw? gpt-image-2 through the subscription Images endpoint
-# (no API-key billing, no codex CLI) — it rides on the subscription token, not the model, so
-# it has its own switch. Default: subscription -> yes; api_key -> no (turn on next to
-# [subscription].auth_json, like hearing).
-# imagegen = true
+#
+# The subscription ORGANS — transcribing files, speaking, drawing — are connectors, each on
+# while its manifest is present (config/connectors/{transcribe,speak,imagegen}), with its
+# settings there. They ride on the same [subscription].auth_json token.
 
 # Live progress in chat while a turn runs (typing indicator is always on; this
 # also streams tool calls / thoughts as an in-place edited status message).
