@@ -4,7 +4,7 @@ description: >-
   Reads a video from a LINK so you can answer about what is SAID in it: downloads the
   audio of a YouTube video, Short or youtu.be link (also VK, Rutube, TikTok, Dzen —
   anything yt-dlp supports) into the workspace, with its title, channel, length and
-  description, ready for the `transcribe` skill. Activate whenever a message contains
+  description, ready for the `transcribe` connector. Activate whenever a message contains
   a link to a video — "is this true?", "what is this video about", "summarize it",
   "fact-check this", "transcribe this video", or a bare link with no question.
   Do NOT open video links with the browser: a video page shows a title, not a word of
@@ -12,7 +12,7 @@ description: >-
 ---
 
 A link to a video is opaque until you hear it. This skill fetches the audio and the
-metadata; `transcribe` turns the audio into text; then you answer from what was
+metadata; the `transcribe` connector turns the audio into text; then you answer from what was
 actually said.
 
 ## How to run it
@@ -42,9 +42,11 @@ twice reuses the first download (`"reused": true`).
 ## The whole job, step by step
 
 1. **Fetch.** Run `fetch` on the link.
-2. **Transcribe.** Run the `transcribe` skill on the `audio` path from step 1. Check its
-   summary line for `FAILURES` and grep the transcript for `[[chunk failed` — a failed
-   chunk is a hole in the text, not a quiet pause; say so rather than answer around it.
+2. **Transcribe.** Dispatch `transcribe.run { path: <the audio path from step 1> }` to the
+   "transcribe" connector. A long recording comes back split on its pauses, with
+   `[hh:mm:ss]` timecodes. Check `failed` and `truncated_chunks` in the result and look for
+   `[[chunk` in the text — a failed chunk is a hole in the text, not a quiet pause; say so
+   rather than answer around it.
 3. **Answer from what was said**, not from the title:
    - "What is it about / summarize" → a short summary with the key points.
    - "Is this true / fact-check" → pull out the concrete claims (who, what, numbers,
@@ -52,7 +54,8 @@ twice reuses the first download (`"reused": true`).
      verdict per claim with its sources. When something can't be verified, say that
      plainly instead of guessing. The title and description are the author's framing,
      not evidence.
-   - "Transcribe it" → send the transcript file with `chat.send_file`.
+   - "Transcribe it" → write the transcript to a workspace file (your file tools) and send
+     it with `chat.send_file`.
 4. If the video has no speech (music, silence), say so; the title and description are
    all there is, and stills from `--video` go to the user — you can't see extracted
    frames yourself.

@@ -7,7 +7,7 @@ description: >-
   into a chat. Activate when asked "what's in this video", "how long is it",
   "grab a frame / screenshot from it", "cut out the bit from 1:20 to 1:40",
   "make a gif out of it", "make it smaller", "pull the sound out of it".
-  For what is SAID in a video, use the `transcribe` skill instead.
+  For what is SAID in a video, use the `transcribe` connector instead.
 ---
 
 An ffmpeg toolbox over a video sitting in the shared workspace.
@@ -18,9 +18,10 @@ which you can see, and the workspace path in a note like ``saved to workspace pa
 `inbox/1712-clip.mp4` ``. So you can usually answer "what is this?" from the poster
 frame alone. Reach for this skill when the question needs more than that one frame.
 
-**What belongs to another skill.** Speech is `transcribe`'s job — it reads video
-containers directly, so point it at the very same path. Don't extract audio first
-just to transcribe it; that's an extra step for nothing.
+**What belongs elsewhere.** Speech is the `transcribe` connector's job
+(`transcribe.run { path }`) — it reads video containers directly and takes only the
+audio, so point it at the very same path. Don't extract audio first just to transcribe
+it; that's an extra step for nothing.
 
 ## How to run it
 

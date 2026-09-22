@@ -22,6 +22,10 @@ Two things beyond the binary, both satisfied by having `curl` installed (Ubuntu 
   with curl already has it. Verify with `curl -V` and
   `ls /usr/lib/*/libcurl.so.4`.
 
+- **`ffmpeg` (with `ffprobe`)** — the transcribe connector cuts a long recording or a
+  video on its pauses before uploading it (`sudo apt install ffmpeg`). Without it a
+  file is uploaded whole: fine for short clips, but a long one can come back truncated.
+
 **On the build host** you additionally need the libcurl headers:
 
 ```sh
