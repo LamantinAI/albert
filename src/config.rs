@@ -64,6 +64,10 @@ pub struct Config {
     /// token is what the dictation endpoint accepts — with an API key there is nothing
     /// to authenticate a transcription with. See [`crate::transcribe`].
     pub hearing: bool,
+    /// Whether Albert can answer with a voice note (the `speak` connector: a WebRTC call to
+    /// ChatGPT Voice on the same subscription token). Explicit `speaking = true/false` wins;
+    /// the default follows [`Self::hearing`] — both ride on the subscription, not the model.
+    pub speaking: bool,
     /// Whether the `imagegen` skill is offered. It generates images by driving the
     /// Codex CLI's built-in tool on a ChatGPT subscription (a separate credential from
     /// Albert's own model auth), so it is gated on its own flag, not on [`AuthMode`].
@@ -152,6 +156,8 @@ impl Config {
         // through the ChatGPT dictation endpoint, which only takes a subscription
         // token. An API key has nothing to offer it, whatever the model can do.
         let hearing = raw.hearing.unwrap_or(auth == AuthMode::Subscription);
+        // Speaking rides on the same subscription token, so it follows hearing.
+        let speaking = raw.speaking.unwrap_or(hearing);
 
         // Image generation rides on Codex's subscription, not on Albert's model auth,
         // so it defaults off and is turned on explicitly where codex + a subscription
@@ -188,6 +194,7 @@ impl Config {
         Ok(Config {
             multimodal,
             hearing,
+            speaking,
             imagegen,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
@@ -293,6 +300,9 @@ struct Raw {
     /// subscription, off with an API key.
     #[serde(default)]
     hearing: Option<bool>,
+    /// Force speaking (voice-note replies) on/off; absent → follows `hearing`.
+    #[serde(default)]
+    speaking: Option<bool>,
     /// Force image generation on/off; absent → off. Needs codex + a subscription auth.
     #[serde(default)]
     imagegen: Option<bool>,

@@ -16,7 +16,7 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 | `history.rs` | Bridge to Octo's `octo-history`: the per-channel transcript (the hot-context tier), plus conversion of stored turns into rig messages. Backend selected by `[history] backend` — in-memory, JSON file, or migrated SQLite. |
 | `console.rs` | `ConsoleConnector` — a stdin/stdout channel, the Telegram stand-in for local dev. |
 | `codex_http.rs`, `codex_model.rs` | ChatGPT-subscription path: a custom rig `HttpClientExt` that rewrites requests/responses for the OpenAI **Codex** backend (streaming-only, no `system` messages / strict schemas), and the Codex model slugs. Only in play under `auth = "subscription"`. |
-| `openai_auth.rs`, `openai_login.rs` | Subscription OAuth: the PKCE sign-in (`albert login`) and in-place access-token refresh; reads/writes `auth.json`. |
+| `openai_login.rs` | Subscription OAuth sign-in (`albert login`, PKCE); writes `auth.json`. The token store, in-place refresh and the shared `SubscriptionAuth` handle live in octo's `octo-openai-auth`. |
 | `error.rs` | The crate error type — explicit `#[from]` variants, no `anyhow`. |
 
 ## Where a concern lives

@@ -32,6 +32,7 @@ use octo_connector_browser::factory as browser_factory;
 use octo_connector_http::factory as http_factory;
 use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
+use octo_connector_speak::SpeakConnector;
 use octo_connector_transcribe::TranscribeConnector;
 use octo_connector_search::factory as search_factory;
 use octo_connector_storage::factory as storage_factory;
@@ -70,7 +71,8 @@ async fn main() -> Result<()> {
              octo_connector_telegram=info,octo_connector_caldav=info,\
              octo_connector_storage=info,octo_connector_forkd=info,\
              octo_connector_mail=info,octo_connector_search=info,\
-             octo_connector_http=info,octo_connector_browser=info,octo_core=warn"
+             octo_connector_http=info,octo_connector_browser=info,\
+             octo_connector_transcribe=info,octo_connector_speak=info,octo_core=warn"
                 .into()
         }))
         .with_target(true)
@@ -189,9 +191,11 @@ async fn main() -> Result<()> {
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 
     // Shared, refresh-serialised subscription auth — ONE refresh owner across the LLM
-    // backend and the voice (transcribe/speak) paths, and, later, the transcribe/speak
-    // connectors it will be injected into.
-    let auth = Arc::new(SubscriptionAuth::new(config.subscription_auth_json.clone()));
+    // backend, inline hearing, and the transcribe/speak connectors. Its errors point at
+    // Albert's own sign-in command.
+    let auth = Arc::new(
+        SubscriptionAuth::new(config.subscription_auth_json.clone()).with_login_hint("albert login"),
+    );
 
     let mut builder = Octo::builder()
         .cogitator(AlbertCogitator::new(
@@ -207,10 +211,21 @@ async fn main() -> Result<()> {
         .add_connector(scheduler);
 
     // Voice organs share the cogitator's subscription token (the same `auth`), so they
-    // exist only in subscription mode — an API key has no token this endpoint accepts.
-    if config.auth == AuthMode::Subscription {
+    // follow the voice flags, not the model's auth: with `auth = "api_key"` the LLM runs on
+    // a key while `hearing`/`speaking` still ride on a subscription auth.json.
+    if config.hearing {
         builder = builder.add_connector(TranscribeConnector::new("transcribe", auth.clone(), None));
-        info!("voice: transcribe connector enabled (subscription)");
+    }
+    if config.speaking {
+        builder = builder.add_connector(SpeakConnector::new("speak", auth.clone(), None));
+    }
+    if config.hearing || config.speaking {
+        info!(
+            hearing = config.hearing,
+            speaking = config.speaking,
+            auth_json = %config.subscription_auth_json.display(),
+            "voice: subscription connectors enabled"
+        );
     }
 
     // ── Connectors: config-driven Telegram (ACL) + calendar, or console ──────
