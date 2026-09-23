@@ -1,5 +1,7 @@
 ---
 name: video-link
+command: watch
+command_about: What's said in a video: /watch <link>
 description: >-
   Reads a video from a LINK so you can answer about what is SAID in it: downloads the
   audio of a YouTube video, Short or youtu.be link (also VK, Rutube, TikTok, Dzen —

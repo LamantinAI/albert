@@ -1,5 +1,7 @@
 ---
 name: reminder-calendar
+command: remind
+command_about: Set a reminder or a calendar event
 description: when the user asks to remind them, set a reminder, not forget, add to calendar, or record a meeting — "remind me", "set a reminder", "don't let me forget", "add to my calendar", "put a meeting on"
 ---
 Create the reminder as an event in the owner's **Google Calendar** (popup reminder;

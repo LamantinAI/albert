@@ -26,7 +26,7 @@
 //! skill into the workspace.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     convert::Infallible,
     fs::{read_dir, read_to_string},
     path::{Component, Path, PathBuf},
@@ -36,7 +36,9 @@ use std::{
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+use crate::commands::{about, refusal, SkillCommand};
 
 /// Default number of matches `skill_search` returns (clamped 1..=`SEARCH_MAX`).
 const SEARCH_LIMIT: usize = 10;
@@ -52,6 +54,12 @@ struct SkillMeta {
     /// The skill's own folder (`skills/<name>/`) — holds `SKILL.md` and any bundled
     /// resources. `skill_file` reads are jailed to it.
     dir: PathBuf,
+    /// The chat command that runs it (`command:`), if it declares a valid, free one.
+    command: Option<String>,
+    /// `command_owner: true` — only the owner may run that command.
+    command_owner: bool,
+    /// `command_about:` — the command's one line for `/help` and the menu.
+    command_about: Option<String>,
 }
 
 struct Inner {
@@ -252,6 +260,37 @@ impl SkillStore {
     pub fn file_tool(self: &Arc<Self>) -> SkillFile {
         SkillFile(Arc::clone(self))
     }
+
+    /// Every chat command the skills declare, by command name.
+    pub fn commands(&self) -> Vec<SkillCommand> {
+        let inner = self.inner.lock().unwrap();
+        inner.catalog.iter().filter_map(skill_command).collect()
+    }
+
+    /// The skill command called `name`, if a skill declares it.
+    pub fn command(&self, name: &str) -> Option<SkillCommand> {
+        let inner = self.inner.lock().unwrap();
+        inner.catalog.iter().filter_map(skill_command).find(|c| c.name == name)
+    }
+
+    /// A skill's instructions and bundled files, loaded as `skill_apply` would (through
+    /// the same LRU cache).
+    pub fn instructions(&self, skill: &str) -> Result<(String, Vec<String>), String> {
+        let v = self.apply_json(skill);
+        match v.get("instructions").and_then(Value::as_str) {
+            Some(body) => {
+                let files = v["files"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string);
+                Ok((body.to_string(), files.collect()))
+            }
+            None => Err(v.get("error").and_then(Value::as_str).unwrap_or("skill not found").to_string()),
+        }
+    }
+}
+
+fn skill_command(s: &SkillMeta) -> Option<SkillCommand> {
+    let name = s.command.clone()?;
+    let about = s.command_about.clone().unwrap_or_else(|| about(&s.when));
+    Some(SkillCommand { name, skill: s.name.clone(), about, owner: s.command_owner })
 }
 
 /// Scan `skills/<name>/SKILL.md` into catalog entries, sorted by name.
@@ -282,14 +321,38 @@ fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
         // An always-on skill's body is read once, here: it is in force from the first
         // turn, so it must not depend on the agent choosing to load it.
         let standing = front.always.then(|| body_of(&text).trim().to_string());
+        let command = front
+            .command
+            .map(|c| c.trim().trim_start_matches('/').to_string())
+            .filter(|c| !c.is_empty())
+            .filter(|c| match refusal(c) {
+                Some(why) => {
+                    warn!(skill = %name, command = %c, why, "skills: command not registered");
+                    false
+                }
+                None => true,
+            });
         out.push(SkillMeta {
             name,
             when: front.description.unwrap_or_else(|| "(no description)".to_string()),
             standing,
             dir: p,
+            command,
+            command_owner: front.command_owner,
+            command_about: front.command_about,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
+    // Two skills claiming one command: the first by name keeps it.
+    let mut taken = HashSet::new();
+    for s in &mut out {
+        if let Some(c) = &s.command {
+            if !taken.insert(c.clone()) {
+                warn!(skill = %s.name, command = %c, "skills: command already taken by another skill; not registered");
+                s.command = None;
+            }
+        }
+    }
     out
 }
 
@@ -345,6 +408,12 @@ fn meta_of(text: &str) -> SkillFront {
             front.requires = Some(v.trim().to_string());
         } else if let Some(v) = line.strip_prefix("always:") {
             front.always = v.trim().eq_ignore_ascii_case("true");
+        } else if let Some(v) = line.strip_prefix("command:") {
+            front.command = Some(v.trim().to_string());
+        } else if let Some(v) = line.strip_prefix("command_owner:") {
+            front.command_owner = v.trim().eq_ignore_ascii_case("true");
+        } else if let Some(v) = line.strip_prefix("command_about:") {
+            front.command_about = Some(v.trim().to_string()).filter(|a| !a.is_empty());
         }
     }
     front
@@ -361,6 +430,12 @@ struct SkillFront {
     /// `always: true` — not a skill to reach for, a standing instruction. Its body
     /// rides in the preamble every turn instead of waiting for `skill_apply`.
     always: bool,
+    /// `command: <name>` — a chat command (`/<name> args`) that runs this skill.
+    command: Option<String>,
+    /// `command_owner: true` — that command is the owner's only.
+    command_owner: bool,
+    /// `command_about:` — one line on the command for `/help` and the menu.
+    command_about: Option<String>,
 }
 
 /// A frontmatter value, following YAML block scalars (`>`, `>-`, `|`, `|-`) into the
@@ -552,6 +627,28 @@ mod tests {
             write(root.join(name).join("SKILL.md"), body).unwrap();
         }
         root
+    }
+
+    #[test]
+    fn skills_declare_commands_reserved_and_duplicate_ones_are_refused() {
+        let dir = skills_dir(
+            "commands",
+            &[
+                ("brief", "---\nname: brief\ndescription: when asked for a brief\ncommand: brief\ncommand_about: Your day at a glance\n---\nDo the brief."),
+                ("config", "---\nname: config\ndescription: change setup\ncommand: /settings\ncommand_owner: true\n---\nbody"),
+                ("halt", "---\nname: halt\ndescription: d\ncommand: cancel\n---\nbody"),
+                ("shout", "---\nname: shout\ndescription: d\ncommand: Loud-Name\n---\nbody"),
+                ("zbrief", "---\nname: zbrief\ndescription: d\ncommand: brief\n---\nbody"),
+            ],
+        );
+        let store = SkillStore::load(dir.clone(), 5, 10, &[]);
+        let commands = store.commands();
+        let names: Vec<(&str, &str, bool)> = commands.iter().map(|c| (c.name.as_str(), c.skill.as_str(), c.owner)).collect();
+        assert_eq!(names, [("brief", "brief", false), ("settings", "config", true)]);
+        assert_eq!(commands[0].about, "Your day at a glance");
+        assert_eq!(store.command("settings").map(|c| c.skill), Some("config".to_string()));
+        assert_eq!(store.instructions("brief").unwrap().0, "Do the brief.");
+        let _ = remove_dir_all(&dir);
     }
 
     #[test]

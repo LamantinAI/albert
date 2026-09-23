@@ -154,6 +154,17 @@ default.
     library collapses in the preamble to a count + a pointer, and the model finds skills
     with `skill_search <keywords>` (ranked by name/description) or `skill_list <page>`.
     So 100 skills cost a line of context, not a hundred.
+  - **Commands:** a skill can declare a chat command in its frontmatter —
+    `command: brief` (1-32 of `a-z0-9_`), `command_about: Your day at a glance` (its one
+    line in `/help` and the bot menu; omitted → cut from `description`), and
+    `command_owner: true` to keep it to the owner. `/brief args` then starts an ordinary
+    agent turn seeded with that skill's instructions and the arguments. System commands
+    (`/help`, `/start`, `/cancel`, `/restart`, `/allow`, `/deny`, `/allowed`, `/status`)
+    are reserved and built in: they answer at once, without the model — a skill claiming
+    one of those names (or a name another skill already took) is logged and not
+    registered. `/help` lists both groups, and at startup the menu is set on every channel
+    that takes one (Telegram's `setMyCommands`; owner-only commands only in the owner's
+    chat).
 - `[code] workspace` is the ephemeral scratch directory the file tools
   (`read/write/edit/list/glob/grep`) are **jailed** to, exported as
   `$OCTO_CODE_WORKSPACE`. The forkd runner (cwd) and the storage connector

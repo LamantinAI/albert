@@ -1,5 +1,7 @@
 ---
 name: daily-brief
+command: brief
+command_about: Your day at a glance
 description: when the user asks for a morning brief, "what's my day", or a summary of today
 ---
 Give a warm, concise morning brief. Work through these, then summarise:
