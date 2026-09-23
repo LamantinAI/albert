@@ -5,8 +5,8 @@
 #
 # Rides on the subscription token ([subscription] auth_json in albert.toml): without a
 # token on disk it is skipped at startup with a log line. Remove this file to turn it off.
-# (Voice messages in chat are heard inline by Albert itself — that is the `hearing` switch
-# in albert.toml, not this organ.)
+# This organ is also Albert's hearing: voice messages in chat are handed to it, so its
+# settings apply there too; without it Albert says he can't hear voice messages.
 
 [connector]
 id   = "transcribe"

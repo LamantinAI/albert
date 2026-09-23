@@ -45,11 +45,8 @@ openai_key_env = "ALBERT_OPENAI_KEY"     # the env var holding the LLM key
                          # subscription = yes; api_key = guessed from the model name
 # stream_status = true   # stream tool calls / thoughts into the chat while a
                          # turn runs (one in-place edited status message)
-# hearing       = true   # transcribe incoming voice messages; omit -> on only
-                         # under a subscription (the dictation endpoint takes its
-                         # token). With api_key it needs [subscription] auth_json.
-                         # Speaking, file transcription and drawing are connectors:
-                         # see "Subscription organs" below.
+# Hearing (voice messages in chat), speaking and drawing are connectors on the
+# subscription token: see "Subscription organs" below.
 
 # Owner's timezone (IANA name). The agent's "current time" — and any reminder times
 # it computes — render in this zone, not UTC. Match the calendar connector's own
@@ -373,6 +370,11 @@ log line, when there is no token on disk. Remove a manifest to turn its organ of
 | `transcribe/transcribe.toml` | `transcribe.run { path, language? }` → `{ text }` — any length; a long recording or a video is cut on its pauses (needs `ffmpeg`) and comes back with `[hh:mm:ss]` timecodes | `language` (default hint), `chunk_secs` (60–1380, default 300), `parallel_uploads` (1–8, default 4) |
 | `speak/speak.toml` | `speak.run { text, voice? }` → `{ path }` — an Ogg/Opus voice note via a WebRTC call to ChatGPT Voice (needs outbound UDP) | `voice` (default `cove`; lower to higher: cove, spruce, arbor, ember, vale, breeze, juniper, sol, maple) |
 | `imagegen/imagegen.toml` | `imagegen.run { prompt, size?, quality?, background?, images? }` → `{ path }` — gpt-image-2; `images` makes it an edit | `size`, `quality` (`low`…`high`, `auto`), `background` (`transparent`, `opaque`, `auto`) — a call always wins |
+
+Voice messages in chat are heard through the same `transcribe` organ: the channel saves
+the recording to the workspace and Albert hands it over (`transcribe.run { path }`), so
+the organ's settings apply and a note of any length is heard. With no transcribe organ,
+Albert answers a voice message by saying he can't hear right now.
 
 The files land in the workspace; `chat.send_file` delivers them (`.ogg` as a voice note,
 `.png` as a photo). The `imagegen` skill — the prompting guide — is offered only while the

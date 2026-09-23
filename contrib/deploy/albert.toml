@@ -7,12 +7,9 @@ model = "gpt-5.4"        # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4,
 
 # Vision (photos in chat): defaults to on under a subscription. Uncomment to force.
 # multimodal = true
-# Hearing (voice messages in chat): transcribed via the ChatGPT dictation endpoint
-# on the subscription token, so it defaults to on under a subscription and off with
-# an API key (which that endpoint won't accept). Uncomment to force.
-# hearing = true
-# Transcribing files, speaking and drawing are connectors on the same subscription token,
-# each on while its manifest is present (config/connectors/{transcribe,speak,imagegen}).
+# Hearing (voice messages and recordings), speaking and drawing are connectors on the
+# subscription token, each on while its manifest is present
+# (config/connectors/{transcribe,speak,imagegen}).
 # Live progress in chat (tool calls / thoughts as an edited status message).
 # stream_status = true
 

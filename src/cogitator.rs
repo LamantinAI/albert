@@ -13,6 +13,8 @@
 //! Owner-only ACL admin (`/allow` etc.) lives in [`crate::acl`]; the base routines
 //! in [`crate::routines`].
 
+mod hearing;
+
 use std::{
     collections::HashMap,
     sync::{
@@ -27,7 +29,6 @@ use base64::Engine as _;
 use chrono::Utc;
 use kaeru_rig::KaeruMemory;
 use octo_code::code_tools;
-use octo_connector_transcribe::{transcribe, TranscribeError};
 use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
     Filter, InboundMessage, OctoResult, ReplyChannel, Subscription,
@@ -55,7 +56,6 @@ use crate::{
     config::{AuthMode, Config},
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
-    transcribe::MAX_INLINE_SECS,
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -198,90 +198,6 @@ impl AlbertCogitator {
             }
             "alarm.fired" => self.on_alarm(incoming, ctx).await,
             _ => {}
-        }
-    }
-
-    /// Perceive a voice message: transcribe it and hand back the text so the turn
-    /// proceeds as if it had been typed. `None` means the voice went unheard *and the
-    /// user has been told why* — silence is the one unacceptable answer to someone who
-    /// just spoke.
-    async fn hear(
-        self: &Arc<Self>,
-        incoming: &Arc<Envelope>,
-        blob: &Blob,
-        ctx: &CogitatorContext,
-    ) -> Option<String> {
-        let decline = |reason: String| async move {
-            self.emit_reply(incoming, reason.clone(), ctx).await;
-            self.record(&channel_of(incoming), "(voice message)".into(), reason).await;
-            None::<String>
-        };
-
-        if !self.config.hearing {
-            return decline(
-                "I got a voice message but can't listen to it right now: transcription runs \
-                 through the ChatGPT subscription. (Set `auth = \"subscription\"`, or `hearing = \
-                 true` in albert.toml if you know what you're doing.)"
-                    .to_string(),
-            )
-            .await;
-        }
-
-        // The connector tags the length, so an over-long note is refused before a byte
-        // is uploaded — the endpoint would otherwise truncate it in silence.
-        let secs = incoming.tags.get("duration_secs").and_then(|s| s.parse::<u32>().ok());
-        if secs.is_some_and(|s| s > MAX_INLINE_SECS) {
-            return decline(format!(
-                "This voice message is {} min — longer than {} min I don't transcribe inline, or \
-                 the text gets silently truncated. Send it as a file and I'll do the whole thing.",
-                secs.unwrap_or_default() / 60,
-                MAX_INLINE_SECS / 60,
-            ))
-            .await;
-        }
-
-        let sub = match self.auth.fresh().await {
-            Ok(sub) => sub,
-            Err(e) => {
-                warn!(error = %e, "voice: subscription token unavailable");
-                return decline(
-                    "Couldn't transcribe the voice message: the ChatGPT subscription is \
-                     unavailable right now (token expired — needs `albert login`)."
-                        .to_string(),
-                )
-                .await;
-            }
-        };
-
-        let filename = blob.filename().unwrap_or("voice.ogg");
-        let heard = match transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await {
-            // The server can revoke a token ahead of its `exp`: refresh once and retry.
-            Err(TranscribeError::Unauthorized(_)) => {
-                warn!("voice: token refused; forcing a refresh and retrying once");
-                match self.auth.force_refresh().await {
-                    Ok(sub) => transcribe(blob.bytes(), filename, blob.content_type(), None, &sub).await,
-                    Err(e) => Err(TranscribeError::Failed(e.to_string())),
-                }
-            }
-            other => other,
-        };
-        match heard {
-            Ok(text) if text.is_empty() => {
-                warn!("voice: empty transcript");
-                decline("The voice message came through but there's not a word in it — empty.".to_string()).await
-            }
-            Ok(text) => {
-                info!(chars = text.len(), secs = ?secs, "voice: transcribed");
-                // A caption (rare on voice, but possible) is context, not speech.
-                match incoming.tags.get("caption").filter(|c| !c.is_empty()) {
-                    Some(caption) => Some(format!("{text}\n\n(voice message caption: {caption})")),
-                    None => Some(text),
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, "voice: transcription failed");
-                decline(format!("Couldn't transcribe the voice message: {e}")).await
-            }
         }
     }
 
