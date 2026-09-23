@@ -166,7 +166,9 @@ async fn main() -> Result<()> {
     };
 
     // ── Scheduler connector (cron/reminders) ─────────────────────────────────
-    let scheduler = Scheduler::new("scheduler", config.scheduler_state_path.clone());
+    // Calendar-style (`cron`) alarms fall back to the owner's timezone.
+    let scheduler =
+        Scheduler::with_timezone("scheduler", config.scheduler_state_path.clone(), config.timezone.name());
     info!(state = %config.scheduler_state_path.display(), "scheduler connector");
 
     // ── Persona + instructions (RAM, hot-reloaded) ───────────────────────────
