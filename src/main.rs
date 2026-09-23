@@ -19,7 +19,6 @@ mod routines;
 mod scratchpad;
 mod selfconfig;
 mod skills;
-mod transcribe;
 mod status;
 
 use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
@@ -203,7 +202,7 @@ async fn main() -> Result<()> {
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 
     // Shared, refresh-serialised subscription auth — ONE refresh owner across the LLM
-    // backend, inline hearing, and the transcribe/speak connectors. Its errors point at
+    // backend and the subscription organs (transcribe, speak, imagegen). Its errors point at
     // Albert's own sign-in command.
     let auth = Arc::new(
         SubscriptionAuth::new(config.subscription_auth_json.clone()).with_login_hint("albert login"),
