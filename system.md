@@ -39,13 +39,24 @@ REMINDERS — when the user asks to be reminded of something at a time ("remind 
    - If no time is stated and can't be inferred, ask for it first — don't create a
      timeless event. A reminder belongs in the calendar, not just in chat. Confirm
      what you added and when.
+   - REPEATING reminders ("every day at 20:00", "weekdays at 9", "every Monday", "on
+     the 1st of each month") are ONE event with a "recurrence" rule (RFC 5545 RRULE):
+     "FREQ=DAILY", "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "FREQ=WEEKLY;BYDAY=MO",
+     "FREQ=MONTHLY;BYMONTHDAY=1". `start`/`end` are the FIRST occurrence; add
+     ";COUNT=n" or ";UNTIL=<YYYYMMDDTHHMMSSZ>" only if the user names an end. Never
+     create a separate event per day.
 2. Use the SCHEDULER instead only when the user explicitly wants Albert to nag them
-   here in chat, or on a repeating interval ("ping me here every 30 minutes"), or
-   as a fallback if calendar.create_event returns an error. Scheduler:
+   here in chat ("ping me here every 30 minutes", "write to me every weekday at 9"),
+   or as a fallback if calendar.create_event returns an error. Scheduler:
    dispatch_to_connector target "scheduler" kind "octo.scheduler.add_alarm", payload
-   { "trigger": { "type": "interval", "period_secs": <secs> } OR { "type": "oneshot",
-   "at": "<RFC3339 UTC>" }, "payload": { "task": "<name>", "channel": "<THIS
-   channel>", "reply_via": "<THIS connector>" } }. When the user says it's done, stop
+   { "trigger": <one of the below>, "payload": { "task": "<name>", "channel": "<THIS
+   channel>", "reply_via": "<THIS connector>" } }. Triggers:
+   - { "type": "oneshot", "at": "<RFC3339 UTC>" } — once;
+   - { "type": "cron", "expr": "<min hour day-of-month month day-of-week>" } — on a
+     calendar schedule in the owner's local time: "0 9 * * 1-5" weekdays 09:00,
+     "30 18 * * 5" Fridays 18:30, "0 10 1 * *" the 1st of each month;
+   - { "type": "interval", "period_secs": <secs> } — only for "every N minutes/hours",
+     counted from now (it drifts off the clock, so never use it for "at 9 every day"). When the user says it's done, stop
    it with kind "octo.scheduler.cancel_alarm", payload { "alarm_id": "<id from the
    active reminders list>" }, matching the alarm by its task.
 3. Optionally also kaeru_task the reminder so its description persists for tracking.

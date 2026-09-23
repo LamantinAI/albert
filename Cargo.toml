@@ -11,30 +11,30 @@ description = "Albert — the assembly: an Octo cogitator with kaeru memory and 
 # next release is cut deliberately). One repo, many crates; bump this rev to move forward.
 # NOTE: linking the mail crate pulls a second rustls provider (ring); main() MUST call
 # ensure_crypto_provider().
-octo-core = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
-octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-core = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
+octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-openai-auth — the ChatGPT-subscription credential component (auth.json store +
 # refresh + the shared, refresh-serialised SubscriptionAuth handle). Moved out of Albert
 # so the voice connectors (synth + transcribe) and other assemblies share one token owner.
-octo-openai-auth = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4", features = ["sqlite"] }
-octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
-octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
-octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-openai-auth = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca", features = ["sqlite"] }
+octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
+octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
+octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-code — file/code tools (read/write/edit/list/glob/grep) as rig tools, jailed
 # to $OCTO_CODE_WORKSPACE. Ported from llm-coding-tools-rig (Apache-2.0) to rig 0.35.
-octo-code = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-code = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-storage — durable object store (put/get/list/delete + promote/
 # checkout); env-as-tools organ, backend swappable (local dir now, S3 later).
-octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-storage = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-forkd — sandboxed script runner (v0) for executable skills:
 # forkd.run a script jailed to the workspace, clean env, dropped privileges, timeout.
-octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-forkd = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-mail — IMAP read + SMTP send mailbox organ (env-as-tools: mail.cmd.*).
 # Wired in but OFF by default: the factory is registered, but no config/connectors/mail
 # manifest is shipped (only mail.toml.example), so nothing is instantiated until you add
 # one + the creds. Its rustls provider (ring) forces the ensure_crypto_provider() call.
-octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-search — web search organ (env-as-tools: search.web { query, limit? }).
 # Its DuckDuckGo backend fetches through the SYSTEM libcurl, because DDG's anti-bot
 # answers reqwest with a 202 challenge (and drops a vendored libcurl's handshake), while
@@ -43,30 +43,30 @@ octo-connector-mail = { git = "https://github.com/LamantinAI/octo", rev = "d842b
 # (present wherever `curl` is). If a build predates the dev headers, curl-sys silently
 # vendored its own copy — `cargo clean -p curl-sys` and rebuild.
 # Backend is swappable — Yandex Search API slots in behind the same trait later.
-octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-search = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-transcribe — voice-in as an env-as-tools organ: transcribe.run { path } ->
 # { text } via the ChatGPT-subscription dictation endpoint. Takes the shared SubscriptionAuth
 # (constructed in main.rs), so it shares the LLM path's one token owner. On while its manifest
 # (config/connectors/transcribe) is present and a subscription token exists.
-octo-connector-transcribe = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-transcribe = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-speak — voice-out as an env-as-tools organ: speak.run { text, voice? } ->
 # { path } via a native WebRTC call to ChatGPT Voice (str0m, sans-IO). Writes an Ogg/Opus
 # voice note into the workspace; shares the same SubscriptionAuth as transcribe. On while its
 # manifest (config/connectors/speak) is present and a subscription token exists.
-octo-connector-speak = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-speak = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-imagegen — image synthesis as an env-as-tools organ: imagegen.run { prompt, … }
 # -> { path } via the subscription Images endpoint (gpt-image-2), one call, no codex CLI. Shares
 # the same SubscriptionAuth. On while its manifest (config/connectors/imagegen) is present.
-octo-connector-imagegen = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-imagegen = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-http — the GENERIC configurable connector: a whole REST API becomes an
 # env-as-tools organ from a manifest alone (type = "http"), no code. Ported colleague
 # work (PR #3) wires Jira this way — config/connectors/jira/jira.toml.
-octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-http = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 # octo-connector-browser — stealth web-fetch organ (browser.fetch): drives a real headless
 # Chrome via zendriver for JS-heavy / anti-bot pages. Pulls the fetcher (downloads a pinned
 # Chrome-for-Testing) + a CDP tree — heavy build. The host needs Chrome's shared libs at
 # runtime (libnss3, libgbm1, libasound2, …); the deploy provisions them.
-octo-connector-browser = { git = "https://github.com/LamantinAI/octo", rev = "d842b9840b66bc386606ff9493d6789d18d66bc4" }
+octo-connector-browser = { git = "https://github.com/LamantinAI/octo", rev = "9766cb5eb4c0c19403b9bd272ebc348cbcd6e7ca" }
 
 # kaeru — the Memory substrate, pinned to a release tag. v0.7.3 already carries the
 # cozo-sqlite-dropped change (cozo no longer links sqlite3), so Albert's octo-history
