@@ -292,7 +292,7 @@ impl AlbertCogitator {
         // Reflexes fire on text-only turns: instant, no LLM.
         if input.images.is_empty() {
             let owner = is_owner(&incoming);
-            let word = input.text.trim().split_whitespace().next().unwrap_or("");
+            let word = input.text.split_whitespace().next().unwrap_or("");
 
             // Owner-only /cancel: stop this channel's in-flight turn — abort its task AND
             // cancel the connector work it started (forkd scripts) — with no successor.
