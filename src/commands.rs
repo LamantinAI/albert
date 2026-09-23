@@ -65,15 +65,18 @@ pub fn parse(text: &str) -> Option<Invocation<'_>> {
     valid_name(&name).then_some(Invocation { name, args })
 }
 
-/// Telegram's rule for a command name: 1-32 of `a-z`, `0-9`, `_`.
+/// A command name, channel-neutral: 1-64 of lower-case letters, digits, `_` and `-`.
+/// Whatever stricter rule a channel has (Telegram: 1-32 of `a-z0-9_`) is the channel's to
+/// apply to its own menu; the command still works as typed text.
 pub fn valid_name(name: &str) -> bool {
-    (1..=32).contains(&name.len()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    (1..=64).contains(&name.len())
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
 /// Why a skill's `command:` can't be registered, if it can't.
 pub fn refusal(name: &str) -> Option<&'static str> {
     if !valid_name(name) {
-        Some("a command is 1-32 of a-z, 0-9, _")
+        Some("a command is 1-64 of lower-case letters, digits, _ and -")
     } else if RESERVED.contains(&name) {
         Some("the name is reserved for a system command")
     } else {
@@ -179,7 +182,8 @@ mod tests {
         assert_eq!(parse("  /Draw  a red fox "), Some(Invocation { name: "draw".into(), args: "a red fox" }));
         assert_eq!(parse("/brief@albert_bot tomorrow"), Some(Invocation { name: "brief".into(), args: "tomorrow" }));
         assert_eq!(parse("hello /brief"), None);
-        assert_eq!(parse("/not-a-command"), None);
+        assert_eq!(parse("/not-a-command"), Some(Invocation { name: "not-a-command".into(), args: "" }));
+        assert_eq!(parse("/"), None);
     }
 
     #[test]

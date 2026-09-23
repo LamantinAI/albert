@@ -152,7 +152,8 @@ default.
     with `skill_search <keywords>` (ranked by name/description) or `skill_list <page>`.
     So 100 skills cost a line of context, not a hundred.
   - **Commands:** a skill can declare a chat command in its frontmatter —
-    `command: brief` (1-32 of `a-z0-9_`), `command_about: Your day at a glance` (its one
+    `command: brief` (lower-case letters, digits, `_`, `-`; a channel's stricter rules —
+    Telegram's 1-32 of `a-z0-9_` — are applied by that channel to its menu), `command_about: Your day at a glance` (its one
     line in `/help` and the bot menu; omitted → cut from `description`), and
     `command_owner: true` to keep it to the owner. `/brief args` then starts an ordinary
     agent turn seeded with that skill's instructions and the arguments. System commands
