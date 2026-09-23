@@ -1,5 +1,8 @@
 ---
 name: self-config
+command: settings
+command_about: Change my setup
+command_owner: true
 description: when the owner asks you to change your own setup — edit a setting, add/remove or reconfigure a connector, tweak your persona or operating instructions, add a skill, or adjust a config value. Triggers "change your config", "add a connector", "fix the prompt", "turn on/off …", "change a setting".
 ---
 

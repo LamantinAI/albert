@@ -49,6 +49,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     acl::{command as acl_command, is_owner},
+    commands::{help, menu, parse, publish_menu, seed, SET_COMMANDS},
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
@@ -139,6 +140,16 @@ impl Cogitator for AlbertCogitator {
             self.self_source.clone(),
             self.config.reflection_secs,
         ));
+        // Publish the command menu on every channel that takes one.
+        let channels: Vec<ConnectorId> = ctx
+            .connectors()
+            .iter()
+            .filter(|c| c.capabilities.event_kinds_accept.iter().any(|k| k.as_str() == SET_COMMANDS))
+            .map(|c| c.id.clone())
+            .collect();
+        if !channels.is_empty() {
+            spawn(publish_menu(ctx.bus(), self.self_source.clone(), channels, menu(&self.skills.commands())));
+        }
         loop {
             select! {
                 next = subscription.next() => match next {
@@ -163,20 +174,21 @@ impl AlbertCogitator {
                 // model as-is, a voice message becomes text first (no Codex model
                 // takes audio) and from there is an ordinary turn.
                 let input = if let Some(text) = incoming.payload_as::<String>() {
-                    Some(UserInput { text: text.clone(), images: Vec::new() })
+                    Some(UserInput { text: text.clone(), images: Vec::new(), seed: None })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_image()) {
                     Some(UserInput {
                         text: incoming.tags.get("caption").cloned().unwrap_or_default(),
                         images: vec![blob.clone()],
+                        seed: None,
                     })
                 } else if let Some(msg) = incoming.payload_as::<InboundMessage>() {
                     // A coalesced burst the connector grouped into one message: every
                     // photo of an album (shared media_group_id), or a forwarded run.
                     let images = msg.images.iter().filter(|b| b.is_image()).cloned().collect();
-                    Some(UserInput { text: msg.text.clone().unwrap_or_default(), images })
+                    Some(UserInput { text: msg.text.clone().unwrap_or_default(), images, seed: None })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_audio()) {
                     // `None` means we already told the user why we couldn't listen.
-                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput { text, images: Vec::new() })
+                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput { text, images: Vec::new(), seed: None })
                 } else {
                     None
                 };
@@ -307,6 +319,14 @@ impl AlbertCogitator {
                 return;
             }
 
+            // /help lists the system commands and the skills' commands this user may run.
+            if word == "/help" || word.starts_with("/help@") {
+                let reply = help(&self.skills.commands(), owner);
+                self.emit_reply(&incoming, reply, ctx).await;
+                self.record(&channel_key, input.text, "(help)".into()).await;
+                return;
+            }
+
             if let Some(canned) = command_reply(&input.text) {
                 self.emit_reply(&incoming, canned.clone(), ctx).await;
                 self.record(&channel_key, input.text, "(reflex reply)".into()).await;
@@ -317,6 +337,32 @@ impl AlbertCogitator {
             if let Some(reply) = acl_command(&self.self_source, &input.text, &incoming, ctx).await {
                 self.emit_reply(&incoming, reply, ctx).await;
                 self.record(&channel_key, input.text, "(acl command)".into()).await;
+                return;
+            }
+
+            // A skill's command: an ordinary turn, seeded with that skill's instructions.
+            // An unknown `/word` falls through and reaches the agent as text.
+            let invoked = parse(&input.text).and_then(|inv| self.skills.command(&inv.name).map(|c| (c, inv.args.to_string())));
+            if let Some((command, args)) = invoked {
+                if command.owner && !owner {
+                    let reply = format!("/{} is for the owner only.", command.name);
+                    self.emit_reply(&incoming, reply.clone(), ctx).await;
+                    self.record(&channel_key, input.text, reply).await;
+                    return;
+                }
+                match self.skills.instructions(&command.skill) {
+                    Ok((instructions, files)) => {
+                        info!(command = %command.name, skill = %command.skill, "command: running a skill");
+                        let seed = Some(seed(&command, &args, &instructions, &files));
+                        let input = UserInput { text: input.text, images: Vec::new(), seed };
+                        self.clone().spawn_turn(incoming, input, ctx).await;
+                    }
+                    Err(e) => {
+                        let reply = format!("/{} couldn't load its skill: {e}", command.name);
+                        self.emit_reply(&incoming, reply.clone(), ctx).await;
+                        self.record(&channel_key, input.text, reply).await;
+                    }
+                }
                 return;
             }
         }
@@ -1018,6 +1064,10 @@ fn transient(e: &PromptError) -> bool {
 struct UserInput {
     text: String,
     images: Vec<Blob>,
+    /// What the model is actually given instead of `text`, when a skill command started
+    /// the turn (the command + the skill's instructions). History keeps just `text`, so
+    /// the instructions don't pile up in the transcript.
+    seed: Option<String>,
 }
 
 impl UserInput {
@@ -1026,7 +1076,7 @@ impl UserInput {
     /// Codex Responses providers). An album sends every image in one message.
     fn prompt(&self) -> Message {
         if self.images.is_empty() {
-            return Message::user(self.text.clone());
+            return Message::user(self.seed.clone().unwrap_or_else(|| self.text.clone()));
         }
         let caption = if !self.text.trim().is_empty() {
             self.text.as_str()
@@ -1160,7 +1210,7 @@ mod tests {
 
     #[test]
     fn text_input_stays_a_plain_user_message() {
-        let input = UserInput { text: "hello".into(), images: Vec::new() };
+        let input = UserInput { text: "hello".into(), images: Vec::new(), seed: None };
         assert!(matches!(input.prompt(), Message::User { content } if content.len() == 1));
         assert_eq!(input.transcript(), "hello");
     }
@@ -1168,7 +1218,7 @@ mod tests {
     #[test]
     fn image_input_becomes_image_plus_caption() {
         let blob = Blob::new(vec![0xFFu8, 0xD8, 0xFF], "image/jpeg").with_filename("photo.jpg");
-        let input = UserInput { text: "what's in the photo?".into(), images: vec![blob] };
+        let input = UserInput { text: "what's in the photo?".into(), images: vec![blob], seed: None };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
@@ -1186,7 +1236,7 @@ mod tests {
             Blob::new(vec![2], "image/png").with_filename("b.png"),
             Blob::new(vec![3], "image/jpeg").with_filename("c.jpg"),
         ];
-        let input = UserInput { text: String::new(), images };
+        let input = UserInput { text: String::new(), images, seed: None };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
@@ -1274,7 +1324,7 @@ mod tests {
     #[test]
     fn captionless_image_gets_a_default_instruction() {
         let blob = Blob::new(vec![1u8, 2, 3], "image/png");
-        let input = UserInput { text: "  ".into(), images: vec![blob] };
+        let input = UserInput { text: "  ".into(), images: vec![blob], seed: None };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
@@ -1289,17 +1339,6 @@ fn command_reply(text: &str) -> Option<String> {
             "Hi! I'm Albert — an assistant on the Octo runtime with graph memory (kaeru) and a \
              scheduler. Say \"remind me …\" and I'll set a reminder and keep nudging you until \
              you say it's done. /help for more."
-                .to_string(),
-        ),
-        "/help" => Some(
-            "I keep context and handle reminders:\n\
-             • \"remind me to drink water every 30 minutes\" → I set a repeating reminder\n\
-             • when it fires I message you; say \"done\" → I mark it complete and stop\n\
-             • send a photo (or an image as a file) — I'll look and answer about it\n\
-             • while I think I show \"typing…\" and my tool-use trace\n\
-             • owner: /allow <chat_id>, /deny <chat_id>, /allowed — bot access\n\
-             • owner: /cancel — stop the current reply, /restart — restart me\n\
-             • /start, /help → instant, no model"
                 .to_string(),
         ),
         _ => None,

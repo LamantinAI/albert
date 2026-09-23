@@ -1,5 +1,7 @@
 ---
 name: decompose-task
+command: plan
+command_about: Break a big task into a checked plan
 description: when the user gives a big or multi-step task to carry out over several turns
 ---
 Turn a multi-step task into a verifiable plan on the scratchpad:

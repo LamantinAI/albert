@@ -1,5 +1,7 @@
 ---
 name: imagegen
+command: draw
+command_about: Draw or edit a picture: /draw <what>
 requires: imagegen
 description: >-
   Generates and edits raster images on the ChatGPT subscription — no API keys, no

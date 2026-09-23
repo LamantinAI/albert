@@ -7,6 +7,7 @@ mod acl;
 mod codex_http;
 mod codex_model;
 mod cogitator;
+mod commands;
 mod config;
 mod console;
 mod error;

@@ -1,5 +1,7 @@
 ---
 name: fetch-url
+command: fetch
+command_about: Fetch a web page: /fetch <url>
 description: when the user wants the raw content or headers of a web page / URL
 ---
 Fetch a URL from inside the sandbox and report what came back. This skill bundles

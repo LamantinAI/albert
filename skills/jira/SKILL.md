@@ -1,5 +1,7 @@
 ---
 name: jira
+command: jira
+command_about: Your Jira: issues, statuses, updates
 description: when the user asks about their Jira — issues, tasks, boards, statuses, assignees, comments, worklogs, or asks to update/comment/transition/assign a ticket. Triggers "what's in Jira", "my tasks", "show issue PROJ-…", "comment on the ticket", "move to In Progress", "log time".
 ---
 
