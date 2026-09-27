@@ -169,7 +169,84 @@ default.
   (promote/checkout) inherit the **same** directory by name, so they operate on the
   files the agent wrote with zero path coordination. octo-code creates it on first use.
 
-### Cloud memory (`[clouds.*]`)
+### Memory backend (`[memory]`)
+
+Memory has one selected backend, independent of the connector catalog. Omit this
+section to keep embedded kaeru, or explicitly set `backend = "embedded"`.
+Embedded kaeru uses `KAERU_VAULT_PATH` as before. A dedicated **kaeru MCP server**
+can instead own the vault:
+
+```toml
+[memory]
+backend = "mcp"
+transport = "http"
+url = "http://127.0.0.1:9876/mcp"
+timeout_secs = 30
+# token_env = "ALBERT_MEMORY_TOKEN"
+```
+
+HTTP uses MCP Streamable HTTP (JSON and SSE responses), with normal TLS
+certificate verification and an optional bearer token read from the named
+environment variable. The URL is the **MCP endpoint**, not a kaeru-cloud REST
+endpoint. Remote HTTPS servers can use the same settings. A named but unset or
+empty token variable is an error; credentials do not belong in the URL.
+
+For kaeru's local stdio bridge (omit `env` for a daemon without authentication):
+
+```toml
+[memory]
+backend = "mcp"
+transport = "stdio"
+command = "kaeru-mcp"
+args = ["--stdio"]
+timeout_secs = 30
+env = { KAERU_MCP_AUTH_TOKEN = "ALBERT_MEMORY_TOKEN" }
+```
+
+`env` maps each child variable to a **parent environment variable name**, not its
+value. Bare commands resolve through `PATH`; relative command paths resolve from
+the config directory. Arguments are passed directly, without a shell. The child
+inherits only `PATH`, `HOME`, `LANG`, `TMPDIR`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`
+and the explicit mapping. `kaeru-mcp --stdio` forwards to the local daemon,
+starting it if necessary; the daemon owns the vault. For a separate daemon, map
+`KAERU_MCP_LISTEN_PORT` and `KAERU_VAULT_PATH` to dedicated parent variables too.
+Changing the bridge's vault variable does not reconfigure an already running
+daemon on the same port. Install `kaeru-mcp` separately for stdio; the Albert
+Docker image does not bundle it. Do not point embedded Albert and a separate MCP
+daemon at the same RocksDB vault concurrently.
+
+Albert connects, discovers all pages of tools and runs its **v1 application
+migration before accepting events**. It checks `initiatives`; if `albert` is
+absent, it makes an ordinary `cite` of a short Albert identity reference with
+`initiative = "albert"`, then verifies creation. This uses kaeru's existing
+capture path: writing the record also registers its initiative. Subsequent
+starts leave an existing initiative unchanged. Embedded memory makes the same
+call through `kaeru-rig`; no separate schema-marker record is created.
+Kaeru itself owns its database schema migrations. No local conversations or
+memories are copied when switching backends.
+
+MCP verbs appear as `kaeru_<verb>`, with the server's schemas. Calls that accept
+`initiative` default to `albert`; an explicit project name is preserved, just as
+with embedded memory. The automatic reflection routine uses the selected backend.
+The server must expose kaeru's unprefixed verbs, including `initiatives`, `cite`,
+`awake`, `overview`, `episode`, `at` and `reflect`. Use kaeru-mcp **0.7.4 or later**;
+Albert's embedded dependency is also 0.7.4 so both use the same verb names.
+Custom prompts must replace `kaeru_remember`, `kaeru_read` and `kaeru_test` with
+`kaeru_episode`, `kaeru_at` and `kaeru_evidence` respectively and follow their
+current argument schemas.
+
+`timeout_secs` bounds connection, discovery and each call. A failed startup or
+migration stops startup with an error; there is no silent fallback to local
+memory. A transport failure is returned to the agent, and the next call reconnects
+and checks the initiative again. The failed call is not automatically replayed:
+a write whose response was lost may already have committed. Changed tool schemas
+after a reconnect require restarting Albert. Changing `[memory]` also requires a
+process restart.
+
+With MCP, configure kaeru-cloud endpoints **on the MCP server**. Albert rejects
+`[clouds.*]` together with MCP memory to avoid silently ignoring those settings.
+
+### Cloud memory (`[clouds.*]`, embedded backend)
 
 Optional. By default Albert's memory (kaeru) is **local-only** and the
 share/pull/cloud_recall tools are not even shown to the model. Declare one or more

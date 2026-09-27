@@ -79,6 +79,28 @@ page  = 10
 # future storage/telegram workspace bridge should point at the SAME directory.
 workspace = "state/workspace"
 
+# --- Memory backend: embedded kaeru (default), or a dedicated kaeru MCP server.
+[memory]
+backend = "embedded"
+# To use external memory, replace the section above with:
+# [memory]
+# backend = "mcp"
+# transport = "http"
+# url = "http://127.0.0.1:9876/mcp"
+# timeout_secs = 30
+# token_env = "ALBERT_MEMORY_TOKEN"   # optional bearer token, value in .env
+#
+# Or launch a local MCP stdio process:
+# [memory]
+# backend = "mcp"
+# transport = "stdio"
+# command = "kaeru-mcp"
+# args = ["--stdio"]
+# env = { KAERU_MCP_AUTH_TOKEN = "ALBERT_MEMORY_TOKEN" } # child var -> parent var NAME
+#
+# At startup, an absent albert initiative is created by migration v1. Existing
+# initiatives are untouched. Switching backends does not copy existing memories.
+
 # --- Cloud memory (option) — kaeru-cloud endpoints Albert can share to / pull from.
 # Absent = local-only (the default): the share/pull/cloud_recall tools are not even
 # shown to the model. Add one [clouds.<name>] per cloud (its URL + the env-var NAME

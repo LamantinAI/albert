@@ -42,7 +42,10 @@ pub async fn command(
     };
     let req = Envelope::new(source.clone(), EventKind::new(kind), payload)
         .with_target(ConnectorId::new("telegram"));
-    match ctx.publish_and_await_response(req, Duration::from_secs(5)).await {
+    match ctx
+        .publish_and_await_response(req, Duration::from_secs(5))
+        .await
+    {
         Ok(resp) => Some(format_result(cmd, resp.payload_as::<Value>())),
         Err(e) => Some(format!("Command failed: {e}")),
     }
@@ -62,7 +65,10 @@ pub(crate) fn is_owner(env: &Envelope) -> bool {
 fn format_result(cmd: &str, payload: Option<&Value>) -> String {
     let p = payload.cloned().unwrap_or(Value::Null);
     if p.get("ok").and_then(Value::as_bool) != Some(true) {
-        let err = p.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        let err = p
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error");
         return format!("Error: {err}");
     }
     match cmd {
@@ -83,7 +89,11 @@ fn format_result(cmd: &str, payload: Option<&Value>) -> String {
             }
         }
         _ => {
-            let chats = p.get("chats").and_then(Value::as_array).cloned().unwrap_or_default();
+            let chats = p
+                .get("chats")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             if chats.is_empty() {
                 return "The access list is empty.".to_string();
             }

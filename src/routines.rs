@@ -61,7 +61,10 @@ pub async fn seed_base_routine(bus: Arc<InProcessBus>, source: ConnectorId, peri
         let _ = bus
             .publish_and_await_response(add, Duration::from_secs(3))
             .await;
-        info!(period_secs = period, "seeded base memory-reflection routine");
+        info!(
+            period_secs = period,
+            "seeded base memory-reflection routine"
+        );
         return;
     }
     warn!("could not seed base routine (scheduler not reachable)");

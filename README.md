@@ -83,6 +83,9 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   from a small manifest.
 - **Two brains, your call** — an **API key** (OpenRouter / any OpenAI-compatible
   endpoint; the default) or a **ChatGPT subscription** (via the Codex backend).
+- **Choose where memory lives** — embedded kaeru or your own kaeru MCP server
+  over HTTP/stdio. Albert creates its initiative on first startup if missing.
+  See [memory configuration](docs/configuration.md#memory-backend-memory).
 - **Config-as-data** — Albert-level settings in `albert.toml`; secrets in `.env`,
   named in the TOML by their env var (never the value); persona + a compact operating
   prompt in `soul.md` / `system.md`, held in RAM and **hot-reloaded by mtime**.
@@ -96,7 +99,7 @@ single **cogitator** (the deciding layer) wired in:
   as autonomous supervised tasks, a reflex/cognition split, a control-plane. Albert
   does not reimplement any of this; it is a userland `Cogitator`.
 - **kaeru** is the deliberate memory — a typed, bi-temporal cognitive graph the agent
-  recalls from and writes to **as a tool** (`kaeru_recall`, `kaeru_remember`, …). Not
+  recalls from and writes to **as a tool** (`kaeru_recall`, `kaeru_episode`, …). Not
   a memory file re-read every turn.
 - **The cogitator** ties them: it perceives `chat.message` and `alarm.fired`, runs a
   rig native tool-loop over its full toolset (memory, scheduler, calendar, files,

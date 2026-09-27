@@ -18,7 +18,12 @@ pub fn declared_types(octo_toml: &Path) -> HashSet<String> {
     let dir = read_to_string(octo_toml)
         .ok()
         .and_then(|t| t.parse::<Value>().ok())
-        .and_then(|v| v.get("connectors")?.get("dir")?.as_str().map(str::to_string))
+        .and_then(|v| {
+            v.get("connectors")?
+                .get("dir")?
+                .as_str()
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| "connectors".into());
     let Ok(entries) = read_dir(base.join(dir)) else {
         return HashSet::new();
@@ -36,7 +41,10 @@ pub fn declared_types(octo_toml: &Path) -> HashSet<String> {
         })
         .filter_map(|file| {
             let v: Value = read_to_string(file).ok()?.parse().ok()?;
-            v.get("connector")?.get("type")?.as_str().map(str::to_string)
+            v.get("connector")?
+                .get("type")?
+                .as_str()
+                .map(str::to_string)
         })
         .collect()
 }
@@ -49,11 +57,23 @@ mod tests {
     #[test]
     fn folder_and_flat_manifests_are_both_seen() {
         let root = tempfile::tempdir().unwrap();
-        write(root.path().join("octo.toml"), "[connectors]\ndir = \"connectors\"\n").unwrap();
+        write(
+            root.path().join("octo.toml"),
+            "[connectors]\ndir = \"connectors\"\n",
+        )
+        .unwrap();
         let dir = root.path().join("connectors");
         create_dir_all(dir.join("imagegen")).unwrap();
-        write(dir.join("imagegen/imagegen.toml"), "[connector]\nid = \"imagegen\"\ntype = \"imagegen\"\n").unwrap();
-        write(dir.join("search.toml"), "[connector]\nid = \"search\"\ntype = \"search\"\n").unwrap();
+        write(
+            dir.join("imagegen/imagegen.toml"),
+            "[connector]\nid = \"imagegen\"\ntype = \"imagegen\"\n",
+        )
+        .unwrap();
+        write(
+            dir.join("search.toml"),
+            "[connector]\nid = \"search\"\ntype = \"search\"\n",
+        )
+        .unwrap();
         create_dir_all(dir.join("calendar")).unwrap(); // a folder with no manifest
         let types = declared_types(&root.path().join("octo.toml"));
         assert!(types.contains("imagegen") && types.contains("search"));

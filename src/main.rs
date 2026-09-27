@@ -13,6 +13,7 @@ mod console;
 mod error;
 mod history;
 mod manifests;
+mod memory;
 mod openai_login;
 mod prompt;
 mod routines;
@@ -21,36 +22,39 @@ mod selfconfig;
 mod skills;
 mod status;
 
-use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
+use std::{
+    env::{set_var, var},
+    fs::create_dir_all,
+    sync::Arc,
+};
 
 use dotenvy::{dotenv, from_path};
-use kaeru_core::{KaeruConfig, Store};
-use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use octo_code::WORKSPACE_ENV;
+use octo_connector_browser::factory as browser_factory;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
-use octo_connector_browser::factory as browser_factory;
 use octo_connector_http::factory as http_factory;
 use octo_connector_imagegen::factory as imagegen_factory;
 use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
-use octo_connector_speak::factory as speak_factory;
-use octo_connector_transcribe::factory as transcribe_factory;
 use octo_connector_search::factory as search_factory;
+use octo_connector_speak::factory as speak_factory;
 use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
+use octo_connector_transcribe::factory as transcribe_factory;
 use octo_core::Octo;
 use octo_openai_auth::SubscriptionAuth;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::{
     cogitator::AlbertCogitator,
     config::{AuthMode, Config},
     console::ConsoleConnector,
-    error::{Error, Result},
+    error::Result,
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
     manifests::declared_types,
+    memory::Memory,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
@@ -96,7 +100,11 @@ async fn main() -> Result<()> {
             info!(model = %config.model, base_url = %config.subscription_base_url, "llm backend: subscription");
         }
         AuthMode::ApiKey => {
-            let base = if config.base_url.is_empty() { "(provider default)" } else { &config.base_url };
+            let base = if config.base_url.is_empty() {
+                "(provider default)"
+            } else {
+                &config.base_url
+            };
             info!(model = %config.model, base_url = base, "llm backend: api_key");
         }
     }
@@ -118,33 +126,8 @@ async fn main() -> Result<()> {
     set_var(SKILLS_ENV, &config.skills_dir);
     info!(workspace = %config.code_workspace.display(), skills = %config.skills_dir.display(), "code workspace + skills root exported");
 
-    // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
-    // Local-only by default; if albert.toml declares [clouds.*], build a
-    // CloudRegistry (endpoint URL + bearer from the named env var) and hand it to
-    // kaeru so the share/pull/cloud_recall tools come alive. Which tools get
-    // installed is decided per-turn by the same emptiness check (cogitator::drive).
-    let kcfg = KaeruConfig::from_env().map_err(|e| Error::Kaeru(e.to_string()))?;
-    let store = Arc::new(Store::open_with_config(kcfg).map_err(|e| Error::Kaeru(e.to_string()))?);
-    let memory = if config.clouds.is_empty() {
-        info!("memory: kaeru (initiative=albert, local-only)");
-        KaeruMemory::with_initiative(store, "albert")
-    } else {
-        let clients: HashMap<String, CloudClient> = config
-            .clouds
-            .iter()
-            .map(|(name, ep)| {
-                let token = var(&ep.token_env).unwrap_or_default();
-                if token.is_empty() {
-                    warn!(cloud = %name, env = %ep.token_env, "cloud token env is unset");
-                }
-                (name.clone(), CloudClient::new(name.clone(), ep.url.clone(), token))
-            })
-            .collect();
-        let names: Vec<&str> = config.clouds.keys().map(String::as_str).collect();
-        info!(clouds = %names.join(", "), "memory: kaeru (initiative=albert) + clouds");
-        let registry = CloudRegistry::new(clients, config.clouds_default.clone());
-        KaeruMemory::with_clouds(store, "albert", registry)
-    };
+    // Connect and migrate memory before accepting any events.
+    let memory = Memory::open(&config).await?;
 
     // ── Hot context: per-channel transcript backend ──────────────────────────
     const HISTORY_MAX: usize = 30;
@@ -167,8 +150,11 @@ async fn main() -> Result<()> {
 
     // ── Scheduler connector (cron/reminders) ─────────────────────────────────
     // Calendar-style (`cron`) alarms fall back to the owner's timezone.
-    let scheduler =
-        Scheduler::with_timezone("scheduler", config.scheduler_state_path.clone(), config.timezone.name());
+    let scheduler = Scheduler::with_timezone(
+        "scheduler",
+        config.scheduler_state_path.clone(),
+        config.timezone.name(),
+    );
     info!(state = %config.scheduler_state_path.display(), "scheduler connector");
 
     // ── Persona + instructions (RAM, hot-reloaded) ───────────────────────────
@@ -188,8 +174,14 @@ async fn main() -> Result<()> {
     // `requires:` is matched against this list).
     // Connector-backed capabilities follow the manifests (the octo loader instantiates
     // them only in the telegram setup, and the subscription organs only with a token).
-    let has_telegram = var("OCTO_TELEGRAM_TOKEN").map(|t| !t.trim().is_empty()).unwrap_or(false);
-    let declared = if has_telegram { declared_types(&config.connectors_manifest) } else { Default::default() };
+    let has_telegram = var("OCTO_TELEGRAM_TOKEN")
+        .map(|t| !t.trim().is_empty())
+        .unwrap_or(false);
+    let declared = if has_telegram {
+        declared_types(&config.connectors_manifest)
+    } else {
+        Default::default()
+    };
     let token = config.subscription_auth_json.exists();
     let mut capabilities: Vec<&str> = Vec::new();
     if config.auth == AuthMode::Subscription {
@@ -198,14 +190,20 @@ async fn main() -> Result<()> {
     if token && declared.contains("imagegen") {
         capabilities.push("imagegen");
     }
-    let skills = SkillStore::load(config.skills_dir.clone(), config.skills_cache, config.skills_page, &capabilities);
+    let skills = SkillStore::load(
+        config.skills_dir.clone(),
+        config.skills_cache,
+        config.skills_page,
+        &capabilities,
+    );
     info!(dir = %config.skills_dir.display(), cache = config.skills_cache, page = config.skills_page, "skills store");
 
     // Shared, refresh-serialised subscription auth — ONE refresh owner across the LLM
     // backend and the subscription organs (transcribe, speak, imagegen). Its errors point at
     // Albert's own sign-in command.
     let auth = Arc::new(
-        SubscriptionAuth::new(config.subscription_auth_json.clone()).with_login_hint("albert login"),
+        SubscriptionAuth::new(config.subscription_auth_json.clone())
+            .with_login_hint("albert login"),
     );
 
     let mut builder = Octo::builder()
@@ -248,8 +246,10 @@ async fn main() -> Result<()> {
             .register_connector_type("speak", speak_factory(auth.clone()))
             .register_connector_type("imagegen", imagegen_factory(auth.clone()))
             .from_config_file(&config.connectors_manifest)?;
-        let subscription: Vec<&str> =
-            ["transcribe", "speak", "imagegen"].into_iter().filter(|t| declared.contains(*t)).collect();
+        let subscription: Vec<&str> = ["transcribe", "speak", "imagegen"]
+            .into_iter()
+            .filter(|t| declared.contains(*t))
+            .collect();
         if !subscription.is_empty() {
             info!(
                 organs = %subscription.join(", "),

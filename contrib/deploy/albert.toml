@@ -45,3 +45,14 @@ page  = 10   # skill_list page size + inline-catalog threshold (larger library -
 # Ephemeral file-tool workspace, on the /data volume so it and the forkd handoff
 # survive restarts. Matches OCTO_CODE_WORKSPACE in the Dockerfile.
 workspace = "/data/workspace"
+
+# Embedded by default. For external kaeru, replace this section with the MCP
+# settings in docs/configuration.md. A container URL must reach the MCP server
+# from inside the container (127.0.0.1 refers to the container itself).
+[memory]
+backend = "embedded"
+# backend = "mcp"
+# transport = "http"
+# url = "https://memory.example/mcp"
+# token_env = "ALBERT_MEMORY_TOKEN"
+# timeout_secs = 30

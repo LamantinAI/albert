@@ -37,6 +37,7 @@ Orient by module before changing code. Everything is under `src/`:
 | `prompt.rs` | `PromptFiles` — load `soul.md` + `system.md` into RAM, hot-reload by mtime. |
 | `config.rs` | `Config` — parse `albert.toml` (serde + `toml`), resolve the LLM secret from env, resolve relative paths against the config dir. |
 | `history.rs` | Bridge to Octo's `octo-history`: the per-channel transcript (hot-context tier). |
+| `memory/` | Embedded kaeru or a dedicated MCP memory backend; scoped tool adapters and startup migration of the `albert` initiative. External memory is separate from the connector catalog. |
 | `console.rs` | `ConsoleConnector` — stdin/stdout channel, the Telegram stand-in for dev. |
 | `error.rs` | The crate error type — explicit `#[from]` variants, no `anyhow`. |
 

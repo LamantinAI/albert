@@ -76,7 +76,9 @@ async fn bind_callback() -> Result<(TcpListener, u16)> {
             return Ok((listener, port));
         }
     }
-    Err(Error::Auth(format!("could not bind any login callback port {PORTS:?}")))
+    Err(Error::Auth(format!(
+        "could not bind any login callback port {PORTS:?}"
+    )))
 }
 
 fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> String {
@@ -129,7 +131,9 @@ async fn await_code(listener: &TcpListener, state: &str) -> Result<String> {
 /// Handle one loopback request. `Some(code)` on a valid callback, `None` for an
 /// unrelated request (favicon, etc.), `Err` on an OAuth error or a state mismatch.
 async fn handle_callback(sock: &mut TcpStream, state: &str) -> Result<Option<String>> {
-    let Some(path) = request_target(sock).await else { return Ok(None) };
+    let Some(path) = request_target(sock).await else {
+        return Ok(None);
+    };
     if !path.starts_with("/auth/callback") {
         let _ = respond(sock, "404 Not Found", "").await;
         return Ok(None);
@@ -141,7 +145,12 @@ async fn handle_callback(sock: &mut TcpStream, state: &str) -> Result<Option<Str
     // it and keep waiting, so no unauthenticated local caller can abort the login by
     // hitting the loopback port. Only a state-MATCHING request can end the flow.
     if got_state.as_deref() != Some(state) {
-        let _ = respond(sock, "400 Bad Request", &page("Ignoring an unrecognized request.")).await;
+        let _ = respond(
+            sock,
+            "400 Bad Request",
+            &page("Ignoring an unrecognized request."),
+        )
+        .await;
         return Ok(None);
     }
     if let Some(err) = oauth_err {
@@ -152,7 +161,12 @@ async fn handle_callback(sock: &mut TcpStream, state: &str) -> Result<Option<Str
         let _ = respond(sock, "400 Bad Request", &page("Sign-in failed (no code).")).await;
         return Err(Error::Auth("callback carried no authorization code".into()));
     };
-    let _ = respond(sock, "200 OK", &page("Signed in. You can close this tab and return to Albert.")).await;
+    let _ = respond(
+        sock,
+        "200 OK",
+        &page("Signed in. You can close this tab and return to Albert."),
+    )
+    .await;
     Ok(Some(code))
 }
 
@@ -177,7 +191,9 @@ fn parse_pasted(line: &str, state: &str) -> Result<Option<String>> {
                 "the pasted URL's state does not match this login session".into(),
             ));
         }
-        return code.map(Some).ok_or_else(|| Error::Auth("no code in the pasted URL".into()));
+        return code
+            .map(Some)
+            .ok_or_else(|| Error::Auth("no code in the pasted URL".into()));
     }
     Ok(Some(line.to_string()))
 }
@@ -202,10 +218,17 @@ async fn request_target(sock: &mut TcpStream) -> Option<String> {
     // Bound the read: a silent / half-open connection (browser preconnect probe,
     // port scanner, …) must not wedge the accept loop and starve the stdin paste
     // fallback. A stall is treated as an unrelated request and dropped.
-    let n = timeout(Duration::from_secs(5), sock.read(&mut buf)).await.ok()?.ok()?;
+    let n = timeout(Duration::from_secs(5), sock.read(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
     let text = String::from_utf8_lossy(&buf[..n]);
     // First line: `GET /auth/callback?code=... HTTP/1.1`.
-    text.lines().next()?.split_whitespace().nth(1).map(str::to_owned)
+    text.lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)
+        .map(str::to_owned)
 }
 
 async fn respond(sock: &mut TcpStream, status: &str, body: &str) -> Result<()> {
@@ -240,7 +263,9 @@ async fn exchange_code(code: &str, redirect_uri: &str, verifier: &str) -> Result
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(Error::Auth(format!("code exchange rejected ({status}): {body}")));
+        return Err(Error::Auth(format!(
+            "code exchange rejected ({status}): {body}"
+        )));
     }
     from_str(&body)
 }
@@ -322,7 +347,10 @@ mod tests {
     #[test]
     fn bare_code_is_taken_verbatim() {
         // No `code=`, so the whole line is the code (PKCE binds it to the session).
-        assert_eq!(parse_pasted("just-the-code", "S1").unwrap().as_deref(), Some("just-the-code"));
+        assert_eq!(
+            parse_pasted("just-the-code", "S1").unwrap().as_deref(),
+            Some("just-the-code")
+        );
     }
 
     #[test]

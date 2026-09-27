@@ -46,7 +46,10 @@ impl Connector for ConsoleConnector {
 
     async fn run(self: Arc<Self>, ctx: ConnectorContext) -> OctoResult<()> {
         let mut replies = ctx
-            .subscribe(Filter::by_target(self.id.clone()), SubscribeOptions::default())
+            .subscribe(
+                Filter::by_target(self.id.clone()),
+                SubscribeOptions::default(),
+            )
             .await?;
 
         let mut lines = BufReader::new(stdin()).lines();

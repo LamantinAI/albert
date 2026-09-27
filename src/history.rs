@@ -66,12 +66,17 @@ mod tests {
     use super::*;
 
     fn assistant(content: &str) -> Turn {
-        Turn { role: Role::Assistant, content: content.to_string() }
+        Turn {
+            role: Role::Assistant,
+            content: content.to_string(),
+        }
     }
 
     #[test]
     fn to_messages_strips_the_action_log_from_assistant_turns() {
-        let turns = vec![assistant("Done, sir.\n\n[actions taken this turn]\n- restart {\"target\":\"process\"} -> ok")];
+        let turns = vec![assistant(
+            "Done, sir.\n\n[actions taken this turn]\n- restart {\"target\":\"process\"} -> ok",
+        )];
         let msgs = to_messages(&turns);
         // The reconstructed assistant message is the spoken text only.
         let rendered = format!("{:?}", msgs[0]);
