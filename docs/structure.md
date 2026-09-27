@@ -4,6 +4,7 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 
 | Module | Owns |
 |--------|------|
+| `memory/` | Backend selection, embedded kaeru setup, the dedicated MCP session (HTTP/stdio), scoped `kaeru_*` tool adapters and the idempotent startup migration creating the `albert` initiative when absent. |
 | `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history (memory / file / sqlite), the scheduler, the scratchpad, the skill catalog, the prompt loader; export `$OCTO_CODE_WORKSPACE` + `$OCTO_SKILLS_DIR`; register the connector factories (telegram, caldav, scheduler, storage, forkd) and `from_config_file`, or fall back to console; run the Octo runtime. |
 | `cogitator.rs` | `AlbertCogitator` — the `Cogitator`: the perceive → reflex → assemble-context → tool-loop → reply cycle for `chat.message` and `alarm.fired`. Holds config, kaeru handle, history, scratchpad, skills, prompt loader; builds the rig agent + the full toolset (dispatch, kaeru verbs, scratchpad, file workspace, `send_file`, skills, and — owner-only — `restart`). |
 | `cogitator/hearing.rs` | Hearing: a voice message is handed to the `transcribe` organ (`transcribe.run { path }` on the recording the channel saved) and the text becomes the turn; with no transcribe organ Albert says he can't hear. |
@@ -28,8 +29,10 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
   assembled in `cogitator.rs::catalog` from `ctx.connectors()`. Add an organ → it
   appears automatically in the `dispatch_to_connector` tool (scheduler, calendar,
   storage, forkd all reached this way).
-- **The memory tools** = kaeru verbs, added in `cogitator.rs::run_agent` from the
-  `KaeruMemory` handle (plus the cloud verbs when a `[clouds.*]` is configured).
+- **The memory tools** = kaeru verbs installed in `cogitator.rs::drive` through
+  `Memory::install`: embedded `KaeruMemory`, or the dedicated MCP memory session.
+  Embedded cloud verbs are enabled by `[clouds.*]`; MCP cloud settings belong to
+  the memory server.
 - **Files & the workspace** = the octo-code tools (`read/write/edit/list/glob/grep`,
   jailed to `$OCTO_CODE_WORKSPACE`) and `send_file`, added in `run_agent`; the
   workspace is one shared directory that storage + forkd also inherit by name.

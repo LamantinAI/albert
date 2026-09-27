@@ -107,7 +107,9 @@ impl SkillStore {
         // that disappears once the catalog grows would be worse than none.
         let mut out = String::new();
         for skill in inner.catalog.iter() {
-            let Some(body) = &skill.standing else { continue };
+            let Some(body) = &skill.standing else {
+                continue;
+            };
             out.push_str(&format!(
                 "STANDING INSTRUCTIONS — \"{}\", in force for EVERY reply, not optional and not \
                  expiring between turns. They shape HOW you answer; your persona (who you are, \
@@ -118,14 +120,19 @@ impl SkillStore {
         }
         // Only the selectable skills are listed or counted — an in-force one has
         // already been applied.
-        let listable: Vec<&SkillMeta> =
-            inner.catalog.iter().filter(|s| s.standing.is_none()).collect();
+        let listable: Vec<&SkillMeta> = inner
+            .catalog
+            .iter()
+            .filter(|s| s.standing.is_none())
+            .collect();
         let n = listable.len();
         if n == 0 {
             out.push_str("Skills: (none installed).");
         } else if n <= inner.page {
-            let lines: Vec<String> =
-                listable.iter().map(|s| format!("- {}: {}", s.name, s.when)).collect();
+            let lines: Vec<String> = listable
+                .iter()
+                .map(|s| format!("- {}: {}", s.name, s.when))
+                .collect();
             out.push_str(&format!(
                 "Skills available (apply one with skill_apply when it fits the task; skill_list to \
                  re-list):\n{}",
@@ -201,7 +208,12 @@ impl SkillStore {
 
     fn apply_json(&self, name: &str) -> Value {
         let mut inner = self.inner.lock().unwrap();
-        let Some(dir) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.dir.clone()) else {
+        let Some(dir) = inner
+            .catalog
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.dir.clone())
+        else {
             return json!({ "ok": false, "error": format!("no skill '{name}'") });
         };
         let files = bundle_files(&dir);
@@ -231,7 +243,12 @@ impl SkillStore {
     /// scripts / fonts are a separate concern (see the module note).
     fn file_json(&self, name: &str, rel: &str) -> Value {
         let inner = self.inner.lock().unwrap();
-        let Some(dir) = inner.catalog.iter().find(|s| s.name == name).map(|s| s.dir.clone()) else {
+        let Some(dir) = inner
+            .catalog
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.dir.clone())
+        else {
             return json!({ "ok": false, "error": format!("no skill '{name}'") });
         };
         let rp = Path::new(rel);
@@ -270,7 +287,11 @@ impl SkillStore {
     /// The skill command called `name`, if a skill declares it.
     pub fn command(&self, name: &str) -> Option<SkillCommand> {
         let inner = self.inner.lock().unwrap();
-        inner.catalog.iter().filter_map(skill_command).find(|c| c.name == name)
+        inner
+            .catalog
+            .iter()
+            .filter_map(skill_command)
+            .find(|c| c.name == name)
     }
 
     /// A skill's instructions and bundled files, loaded as `skill_apply` would (through
@@ -279,10 +300,19 @@ impl SkillStore {
         let v = self.apply_json(skill);
         match v.get("instructions").and_then(Value::as_str) {
             Some(body) => {
-                let files = v["files"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string);
+                let files = v["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string);
                 Ok((body.to_string(), files.collect()))
             }
-            None => Err(v.get("error").and_then(Value::as_str).unwrap_or("skill not found").to_string()),
+            None => Err(v
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("skill not found")
+                .to_string()),
         }
     }
 }
@@ -290,7 +320,12 @@ impl SkillStore {
 fn skill_command(s: &SkillMeta) -> Option<SkillCommand> {
     let name = s.command.clone()?;
     let about = s.command_about.clone().unwrap_or_else(|| about(&s.when));
-    Some(SkillCommand { name, skill: s.name.clone(), about, owner: s.command_owner })
+    Some(SkillCommand {
+        name,
+        skill: s.name.clone(),
+        about,
+        owner: s.command_owner,
+    })
 }
 
 /// Scan `skills/<name>/SKILL.md` into catalog entries, sorted by name.
@@ -309,12 +344,19 @@ fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
             continue;
         };
         let front = meta_of(&text);
-        let name = front
-            .name
-            .unwrap_or_else(|| p.file_name().unwrap_or_default().to_string_lossy().into_owned());
+        let name = front.name.unwrap_or_else(|| {
+            p.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        });
         // A skill whose requirement isn't met must be invisible, not merely unusable —
         // else the agent keeps offering something it cannot do.
-        if let Some(req) = front.requires.as_deref().filter(|r| !capabilities.contains(r)) {
+        if let Some(req) = front
+            .requires
+            .as_deref()
+            .filter(|r| !capabilities.contains(r))
+        {
             debug!(skill = %name, requires = %req, "skills: hidden (capability unavailable)");
             continue;
         }
@@ -334,7 +376,9 @@ fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
             });
         out.push(SkillMeta {
             name,
-            when: front.description.unwrap_or_else(|| "(no description)".to_string()),
+            when: front
+                .description
+                .unwrap_or_else(|| "(no description)".to_string()),
             standing,
             dir: p,
             command,
@@ -500,11 +544,12 @@ impl Tool for SkillSearch {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: Self::NAME.to_string(),
-            description: "Find skills by need when you have many and the per-turn catalog is only \
+            description:
+                "Find skills by need when you have many and the per-turn catalog is only \
                           a summary. Give `query` (a few keywords about the task); returns the \
                           best-matching skills (name + when-to-use), ranked by name/description \
                           match. Then skill_apply the one that fits. Optional `limit` (default 10)."
-                .to_string(),
+                    .to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -643,10 +688,19 @@ mod tests {
         );
         let store = SkillStore::load(dir.clone(), 5, 10, &[]);
         let commands = store.commands();
-        let names: Vec<(&str, &str, bool)> = commands.iter().map(|c| (c.name.as_str(), c.skill.as_str(), c.owner)).collect();
-        assert_eq!(names, [("brief", "brief", false), ("settings", "config", true)]);
+        let names: Vec<(&str, &str, bool)> = commands
+            .iter()
+            .map(|c| (c.name.as_str(), c.skill.as_str(), c.owner))
+            .collect();
+        assert_eq!(
+            names,
+            [("brief", "brief", false), ("settings", "config", true)]
+        );
         assert_eq!(commands[0].about, "Your day at a glance");
-        assert_eq!(store.command("settings").map(|c| c.skill), Some("config".to_string()));
+        assert_eq!(
+            store.command("settings").map(|c| c.skill),
+            Some("config".to_string())
+        );
         assert_eq!(store.instructions("brief").unwrap().0, "Do the brief.");
         let _ = remove_dir_all(&dir);
     }
@@ -669,11 +723,20 @@ mod tests {
         let catalog = SkillStore::load(dir.clone(), 5, 10, &[]).catalog();
 
         // In force: the body itself is present, so no tool call is needed to obey it.
-        assert!(catalog.contains("Lead with the next action."), "got:\n{catalog}");
+        assert!(
+            catalog.contains("Lead with the next action."),
+            "got:\n{catalog}"
+        );
         assert!(catalog.contains("STANDING INSTRUCTIONS"), "got:\n{catalog}");
         // Not offered: absent from the pick-one list, which still holds the others.
-        assert!(!catalog.contains("- style:"), "an in-force skill must not be offered:\n{catalog}");
-        assert!(catalog.contains("- brief: pick me when asked"), "got:\n{catalog}");
+        assert!(
+            !catalog.contains("- style:"),
+            "an in-force skill must not be offered:\n{catalog}"
+        );
+        assert!(
+            catalog.contains("- brief: pick me when asked"),
+            "got:\n{catalog}"
+        );
 
         let _ = remove_dir_all(&dir);
     }
@@ -685,14 +748,20 @@ mod tests {
         let dir = skills_dir(
             "always-paged",
             &[
-                ("style", "---\nname: style\nalways: true\n---\nAction first."),
+                (
+                    "style",
+                    "---\nname: style\nalways: true\n---\nAction first.",
+                ),
                 ("a", "---\nname: a\ndescription: x\n---\nb"),
                 ("b", "---\nname: b\ndescription: y\n---\nb"),
             ],
         );
         let catalog = SkillStore::load(dir.clone(), 5, 1, &[]).catalog();
         assert!(catalog.contains("Action first."), "got:\n{catalog}");
-        assert!(catalog.contains("2 installed"), "in-force skills aren't counted:\n{catalog}");
+        assert!(
+            catalog.contains("2 installed"),
+            "in-force skills aren't counted:\n{catalog}"
+        );
         let _ = remove_dir_all(&dir);
     }
 
@@ -701,14 +770,31 @@ mod tests {
         let dir = skills_dir(
             "gating",
             &[
-                ("transcribe", "---\nname: transcribe\nrequires: subscription\n---\nbody"),
-                ("brief", "---\nname: brief\ndescription: always here\n---\nbody"),
+                (
+                    "transcribe",
+                    "---\nname: transcribe\nrequires: subscription\n---\nbody",
+                ),
+                (
+                    "brief",
+                    "---\nname: brief\ndescription: always here\n---\nbody",
+                ),
             ],
         );
         let without: Vec<String> = scan(&dir, &[]).into_iter().map(|s| s.name).collect();
-        assert_eq!(without, vec!["brief"], "no subscription -> transcribe is absent");
-        let with: Vec<String> = scan(&dir, &["subscription"]).into_iter().map(|s| s.name).collect();
-        assert_eq!(with, vec!["brief", "transcribe"], "subscription -> both, sorted");
+        assert_eq!(
+            without,
+            vec!["brief"],
+            "no subscription -> transcribe is absent"
+        );
+        let with: Vec<String> = scan(&dir, &["subscription"])
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(
+            with,
+            vec!["brief", "transcribe"],
+            "subscription -> both, sorted"
+        );
         let _ = remove_dir_all(&dir);
     }
 }

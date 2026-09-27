@@ -48,7 +48,10 @@ pub struct SelfConfig {
 impl SelfConfig {
     pub fn new(root: PathBuf) -> Self {
         let env_path = root.join(".env");
-        Self { root: Arc::new(root), env_path: Arc::new(env_path) }
+        Self {
+            root: Arc::new(root),
+            env_path: Arc::new(env_path),
+        }
     }
 
     pub fn read_tool(&self) -> ConfigRead {
@@ -165,10 +168,16 @@ impl Tool for ConfigRead {
     }
 
     async fn call(&self, args: PathArg) -> Result<Value, Self::Error> {
-        Ok(match self.0.resolve(&args.path).and_then(|p| fs::read_to_string(&p).map_err(|e| e.to_string())) {
-            Ok(content) => json!({ "path": args.path, "content": content }),
-            Err(e) => json!({ "error": e }),
-        })
+        Ok(
+            match self
+                .0
+                .resolve(&args.path)
+                .and_then(|p| fs::read_to_string(&p).map_err(|e| e.to_string()))
+            {
+                Ok(content) => json!({ "path": args.path, "content": content }),
+                Err(e) => json!({ "error": e }),
+            },
+        )
     }
 }
 
@@ -331,7 +340,9 @@ impl ConfigEdit {
                 harden_path(&self.0.root, &written);
                 Ok(json!({ "ok": true, "path": args.path }))
             }
-            n => Err(format!("`old` occurs {n} times — add surrounding text so it is unique")),
+            n => Err(format!(
+                "`old` occurs {n} times — add surrounding text so it is unique"
+            )),
         }
     }
 }
@@ -519,8 +530,14 @@ mod tests {
         assert!(sc.resolve("config/connectors/x/x.toml").is_ok());
         assert!(sc.resolve(".env").is_err(), "secrets must be denied");
         assert!(sc.resolve("albert").is_err(), "binary must be denied");
-        assert!(sc.resolve("state/history.db").is_err(), "state must be denied");
-        assert!(sc.resolve("../outside").is_err(), "jail escape must be denied");
+        assert!(
+            sc.resolve("state/history.db").is_err(),
+            "state must be denied"
+        );
+        assert!(
+            sc.resolve("../outside").is_err(),
+            "jail escape must be denied"
+        );
     }
 
     #[test]
@@ -555,7 +572,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sc = SelfConfig::new(dir.path().to_path_buf());
         sc.upsert_secret("K", "v").unwrap();
-        let mode = fs::metadata(dir.path().join(".env")).unwrap().permissions().mode() & 0o777;
+        let mode = fs::metadata(dir.path().join(".env"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o600, "secrets file must be 0600");
     }
 
@@ -568,9 +589,24 @@ mod tests {
         let edit = ConfigEdit(sc);
 
         // "= 1" occurs twice → refused.
-        assert!(edit.edit(&EditArg { path: "albert.toml".into(), old: "= 1".into(), new: "= 2".into() }).is_err());
+        assert!(edit
+            .edit(&EditArg {
+                path: "albert.toml".into(),
+                old: "= 1".into(),
+                new: "= 2".into()
+            })
+            .is_err());
         // Unique → applied.
-        assert!(edit.edit(&EditArg { path: "albert.toml".into(), old: "a = 1".into(), new: "a = 2".into() }).is_ok());
-        assert_eq!(fs::read_to_string(root.join("albert.toml")).unwrap(), "a = 2\nb = 1\n");
+        assert!(edit
+            .edit(&EditArg {
+                path: "albert.toml".into(),
+                old: "a = 1".into(),
+                new: "a = 2".into()
+            })
+            .is_ok());
+        assert_eq!(
+            fs::read_to_string(root.join("albert.toml")).unwrap(),
+            "a = 2\nb = 1\n"
+        );
     }
 }

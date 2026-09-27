@@ -70,6 +70,13 @@ exceptions — native rig tools the host binds directly, not connector dispatch.
 
 ## Three context tiers
 
+The memory tier has a dedicated backend boundary (`src/memory/`): embedded
+`kaeru-rig`, or a kaeru MCP session over Streamable HTTP/stdio. Both install
+`kaeru_*` verbs directly in the reasoning toolset. External memory is not a
+world-facing Octo connector or a generic MCP tool catalog. Before the runtime
+starts, an idempotent application migration materialises the `albert` initiative
+if it is absent. A remote backend never opens the local vault as a fallback.
+
 Kept deliberately distinct (they are different things, with different owners):
 
 | Tier | What it is | Owner |

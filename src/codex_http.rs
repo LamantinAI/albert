@@ -13,7 +13,7 @@
 use bytes::Bytes;
 use rig::{
     http_client::{
-        HeaderValue, HttpClientExt, LazyBody, MultipartForm, ReqwestClient, Request, Response,
+        HeaderValue, HttpClientExt, LazyBody, MultipartForm, Request, ReqwestClient, Response,
         Result as HttpResult, StreamingResponse,
     },
     wasm_compat::WasmCompatSend,
@@ -87,9 +87,13 @@ fn codexify_body(bytes: &Bytes) -> Option<Bytes> {
 
 /// `strict:false` + prune phantom `required` keys on one tool definition.
 fn relax_tool_schema(tool: &mut Value) {
-    let Some(tool) = tool.as_object_mut() else { return };
+    let Some(tool) = tool.as_object_mut() else {
+        return;
+    };
     tool.insert("strict".to_string(), Value::Bool(false));
-    let Some(params) = tool.get_mut("parameters").and_then(Value::as_object_mut) else { return };
+    let Some(params) = tool.get_mut("parameters").and_then(Value::as_object_mut) else {
+        return;
+    };
     let props: HashSet<String> = params
         .get("properties")
         .and_then(Value::as_object)

@@ -46,7 +46,12 @@ impl StatusFeed {
         channel: Option<ChannelId>,
     ) -> Self {
         Self {
-            feed: Some(Arc::new(Feed { bus, source, target, channel })),
+            feed: Some(Arc::new(Feed {
+                bus,
+                source,
+                target,
+                channel,
+            })),
             actions: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -54,7 +59,10 @@ impl StatusFeed {
     /// A feed that swallows live status — for system routines and disabled config.
     /// It still records actions (harmless; the caller decides whether to use them).
     pub fn silent() -> Self {
-        Self { feed: None, actions: Arc::new(Mutex::new(Vec::new())) }
+        Self {
+            feed: None,
+            actions: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     /// Take this turn's recorded actions, emptying the buffer.
@@ -92,7 +100,10 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         args: &str,
     ) -> impl std::future::Future<Output = ToolCallHookAction> + Send {
         let feed = self.clone();
-        let line = format!("🔧 {tool_name} {}", clip(&display_args(tool_name, args).replace('\n', " "), 160));
+        let line = format!(
+            "🔧 {tool_name} {}",
+            clip(&display_args(tool_name, args).replace('\n', " "), 160)
+        );
         async move {
             feed.emit(line).await;
             ToolCallHookAction::cont()

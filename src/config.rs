@@ -20,7 +20,10 @@ use std::{
 use serde::Deserialize;
 use toml::{from_str, Table, Value};
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    memory::config::MemoryConfig,
+};
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -43,6 +46,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub memory: MemoryConfig,
     pub model: String,
     /// How the LLM call authenticates — API key (default) or ChatGPT subscription.
     pub auth: AuthMode,
@@ -102,9 +106,9 @@ pub struct Config {
 impl Config {
     pub fn load() -> Result<Self> {
         let path = config_path();
-        let text = read_to_string(&path)
-            .map_err(|e| Error::Config(format!("{}: {e}", path.display())))?;
-        let raw: Raw = from_str(&text)?;
+        let text =
+            read_to_string(&path).map_err(|e| Error::Config(format!("{}: {e}", path.display())))?;
+        let mut raw: Raw = from_str(&text)?;
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
@@ -120,9 +124,9 @@ impl Config {
         // The API key is required only for the api-key path; a subscription reads
         // its bearer from the OAuth token store, so the env var may be unset.
         let api_key = match auth {
-            AuthMode::ApiKey => {
-                Some(var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?)
-            }
+            AuthMode::ApiKey => Some(
+                var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?,
+            ),
             AuthMode::Subscription => var(key_var).ok(),
         };
 
@@ -137,8 +141,6 @@ impl Config {
         let multimodal = raw
             .multimodal
             .unwrap_or_else(|| default_multimodal(auth, &raw.model));
-
-
 
         // Cloud memory: one [clouds.<name>] table each (url + token_env), plus an
         // optional [clouds] default. Absent -> empty map -> Albert stays local-only.
@@ -156,7 +158,10 @@ impl Config {
                 (Some(url), Some(token_env)) => {
                     clouds.insert(
                         name.clone(),
-                        CloudEndpoint { url: url.to_string(), token_env: token_env.to_string() },
+                        CloudEndpoint {
+                            url: url.to_string(),
+                            token_env: token_env.to_string(),
+                        },
                     );
                 }
                 _ => {
@@ -167,7 +172,9 @@ impl Config {
             }
         }
 
+        raw.memory.validate(dir, !clouds.is_empty())?;
         Ok(Config {
+            memory: raw.memory,
             multimodal,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
@@ -184,7 +191,9 @@ impl Config {
             max_tool_turns: raw.agent.max_tool_turns,
             connectors_manifest: resolve(
                 dir,
-                raw.connectors_manifest.as_deref().unwrap_or("config/octo.toml"),
+                raw.connectors_manifest
+                    .as_deref()
+                    .unwrap_or("config/octo.toml"),
             ),
             skills_dir: resolve(dir, &raw.skills.dir),
             skills_cache: raw.skills.cache,
@@ -262,6 +271,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    memory: MemoryConfig,
     model: String,
     /// `"api_key"` (default) or `"subscription"`.
     #[serde(default)]
@@ -310,7 +321,10 @@ struct RawSubscription {
 }
 impl Default for RawSubscription {
     fn default() -> Self {
-        Self { auth_json: d_auth_json(), base_url: d_codex_base() }
+        Self {
+            auth_json: d_auth_json(),
+            base_url: d_codex_base(),
+        }
     }
 }
 
@@ -323,7 +337,10 @@ struct RawPrompt {
 }
 impl Default for RawPrompt {
     fn default() -> Self {
-        Self { soul: d_soul(), system: d_system() }
+        Self {
+            soul: d_soul(),
+            system: d_system(),
+        }
     }
 }
 
@@ -334,7 +351,9 @@ struct RawReflection {
 }
 impl Default for RawReflection {
     fn default() -> Self {
-        Self { period_secs: d_reflect() }
+        Self {
+            period_secs: d_reflect(),
+        }
     }
 }
 
@@ -345,7 +364,9 @@ struct RawHistory {
 }
 impl Default for RawHistory {
     fn default() -> Self {
-        Self { backend: d_backend() }
+        Self {
+            backend: d_backend(),
+        }
     }
 }
 
@@ -356,7 +377,9 @@ struct RawScheduler {
 }
 impl Default for RawScheduler {
     fn default() -> Self {
-        Self { state_path: d_state() }
+        Self {
+            state_path: d_state(),
+        }
     }
 }
 
@@ -367,7 +390,9 @@ struct RawAgent {
 }
 impl Default for RawAgent {
     fn default() -> Self {
-        Self { max_tool_turns: d_max_turns() }
+        Self {
+            max_tool_turns: d_max_turns(),
+        }
     }
 }
 
@@ -382,7 +407,11 @@ struct RawSkills {
 }
 impl Default for RawSkills {
     fn default() -> Self {
-        Self { dir: d_skills_dir(), cache: d_skills_cache(), page: d_skills_page() }
+        Self {
+            dir: d_skills_dir(),
+            cache: d_skills_cache(),
+            page: d_skills_page(),
+        }
     }
 }
 
@@ -393,7 +422,9 @@ struct RawCode {
 }
 impl Default for RawCode {
     fn default() -> Self {
-        Self { workspace: d_code_workspace() }
+        Self {
+            workspace: d_code_workspace(),
+        }
     }
 }
 
@@ -446,8 +477,17 @@ mod tests {
     #[test]
     fn api_key_models_match_by_name() {
         assert!(default_multimodal(AuthMode::ApiKey, "openai/gpt-4o"));
-        assert!(default_multimodal(AuthMode::ApiKey, "google/gemini-2.5-pro"));
-        assert!(default_multimodal(AuthMode::ApiKey, "qwen/qwen2.5-vl-72b-instruct"));
-        assert!(!default_multimodal(AuthMode::ApiKey, "deepseek/deepseek-chat"));
+        assert!(default_multimodal(
+            AuthMode::ApiKey,
+            "google/gemini-2.5-pro"
+        ));
+        assert!(default_multimodal(
+            AuthMode::ApiKey,
+            "qwen/qwen2.5-vl-72b-instruct"
+        ));
+        assert!(!default_multimodal(
+            AuthMode::ApiKey,
+            "deepseek/deepseek-chat"
+        ));
     }
 }
