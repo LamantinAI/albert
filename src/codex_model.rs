@@ -36,11 +36,14 @@ impl CompletionModel for CodexResponsesModel {
     // provider payload, and the streaming path yields no single JSON body to fill
     // it with — so `()` is both sufficient and simplest.
     type Response = ();
-    type StreamingResponse = <ResponsesCompletionModel<CodexHttp> as CompletionModel>::StreamingResponse;
+    type StreamingResponse =
+        <ResponsesCompletionModel<CodexHttp> as CompletionModel>::StreamingResponse;
     type Client = Client<CodexHttp>;
 
     fn make(client: &Self::Client, model: impl Into<String>) -> Self {
-        Self { inner: client.completion_model(model) }
+        Self {
+            inner: client.completion_model(model),
+        }
     }
 
     async fn completion(
@@ -108,7 +111,10 @@ mod live {
         let account = v["tokens"]["account_id"].as_str().unwrap();
 
         let mut headers = HeaderMap::new();
-        headers.insert("chatgpt-account-id", HeaderValue::from_str(account).unwrap());
+        headers.insert(
+            "chatgpt-account-id",
+            HeaderValue::from_str(account).unwrap(),
+        );
         headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
         let base = var("CODEX_TEST_BASE")
             .unwrap_or_else(|_| "https://chatgpt.com/backend-api/codex".to_string());
@@ -132,6 +138,9 @@ mod live {
             .await
             .expect("codex completion");
         println!("codex live reply: {out:?}");
-        assert!(out.contains("BANANA"), "instructions not honored; got: {out:?}");
+        assert!(
+            out.contains("BANANA"),
+            "instructions not honored; got: {out:?}"
+        );
     }
 }

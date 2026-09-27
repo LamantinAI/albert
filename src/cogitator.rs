@@ -49,16 +49,16 @@ use tracing::{debug, info, warn};
 
 use crate::{
     acl::{command as acl_command, is_owner},
-    commands::{help, menu, parse, publish_menu, seed, SET_COMMANDS},
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
+    commands::{help, menu, parse, publish_menu, seed, SET_COMMANDS},
     config::{AuthMode, Config},
-    memory::Memory,
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
-    selfconfig::SelfConfig,
+    memory::Memory,
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
+    selfconfig::SelfConfig,
     skills::SkillStore,
     status::StatusFeed,
 };
@@ -144,11 +144,21 @@ impl Cogitator for AlbertCogitator {
         let channels: Vec<ConnectorId> = ctx
             .connectors()
             .iter()
-            .filter(|c| c.capabilities.event_kinds_accept.iter().any(|k| k.as_str() == SET_COMMANDS))
+            .filter(|c| {
+                c.capabilities
+                    .event_kinds_accept
+                    .iter()
+                    .any(|k| k.as_str() == SET_COMMANDS)
+            })
             .map(|c| c.id.clone())
             .collect();
         if !channels.is_empty() {
-            spawn(publish_menu(ctx.bus(), self.self_source.clone(), channels, menu(&self.skills.commands())));
+            spawn(publish_menu(
+                ctx.bus(),
+                self.self_source.clone(),
+                channels,
+                menu(&self.skills.commands()),
+            ));
         }
         loop {
             select! {
@@ -174,7 +184,11 @@ impl AlbertCogitator {
                 // model as-is, a voice message becomes text first (no Codex model
                 // takes audio) and from there is an ordinary turn.
                 let input = if let Some(text) = incoming.payload_as::<String>() {
-                    Some(UserInput { text: text.clone(), images: Vec::new(), seed: None })
+                    Some(UserInput {
+                        text: text.clone(),
+                        images: Vec::new(),
+                        seed: None,
+                    })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_image()) {
                     Some(UserInput {
                         text: incoming.tags.get("caption").cloned().unwrap_or_default(),
@@ -184,11 +198,24 @@ impl AlbertCogitator {
                 } else if let Some(msg) = incoming.payload_as::<InboundMessage>() {
                     // A coalesced burst the connector grouped into one message: every
                     // photo of an album (shared media_group_id), or a forwarded run.
-                    let images = msg.images.iter().filter(|b| b.is_image()).cloned().collect();
-                    Some(UserInput { text: msg.text.clone().unwrap_or_default(), images, seed: None })
+                    let images = msg
+                        .images
+                        .iter()
+                        .filter(|b| b.is_image())
+                        .cloned()
+                        .collect();
+                    Some(UserInput {
+                        text: msg.text.clone().unwrap_or_default(),
+                        images,
+                        seed: None,
+                    })
                 } else if let Some(blob) = incoming.payload_as::<Blob>().filter(|b| b.is_audio()) {
                     // `None` means we already told the user why we couldn't listen.
-                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput { text, images: Vec::new(), seed: None })
+                    self.hear(&incoming, blob, ctx).await.map(|text| UserInput {
+                        text,
+                        images: Vec::new(),
+                        seed: None,
+                    })
                 } else {
                     None
                 };
@@ -202,7 +229,12 @@ impl AlbertCogitator {
     }
 
     /// A user message → a normal agent turn with memory + scheduler + scratchpad tools.
-    async fn respond(self: &Arc<Self>, incoming: Arc<Envelope>, input: UserInput, ctx: &CogitatorContext) {
+    async fn respond(
+        self: &Arc<Self>,
+        incoming: Arc<Envelope>,
+        input: UserInput,
+        ctx: &CogitatorContext,
+    ) {
         let channel_key = channel_of(&incoming);
 
         // Reflexes fire on text-only turns: instant, no LLM.
@@ -215,9 +247,14 @@ impl AlbertCogitator {
             // Non-owners can't halt Albert, so for them it falls through as ordinary text.
             if owner && word == "/cancel" {
                 let stopped = self.cancel_channel(&channel_key, ctx).await;
-                let msg = if stopped { "Stopped." } else { "Nothing to stop right now." };
+                let msg = if stopped {
+                    "Stopped."
+                } else {
+                    "Nothing to stop right now."
+                };
                 self.emit_reply(&incoming, msg.to_string(), ctx).await;
-                self.record(&channel_key, input.text, "(cancel)".into()).await;
+                self.record(&channel_key, input.text, "(cancel)".into())
+                    .await;
                 return;
             }
 
@@ -230,7 +267,8 @@ impl AlbertCogitator {
                     ctx,
                 )
                 .await;
-                self.record(&channel_key, input.text, "(restart)".into()).await;
+                self.record(&channel_key, input.text, "(restart)".into())
+                    .await;
                 self.apply_restart("process".to_string(), ctx).await;
                 return;
             }
@@ -245,20 +283,26 @@ impl AlbertCogitator {
 
             if let Some(canned) = command_reply(&input.text) {
                 self.emit_reply(&incoming, canned.clone(), ctx).await;
-                self.record(&channel_key, input.text, "(reflex reply)".into()).await;
+                self.record(&channel_key, input.text, "(reflex reply)".into())
+                    .await;
                 return;
             }
 
             // Reflex: owner-only ACL admin, deterministic (out of the LLM).
             if let Some(reply) = acl_command(&self.self_source, &input.text, &incoming, ctx).await {
                 self.emit_reply(&incoming, reply, ctx).await;
-                self.record(&channel_key, input.text, "(acl command)".into()).await;
+                self.record(&channel_key, input.text, "(acl command)".into())
+                    .await;
                 return;
             }
 
             // A skill's command: an ordinary turn, seeded with that skill's instructions.
             // An unknown `/word` falls through and reaches the agent as text.
-            let invoked = parse(&input.text).and_then(|inv| self.skills.command(&inv.name).map(|c| (c, inv.args.to_string())));
+            let invoked = parse(&input.text).and_then(|inv| {
+                self.skills
+                    .command(&inv.name)
+                    .map(|c| (c, inv.args.to_string()))
+            });
             if let Some((command, args)) = invoked {
                 if command.owner && !owner {
                     let reply = format!("/{} is for the owner only.", command.name);
@@ -270,7 +314,11 @@ impl AlbertCogitator {
                     Ok((instructions, files)) => {
                         info!(command = %command.name, skill = %command.skill, "command: running a skill");
                         let seed = Some(seed(&command, &args, &instructions, &files));
-                        let input = UserInput { text: input.text, images: Vec::new(), seed };
+                        let input = UserInput {
+                            text: input.text,
+                            images: Vec::new(),
+                            seed,
+                        };
                         self.clone().spawn_turn(incoming, input, ctx).await;
                     }
                     Err(e) => {
@@ -326,7 +374,10 @@ impl AlbertCogitator {
                 turns.remove(&ch);
             }
         });
-        self.turns.lock().unwrap().insert(channel, (turn_id, handle.abort_handle()));
+        self.turns
+            .lock()
+            .unwrap()
+            .insert(channel, (turn_id, handle.abort_handle()));
     }
 
     /// Stop the channel's in-flight turn: abort the task and publish
@@ -360,7 +411,8 @@ impl AlbertCogitator {
 
         // Live feedback while the turn runs: the "typing…" indicator plus the
         // tool-use / thoughts status feed (rendered by the connector).
-        self.emit_typing(incoming.source.clone(), incoming.channel.clone(), ctx).await;
+        self.emit_typing(incoming.source.clone(), incoming.channel.clone(), ctx)
+            .await;
         let feed = self.feed(ctx, incoming.source.clone(), incoming.channel.clone());
 
         let active = self.active_reminders(ctx).await;
@@ -397,8 +449,12 @@ impl AlbertCogitator {
         self.emit_reply(&incoming, answer.clone(), ctx).await;
         // Persist what he DID (drained from the feed) alongside what he SAID — folded
         // into the stored turn only, never into the reply the user sees.
-        self.record(&channel_key, shown, with_action_log(&answer, &feed.drain_actions()))
-            .await;
+        self.record(
+            &channel_key,
+            shown,
+            with_action_log(&answer, &feed.drain_actions()),
+        )
+        .await;
         // If the model asked to restart this turn, carry it out now — AFTER the reply
         // is out — so it doesn't race the teardown (the tool only recorded the intent).
         if let Some(target) = restart {
@@ -420,14 +476,24 @@ impl AlbertCogitator {
 
     /// An alarm fired → a system routine (silent) or a user reminder (message).
     async fn on_alarm(self: &Arc<Self>, incoming: Arc<Envelope>, ctx: &CogitatorContext) {
-        let payload = incoming.payload_as::<Value>().cloned().unwrap_or(Value::Null);
+        let payload = incoming
+            .payload_as::<Value>()
+            .cloned()
+            .unwrap_or(Value::Null);
         // System routine (self-care, e.g. memory reflection) — internal, no user message.
         if let Some(routine) = payload.get("routine").and_then(Value::as_str) {
             self.run_routine(routine, ctx).await;
             return;
         }
-        let task = payload.get("task").and_then(Value::as_str).unwrap_or("").to_string();
-        let channel = payload.get("channel").and_then(Value::as_str).map(str::to_owned);
+        let task = payload
+            .get("task")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let channel = payload
+            .get("channel")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let reply_via = payload
             .get("reply_via")
             .and_then(Value::as_str)
@@ -435,7 +501,10 @@ impl AlbertCogitator {
         let alarm_id = incoming.tags.get("alarm_id").cloned().unwrap_or_default();
 
         let (Some(channel), Some(reply_via)) = (channel, reply_via) else {
-            warn!(alarm_id, "alarm.fired without channel/reply_via; cannot remind");
+            warn!(
+                alarm_id,
+                "alarm.fired without channel/reply_via; cannot remind"
+            );
             return;
         };
         info!(alarm_id, %task, channel, "reminder due");
@@ -455,10 +524,21 @@ impl AlbertCogitator {
             "Reminder due for \"{task}\". Write the reminder message to the user."
         ));
         let target = ConnectorId::new(reply_via);
-        self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx).await;
+        self.emit_typing(target.clone(), Some(ChannelId::new(channel.clone())), ctx)
+            .await;
         let feed = self.feed(ctx, target.clone(), Some(ChannelId::new(channel.clone())));
         let (answer, _) = self
-            .run_agent(ctx, &channel, &preamble, prompt, history, Some(target.clone()), false, feed.clone(), None)
+            .run_agent(
+                ctx,
+                &channel,
+                &preamble,
+                prompt,
+                history,
+                Some(target.clone()),
+                false,
+                feed.clone(),
+                None,
+            )
             .await;
 
         self.emit_text(
@@ -493,7 +573,17 @@ impl AlbertCogitator {
                 );
                 let prompt = Message::user("Run your memory reflection pass now.");
                 let (out, _) = self
-                    .run_agent(ctx, "system/reflection", &preamble, prompt, Vec::new(), None, false, StatusFeed::silent(), None)
+                    .run_agent(
+                        ctx,
+                        "system/reflection",
+                        &preamble,
+                        prompt,
+                        Vec::new(),
+                        None,
+                        false,
+                        StatusFeed::silent(),
+                        None,
+                    )
                     .await;
                 info!(summary = %out, "memory-reflection routine done");
             }
@@ -558,9 +648,19 @@ impl AlbertCogitator {
                     Err(e) => return (format!("(llm client error: {e})"), None),
                 };
                 let (dispatch, send_file, restart, selfconfig) = make_tools();
-                self.drive(client.agent(&self.config.model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
-                    .await
-                    .unwrap_or_else(llm_error)
+                self.drive(
+                    client.agent(&self.config.model).preamble(preamble),
+                    dispatch,
+                    send_file,
+                    restart,
+                    selfconfig,
+                    channel,
+                    prompt,
+                    history,
+                    feed,
+                )
+                .await
+                .unwrap_or_else(llm_error)
             }
             AuthMode::Subscription => {
                 // Load (and, if it's expiring, refresh) the OAuth tokens, then build
@@ -576,7 +676,15 @@ impl AlbertCogitator {
                 let mut hiccups = 0usize;
                 loop {
                     let attempt = self
-                        .subscription_attempt(&sub, preamble, make_tools(), channel, prompt.clone(), history.clone(), feed.clone())
+                        .subscription_attempt(
+                            &sub,
+                            preamble,
+                            make_tools(),
+                            channel,
+                            prompt.clone(),
+                            history.clone(),
+                            feed.clone(),
+                        )
                         .await;
                     match attempt {
                         Ok(answer) => break answer,
@@ -646,8 +754,18 @@ impl AlbertCogitator {
         };
         let model = CodexResponsesModel::make(&client, self.config.model.as_str());
         let (dispatch, send_file, restart, selfconfig) = tools;
-        self.drive(AgentBuilder::new(model).preamble(preamble), dispatch, send_file, restart, selfconfig, channel, prompt, history, feed)
-            .await
+        self.drive(
+            AgentBuilder::new(model).preamble(preamble),
+            dispatch,
+            send_file,
+            restart,
+            selfconfig,
+            channel,
+            prompt,
+            history,
+            feed,
+        )
+        .await
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
@@ -798,7 +916,12 @@ impl AlbertCogitator {
 
     /// Nudge the source connector's "typing…" indicator for the turn (Telegram
     /// keeps it alive until the reply lands; other connectors ignore the kind).
-    async fn emit_typing(&self, target: ConnectorId, channel: Option<ChannelId>, ctx: &CogitatorContext) {
+    async fn emit_typing(
+        &self,
+        target: ConnectorId,
+        channel: Option<ChannelId>,
+        ctx: &CogitatorContext,
+    ) {
         let mut env = Envelope::new(
             self.self_source.clone(),
             EventKind::from_static("chat.typing"),
@@ -815,7 +938,12 @@ impl AlbertCogitator {
 
     /// The turn's live status feed (tool calls / thoughts → `chat.status`), or a
     /// silent one when streaming is switched off in config.
-    fn feed(&self, ctx: &CogitatorContext, target: ConnectorId, channel: Option<ChannelId>) -> StatusFeed {
+    fn feed(
+        &self,
+        ctx: &CogitatorContext,
+        target: ConnectorId,
+        channel: Option<ChannelId>,
+    ) -> StatusFeed {
         if !self.config.stream_status {
             return StatusFeed::silent();
         }
@@ -870,7 +998,12 @@ impl AlbertCogitator {
 /// The per-attempt tool instances for one drive run (dispatch + the optional
 /// send-file / owner-only restart and self-config tools). A run consumes them, so
 /// the forced-refresh retry in [`AlbertCogitator::run_agent`] builds a fresh set.
-type TurnTools = (OctoDispatchTool, Option<SendFileTool>, Option<RestartTool>, Option<SelfConfig>);
+type TurnTools = (
+    OctoDispatchTool,
+    Option<SendFileTool>,
+    Option<RestartTool>,
+    Option<SelfConfig>,
+);
 
 /// The user-facing stand-in when the tool-loop itself failed — rendered as the
 /// turn's answer (explain, don't vanish).
@@ -907,9 +1040,15 @@ fn provider_status_code(raw: &str) -> Option<u16> {
     // Structured error body.
     if let Some(start) = raw.find('{') {
         if let Ok(v) = serde_json::from_str::<Value>(&raw[start..]) {
-            let code = v.get("error").and_then(|e| e.get("code")).or_else(|| v.get("code"));
+            let code = v
+                .get("error")
+                .and_then(|e| e.get("code"))
+                .or_else(|| v.get("code"));
             if let Some(c) = code {
-                if let Some(n) = c.as_u64().or_else(|| c.as_str().and_then(|s| s.parse().ok())) {
+                if let Some(n) = c
+                    .as_u64()
+                    .or_else(|| c.as_str().and_then(|s| s.parse().ok()))
+                {
                     if let Some(code) = in_range(n) {
                         return Some(code);
                     }
@@ -920,7 +1059,11 @@ fn provider_status_code(raw: &str) -> Option<u16> {
     // Explicit textual markers.
     for marker in ["HTTP ", "status: ", "status ", "code: ", "code "] {
         for seg in raw.split(marker).skip(1) {
-            let digits: String = seg.trim_start().chars().take_while(char::is_ascii_digit).collect();
+            let digits: String = seg
+                .trim_start()
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
             if let Some(code) = digits.parse::<u64>().ok().and_then(in_range) {
                 return Some(code);
             }
@@ -934,7 +1077,9 @@ fn provider_status_code(raw: &str) -> Option<u16> {
 /// from the LIVE response only, never from JWT claims: the server can revoke a
 /// token well before its `exp` (which is exactly why [`force_refresh`] exists).
 fn token_rejected(e: &PromptError) -> bool {
-    let PromptError::CompletionError(ce) = e else { return false };
+    let PromptError::CompletionError(ce) = e else {
+        return false;
+    };
     let msg = ce.to_string();
     msg.contains("token_expired") || msg.contains("401 Unauthorized")
 }
@@ -948,7 +1093,9 @@ const TRANSIENT_BACKOFF_SECS: [u64; 2] = [2, 6];
 /// A provider-side failure that clears on its own — overload, a rate limit, a dropped
 /// connection. Distinct from a malformed request, which no retry can fix.
 fn transient(e: &PromptError) -> bool {
-    let PromptError::CompletionError(ce) = e else { return false };
+    let PromptError::CompletionError(ce) = e else {
+        return false;
+    };
     let msg = ce.to_string();
     let low = msg.to_ascii_lowercase();
     if low.contains("server_is_overloaded")
@@ -963,7 +1110,10 @@ fn transient(e: &PromptError) -> bool {
     }
     // Numeric codes go through the parser instead of a substring search: "500" turns
     // up in harmless error prose, and a retry would fire for nothing.
-    matches!(provider_status_code(&msg), Some(429 | 500 | 502 | 503 | 504))
+    matches!(
+        provider_status_code(&msg),
+        Some(429 | 500 | 502 | 503 | 504)
+    )
 }
 
 /// One user turn as perceived: text, plus any images the connector downloaded
@@ -1118,7 +1268,11 @@ mod tests {
 
     #[test]
     fn text_input_stays_a_plain_user_message() {
-        let input = UserInput { text: "hello".into(), images: Vec::new(), seed: None };
+        let input = UserInput {
+            text: "hello".into(),
+            images: Vec::new(),
+            seed: None,
+        };
         assert!(matches!(input.prompt(), Message::User { content } if content.len() == 1));
         assert_eq!(input.transcript(), "hello");
     }
@@ -1126,7 +1280,11 @@ mod tests {
     #[test]
     fn image_input_becomes_image_plus_caption() {
         let blob = Blob::new(vec![0xFFu8, 0xD8, 0xFF], "image/jpeg").with_filename("photo.jpg");
-        let input = UserInput { text: "what's in the photo?".into(), images: vec![blob], seed: None };
+        let input = UserInput {
+            text: "what's in the photo?".into(),
+            images: vec![blob],
+            seed: None,
+        };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
@@ -1144,14 +1302,20 @@ mod tests {
             Blob::new(vec![2], "image/png").with_filename("b.png"),
             Blob::new(vec![3], "image/jpeg").with_filename("c.jpg"),
         ];
-        let input = UserInput { text: String::new(), images, seed: None };
+        let input = UserInput {
+            text: String::new(),
+            images,
+            seed: None,
+        };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };
         let items: Vec<_> = content.into_iter().collect();
         // Three image blocks, then a single caption — not one photo, not three captions.
         assert_eq!(items.len(), 4);
-        assert!(items[0..3].iter().all(|i| matches!(i, UserContent::Image(_))));
+        assert!(items[0..3]
+            .iter()
+            .all(|i| matches!(i, UserContent::Image(_))));
         assert!(matches!(&items[3], UserContent::Text(t) if t.text.contains("these images")));
         assert_eq!(input.transcript(), "(sent 3 images)");
     }
@@ -1192,15 +1356,18 @@ mod tests {
     fn provider_errors_are_shown_politely_not_dumped() {
         use rig::completion::CompletionError;
         let err = |s: &str| {
-            user_facing_llm_error(&PromptError::CompletionError(CompletionError::ProviderError(
-                s.into(),
-            )))
+            user_facing_llm_error(&PromptError::CompletionError(
+                CompletionError::ProviderError(s.into()),
+            ))
         };
 
         // OpenRouter-style body: the code is recovered from the JSON, and the raw blob
         // (message, request detail) never reaches the user.
         let openrouter = err("{\"error\":{\"message\":\"Provider returned error\",\"code\":400}}");
-        assert_eq!(openrouter, "LLM provider error: 400. Please try again in a moment.");
+        assert_eq!(
+            openrouter,
+            "LLM provider error: 400. Please try again in a moment."
+        );
         assert!(!openrouter.contains("Provider returned error"));
 
         // A textual status marker is honoured too.
@@ -1232,7 +1399,11 @@ mod tests {
     #[test]
     fn captionless_image_gets_a_default_instruction() {
         let blob = Blob::new(vec![1u8, 2, 3], "image/png");
-        let input = UserInput { text: "  ".into(), images: vec![blob], seed: None };
+        let input = UserInput {
+            text: "  ".into(),
+            images: vec![blob],
+            seed: None,
+        };
         let Message::User { content } = input.prompt() else {
             panic!("expected a user message");
         };

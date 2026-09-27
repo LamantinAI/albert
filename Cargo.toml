@@ -1,6 +1,6 @@
 [package]
 name = "albert"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "LicenseRef-BSL-1.1"
 description = "Albert — the assembly: an Octo cogitator with kaeru memory and a scheduler connector. Talk to it; it remembers and reminds."

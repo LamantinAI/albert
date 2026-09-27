@@ -53,7 +53,6 @@ pub enum Error {
 
     #[error("io: {0}")]
     Io(#[from] IoError),
-
 }
 
 pub type Result<T> = StdResult<T, Error>;
