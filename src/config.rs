@@ -20,7 +20,7 @@ use std::{
 use serde::Deserialize;
 use toml::{from_str, Table, Value};
 
-use crate::error::{Error, Result};
+use crate::{error::{Error, Result}, memory::config::MemoryConfig};
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -43,6 +43,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub memory: MemoryConfig,
     pub model: String,
     /// How the LLM call authenticates — API key (default) or ChatGPT subscription.
     pub auth: AuthMode,
@@ -104,7 +105,7 @@ impl Config {
         let path = config_path();
         let text = read_to_string(&path)
             .map_err(|e| Error::Config(format!("{}: {e}", path.display())))?;
-        let raw: Raw = from_str(&text)?;
+        let mut raw: Raw = from_str(&text)?;
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
@@ -167,7 +168,9 @@ impl Config {
             }
         }
 
+        raw.memory.validate(dir, !clouds.is_empty())?;
         Ok(Config {
+            memory: raw.memory,
             multimodal,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,
@@ -262,6 +265,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    memory: MemoryConfig,
     model: String,
     /// `"api_key"` (default) or `"subscription"`.
     #[serde(default)]

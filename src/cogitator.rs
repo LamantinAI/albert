@@ -27,7 +27,6 @@ use std::{
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::Utc;
-use kaeru_rig::KaeruMemory;
 use octo_code::code_tools;
 use octo_core::{
     Blob, ChannelId, Cogitator, CogitatorContext, ConnectorId, Envelope, EventId, EventKind,
@@ -54,6 +53,7 @@ use crate::{
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     config::{AuthMode, Config},
+    memory::Memory,
     history::{recent_actions, to_messages, HistoryStore, Turn, ACTION_MARKER},
     selfconfig::SelfConfig,
     prompt::PromptFiles,
@@ -72,7 +72,7 @@ pub struct AlbertCogitator {
     self_source: ConnectorId,
     config: Config,
     history: Arc<dyn HistoryStore>,
-    kaeru: KaeruMemory,
+    memory: Memory,
     scratchpad: Arc<ScratchpadStore>,
     skills: Arc<SkillStore>,
     prompt: Arc<PromptFiles>,
@@ -95,7 +95,7 @@ impl AlbertCogitator {
         id: impl Into<String>,
         config: Config,
         history: Arc<dyn HistoryStore>,
-        kaeru: KaeruMemory,
+        memory: Memory,
         scratchpad: Arc<ScratchpadStore>,
         skills: Arc<SkillStore>,
         prompt: Arc<PromptFiles>,
@@ -107,7 +107,7 @@ impl AlbertCogitator {
             id,
             config,
             history,
-            kaeru,
+            memory,
             scratchpad,
             skills,
             prompt,
@@ -693,7 +693,6 @@ impl AlbertCogitator {
     where
         M: CompletionModel + 'static,
     {
-        let m = &self.kaeru;
         let pad = self.scratchpad.handle(channel);
         debug!(
             channel,
@@ -701,14 +700,7 @@ impl AlbertCogitator {
             max_turns = self.config.max_tool_turns,
             "building agent + running tool-loop"
         );
-        // Variant (b): install the cloud tools only when a cloud is configured, so an
-        // unconfigured Albert never shows the model the 7 dead share/pull tools. Both
-        // methods return the same builder type, so the tool tail below is shared.
-        let installed = if self.config.clouds.is_empty() {
-            m.install(base)
-        } else {
-            m.install_with_cloud(base)
-        };
+        let installed = self.memory.install(base);
         let with_tools = installed
             .tool(dispatch)
             .tool(pad.goal())

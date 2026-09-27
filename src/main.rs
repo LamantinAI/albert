@@ -13,6 +13,7 @@ mod console;
 mod error;
 mod history;
 mod manifests;
+mod memory;
 mod openai_login;
 mod prompt;
 mod routines;
@@ -21,11 +22,9 @@ mod selfconfig;
 mod skills;
 mod status;
 
-use std::{collections::HashMap, env::{set_var, var}, fs::create_dir_all, sync::Arc};
+use std::{env::{set_var, var}, fs::create_dir_all, sync::Arc};
 
 use dotenvy::{dotenv, from_path};
-use kaeru_core::{KaeruConfig, Store};
-use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use octo_code::WORKSPACE_ENV;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
@@ -41,16 +40,17 @@ use octo_connector_storage::factory as storage_factory;
 use octo_connector_telegram::factory as telegram_factory;
 use octo_core::Octo;
 use octo_openai_auth::SubscriptionAuth;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::{
     cogitator::AlbertCogitator,
     config::{AuthMode, Config},
     console::ConsoleConnector,
-    error::{Error, Result},
+    error::Result,
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
     manifests::declared_types,
+    memory::Memory,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
@@ -118,33 +118,8 @@ async fn main() -> Result<()> {
     set_var(SKILLS_ENV, &config.skills_dir);
     info!(workspace = %config.code_workspace.display(), skills = %config.skills_dir.display(), "code workspace + skills root exported");
 
-    // ── Memory: kaeru, scoped to the "albert" initiative ─────────────────────
-    // Local-only by default; if albert.toml declares [clouds.*], build a
-    // CloudRegistry (endpoint URL + bearer from the named env var) and hand it to
-    // kaeru so the share/pull/cloud_recall tools come alive. Which tools get
-    // installed is decided per-turn by the same emptiness check (cogitator::drive).
-    let kcfg = KaeruConfig::from_env().map_err(|e| Error::Kaeru(e.to_string()))?;
-    let store = Arc::new(Store::open_with_config(kcfg).map_err(|e| Error::Kaeru(e.to_string()))?);
-    let memory = if config.clouds.is_empty() {
-        info!("memory: kaeru (initiative=albert, local-only)");
-        KaeruMemory::with_initiative(store, "albert")
-    } else {
-        let clients: HashMap<String, CloudClient> = config
-            .clouds
-            .iter()
-            .map(|(name, ep)| {
-                let token = var(&ep.token_env).unwrap_or_default();
-                if token.is_empty() {
-                    warn!(cloud = %name, env = %ep.token_env, "cloud token env is unset");
-                }
-                (name.clone(), CloudClient::new(name.clone(), ep.url.clone(), token))
-            })
-            .collect();
-        let names: Vec<&str> = config.clouds.keys().map(String::as_str).collect();
-        info!(clouds = %names.join(", "), "memory: kaeru (initiative=albert) + clouds");
-        let registry = CloudRegistry::new(clients, config.clouds_default.clone());
-        KaeruMemory::with_clouds(store, "albert", registry)
-    };
+    // Connect and migrate memory before accepting any events.
+    let memory = Memory::open(&config).await?;
 
     // ── Hot context: per-channel transcript backend ──────────────────────────
     const HISTORY_MAX: usize = 30;

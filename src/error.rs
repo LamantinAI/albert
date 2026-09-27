@@ -10,8 +10,12 @@ use rig::{completion::PromptError, http_client::Error as HttpError};
 use thiserror::Error;
 use toml::de::Error as TomlError;
 
+use crate::memory::MemoryError;
+
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Memory(#[from] MemoryError),
     /// Config problems that aren't a TOML parse error (missing file, missing
     /// secret env var, …), stringified at the boundary.
     #[error("config: {0}")]
@@ -50,10 +54,6 @@ pub enum Error {
     #[error("io: {0}")]
     Io(#[from] IoError),
 
-    /// kaeru substrate errors are stringified at the boundary (we don't depend on
-    /// kaeru's error enum directly).
-    #[error("kaeru: {0}")]
-    Kaeru(String),
 }
 
 pub type Result<T> = StdResult<T, Error>;
