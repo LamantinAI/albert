@@ -10,6 +10,8 @@
 //! rig's response/SSE and tool-call parsing) is reused untouched; only the
 //! `POST .../responses` body is edited, and only when it is the shape we expect.
 
+use std::{collections::HashSet, future::Future};
+
 use bytes::Bytes;
 use rig::{
     http_client::{
@@ -19,7 +21,6 @@ use rig::{
     wasm_compat::WasmCompatSend,
 };
 use serde_json::{from_slice, to_vec, Value};
-use std::{collections::HashSet, future::Future};
 
 /// reqwest transport that rewrites the Codex request body (`system` -> `developer`).
 #[derive(Clone, Default, Debug)]

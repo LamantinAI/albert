@@ -26,8 +26,8 @@ Orient by module before changing code. Everything is under `src/`:
 | Module | Owns |
 |--------|------|
 | `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history / scheduler / scratchpad / prompt loader; register connector factories + `from_config_file`, or fall back to console; run Octo. |
-| `cogitator.rs` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset; picks the LLM client by `Config::auth` (API key vs ChatGPT subscription). |
-| `openai_auth.rs` | ChatGPT-subscription token store: read/write a codex-style `auth.json`; `ensure_fresh` returns the `Subscription` (access token + account id), refreshing the access token in place before it expires. |
+| `cogitator/` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset; picks the LLM client by `Config::auth` (API key vs ChatGPT subscription). |
+| `octo-openai-auth` | ChatGPT-subscription token store: read/write a codex-style `auth.json`; `ensure_fresh` returns the `Subscription` (access token + account id), refreshing the access token in place before it expires. |
 | `openai_login.rs` | `albert login` — the interactive OAuth (PKCE) sign-in: loopback callback server on `:1455` with a stdin paste fallback, code exchange, token save. |
 | `codex_model.rs` | `CodexResponsesModel` — a rig `CompletionModel` for the Codex backend: routes the non-streaming tool-loop through rig's streaming path (the endpoint is streaming-only) and folds the SSE back into a response. |
 | `codex_http.rs` | `CodexHttp` — a rig `HttpClientExt` that rewrites the Codex request/response on the wire (`store:false`, `system`→`developer`, relaxed tool schemas, injected SSE content-type) so rig's serializer + parser stay reused. |
@@ -74,10 +74,21 @@ Keep code **modular, grouped by purpose**, one concern per file. **Cap each file
 - it passes ~500 lines, or
 - more than a few cohesive concerns accumulate in one file.
 
-`cogitator.rs` was split this way — the ACL admin moved to `acl.rs`, routine seeding
+`cogitator/` was split this way — the ACL admin moved to `acl.rs`, routine seeding
 to `routines.rs`. When a module grows past a flat file, prefer a
 `mod.rs`-with-submodules layout and keep shared cross-submodule types in the parent
 `mod.rs`.
+
+## Test Layout
+
+- Unit tests belong in inline `#[cfg(test)] mod tests` blocks in the owning `mod.rs`
+  or crate `lib.rs`. Do not add standalone `src/**/tests.rs` files.
+- Keep implementation helpers in cohesive sibling files when a module grows; keep
+  the facade and its tests together and respect the 600-line hard limit.
+- Tests exercising only the public API across components belong in the crate's
+  `tests/` directory. Shared integration fixtures may live in `tests/common/mod.rs`.
+- Async integration scenarios must have a bounded wait. A connector's local shutdown
+  token stops that connector; use the runtime control contract to stop the runtime.
 
 ## Import Rule (strict)
 

@@ -10,16 +10,16 @@
 use std::{
     fs::{create_dir_all, write},
     path::Path,
-    sync::Arc,
     time::Duration,
 };
 
 use chrono::Utc;
-use octo_core::{Blob, CogitatorContext, Envelope, EventKind};
+use octo_core::{control::CANCEL_SCOPE_TAG, Blob, CogitatorContext, Envelope, EventKind};
 use serde_json::{json, Value};
-use tracing::{info, warn};
+use tracing::info;
 
-use super::{channel_of, AlbertCogitator};
+use super::AlbertCogitator;
+use crate::status::StatusFeed;
 
 /// The transcribe organ's command.
 const TRANSCRIBE_RUN: &str = "transcribe.run";
@@ -28,107 +28,75 @@ const TRANSCRIBE_RUN: &str = "transcribe.run";
 const HEAR_TIMEOUT: Duration = Duration::from_secs(900);
 
 impl AlbertCogitator {
-    /// Perceive a voice message through the transcribe organ and hand back the text.
-    /// `None` means the voice went unheard *and the user has been told why* — silence is
-    /// the one unacceptable answer to someone who just spoke.
+    /// Automatic hearing runs inside the interruptible turn and uses its scope.
     pub(super) async fn hear(
-        self: &Arc<Self>,
-        incoming: &Arc<Envelope>,
-        blob: &Blob,
+        &self,
+        incoming: &Envelope,
+        path: &str,
         ctx: &CogitatorContext,
-    ) -> Option<String> {
-        let decline = |reason: String| async move {
-            self.emit_reply(incoming, reason.clone(), ctx).await;
-            self.record(&channel_of(incoming), "(voice message)".into(), reason)
-                .await;
-            None::<String>
-        };
-
-        let organ = ctx
-            .connectors()
-            .iter()
-            .find(|c| {
-                c.capabilities
-                    .event_kinds_accept
-                    .iter()
-                    .any(|k| k.as_str() == TRANSCRIBE_RUN)
-            })
-            .map(|c| c.id.clone());
-        let Some(organ) = organ else {
-            return decline(
-                "I got your voice message, but I'm afraid I can't hear right now — there's no \
-                 transcription connected. Could you write it instead?"
-                    .to_string(),
-            )
-            .await;
-        };
-
-        // The channel saved the recording to the workspace; the organ takes it from there.
-        // A channel that didn't: keep it ourselves — the workspace is the cogitator's own.
-        let path = match incoming.tags.get("workspace_path") {
-            Some(path) => path.clone(),
-            None => match self.keep_voice(blob) {
-                Ok(path) => path,
-                Err(e) => {
-                    warn!(error = %e, "voice: could not keep the recording in the workspace");
-                    return decline(format!(
-                        "Couldn't keep the voice message to transcribe it: {e}"
-                    ))
-                    .await;
-                }
-            },
-        };
-
+        scope: &str,
+        feed: &StatusFeed,
+    ) -> Result<String, String> {
+        let organ = ctx.connectors().iter()
+            .find(|c| c.capabilities.event_kinds_accept.iter().any(|k| k.as_str() == TRANSCRIBE_RUN))
+            .map(|c| c.id.clone())
+            .ok_or("I got your voice message, but I'm afraid I can't hear right now — there's no transcription connected. Could you write it instead?")?;
+        let payload = json!({"path":path});
+        let id = format!("auto-hear-{scope}");
+        feed.start_external(
+            &id,
+            "dispatch_to_connector",
+            json!({"target":organ.as_str(), "kind":TRANSCRIBE_RUN, "payload":payload}),
+        );
         let request = Envelope::new(
             self.self_source.clone(),
             EventKind::from_static(TRANSCRIBE_RUN),
-            json!({ "path": path }),
+            payload,
         )
-        .with_target(organ);
+        .with_target(organ)
+        .with_tag(CANCEL_SCOPE_TAG, scope);
         let result = match ctx.publish_and_await_response(request, HEAR_TIMEOUT).await {
             Ok(response) => response
                 .payload_as::<Value>()
                 .cloned()
                 .unwrap_or(Value::Null),
-            Err(e) => {
-                warn!(error = %e, "voice: the transcribe organ did not answer");
-                return decline("Couldn't transcribe the voice message: the transcription didn't answer in time.".to_string())
-                    .await;
+            Err(error) => {
+                let error = format!("Transcription did not return: {error}");
+                feed.finish_external(&id, &json!({"error":error}).to_string());
+                return Err(error);
             }
         };
-        if let Some(e) = result.get("error").and_then(Value::as_str) {
-            warn!(error = %e, "voice: transcription failed");
-            return decline(format!("Couldn't transcribe the voice message: {e}")).await;
+        feed.finish_external(&id, &result.to_string());
+        if let Some(error) = result.get("error").and_then(Value::as_str) {
+            return Err(error.to_string());
         }
         let text = result
             .get("text")
             .and_then(Value::as_str)
             .unwrap_or("")
-            .trim()
-            .to_string();
+            .trim();
         if text.is_empty() {
-            warn!("voice: empty transcript");
-            return decline(
-                "The voice message came through but there's not a word in it — empty.".to_string(),
-            )
-            .await;
+            return Err("The voice message came through, but the transcript was empty.".into());
         }
         info!(
             chars = text.len(),
-            secs = ?incoming.tags.get("duration_secs"),
-            chunks = ?result.get("chunks"),
             "voice: heard through the transcribe organ"
         );
-        // A caption (rare on voice, but possible) is context, not speech.
-        match incoming.tags.get("caption").filter(|c| !c.is_empty()) {
-            Some(caption) => Some(format!("{text}\n\n(voice message caption: {caption})")),
-            None => Some(text),
-        }
+        Ok(
+            match incoming
+                .tags
+                .get("caption")
+                .filter(|caption| !caption.is_empty())
+            {
+                Some(caption) => format!("{text}\n\n(voice message caption: {caption})"),
+                None => text.to_string(),
+            },
+        )
     }
 
     /// Put a recording the channel didn't save into the workspace inbox; returns its
     /// workspace-relative path.
-    fn keep_voice(&self, blob: &Blob) -> std::io::Result<String> {
+    pub(super) fn keep_voice(&self, blob: &Blob) -> std::io::Result<String> {
         let ext = blob
             .filename()
             .and_then(|f| Path::new(f).extension())
