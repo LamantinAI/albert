@@ -75,8 +75,8 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
 - **Self-lifecycle control** — on an owner turn, Albert manages its own runtime: it can
   read and edit its own config/prompt files and then apply the change by restarting —
   reloading a connector's manifest, or its whole self (history + memory persist).
-- **Config-driven connectors** — Telegram (edge ACL + owner-only `/allow` `/deny`
-  `/allowed`), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
+- **Config-driven connectors** — Telegram (sender-aware ACL, `/chatinfo`, owner-only `/groupmode`,
+  replies only when addressed in groups), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
   a **scheduler**, **storage**, **forkd**, **search** (web search over several engines —
   DuckDuckGo now, Yandex next; the manifest sets the default and Albert can pick per
   query), and an optional **mail** organ (IMAP/SMTP, off by default) — each assembled

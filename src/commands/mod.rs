@@ -15,19 +15,36 @@ use std::{sync::Arc, time::Duration};
 use octo_core::{ConnectorId, Envelope, EventBus, EventKind, InProcessBus};
 use serde_json::{json, Value};
 use tokio::time::sleep;
+
+use crate::acl::BOOTSTRAP_COMMANDS;
 use tracing::{info, warn};
 
 /// Names no skill can claim.
-pub const RESERVED: [&str; 8] = [
-    "start", "help", "cancel", "restart", "allow", "deny", "allowed", "status",
+pub const RESERVED: [&str; 10] = [
+    "start",
+    "help",
+    "cancel",
+    "restart",
+    "allow",
+    "deny",
+    "allowed",
+    "status",
+    "chatinfo",
+    "groupmode",
 ];
 
 /// The channel command that sets the bot's menu (octo's telegram connector accepts it).
 pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
-const SYSTEM: [(&str, &str, bool); 6] = [
+const SYSTEM: [(&str, &str, bool); 8] = [
     ("help", "What I can do, and my commands", false),
+    ("chatinfo", "Show this chat and author IDs", false),
+    (
+        "groupmode",
+        "Group access: /groupmode all|allowed [chat_id]",
+        true,
+    ),
     ("cancel", "Stop the reply in progress", true),
     ("restart", "Restart me", true),
     ("allow", "Give a chat access: /allow <chat_id>", true),
@@ -105,13 +122,13 @@ pub fn about(description: &str) -> String {
 
 /// The `/help` reply: what Albert does, then the system and skill commands this user may
 /// run (the owner sees the owner-only ones too).
-pub fn help(skills: &[SkillCommand], owner: bool) -> String {
+pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
     let mut out = String::from(
         "I keep context and act: reminders and calendar, voice messages (and answers in voice), \
          pictures, files, web search, and skills. Just write — or use a command.\n\nSystem commands:",
     );
     for (name, what, owner_only) in SYSTEM {
-        if owner || !owner_only {
+        if owner || !owner_only || (acl_admin && matches!(name, "allow" | "deny" | "allowed")) {
             out.push_str(&format!("\n/{name} — {what}"));
         }
     }
@@ -135,7 +152,7 @@ pub fn menu(skills: &[SkillCommand]) -> Value {
     for c in skills {
         if c.owner { &mut owner } else { &mut common }.push(entry(&c.name, &c.about));
     }
-    json!({ "commands": common, "owner_commands": owner })
+    json!({ "commands": common, "owner_commands": owner, "bootstrap_commands": BOOTSTRAP_COMMANDS })
 }
 
 /// The prompt a skill command's turn starts from: what was run, then the skill's own
@@ -179,7 +196,8 @@ pub async fn publish_menu(
                 EventKind::from_static(SET_COMMANDS),
                 menu.clone(),
             )
-            .with_target(target.clone());
+            .with_target(target.clone())
+            .with_tag("control_plane", "true");
             if let Ok(resp) = bus
                 .publish_and_await_response(env, Duration::from_secs(10))
                 .await
@@ -253,11 +271,11 @@ mod tests {
     #[test]
     fn help_and_menu_split_by_owner() {
         let skills = [cmd("brief", false), cmd("settings", true)];
-        let guest = help(&skills, false);
+        let guest = help(&skills, false, false);
         assert!(
             guest.contains("/brief") && !guest.contains("/settings") && !guest.contains("/restart")
         );
-        let owner = help(&skills, true);
+        let owner = help(&skills, true, true);
         assert!(owner.contains("/settings") && owner.contains("/restart"));
         let m = menu(&skills);
         let names = |key: &str| {
@@ -268,7 +286,7 @@ mod tests {
                 .map(|e| e["command"].as_str().unwrap().to_string())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names("commands"), ["help", "brief"]);
+        assert_eq!(names("commands"), ["help", "chatinfo", "brief"]);
         assert!(names("owner_commands").contains(&"settings".to_string()));
     }
 

@@ -101,6 +101,31 @@ impl AlbertCogitator {
         StatusFeed::new(ctx.bus(), self.self_source.clone(), target, channel)
     }
 
+    pub(super) async fn emit_control_reply(
+        &self,
+        incoming: &Envelope,
+        text: String,
+        ctx: &CogitatorContext,
+    ) {
+        let mut reply = Envelope::new(
+            self.self_source.clone(),
+            EventKind::from_static("chat.reply"),
+            text,
+        )
+        .with_target(incoming.source.clone())
+        .with_correlation(incoming.id)
+        .with_tag("control_reply", "true");
+        if let Some(channel) = incoming.channel.clone() {
+            reply = reply.with_channel(channel);
+        }
+        if let Some(metadata) = incoming.channel_metadata.clone() {
+            reply = reply.with_channel_metadata(metadata);
+        }
+        if let Err(error) = ctx.publish(reply).await {
+            warn!(%error,"could not send control reply");
+        }
+    }
+
     /// Reply to an incoming chat message: back to its source on the same channel.
     pub(super) async fn emit_reply(
         &self,

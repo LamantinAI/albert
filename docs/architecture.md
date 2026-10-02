@@ -219,11 +219,14 @@ scheduler is up; period from `albert.toml`).
 Every connector is assembled from a manifest via Octo's `from_config_file` (register
 the factory in `main.rs`, point the builder at `config/octo.toml`):
 
-- **Telegram** — an **edge ACL**: a message from an unlisted chat is dropped *before*
-  the bus (untrusted input never reaches cognition — the prompt-injection boundary).
-  Listed chats get a trust gradient + a `role` tag. The owner manages the list at
-  runtime via a **deterministic** `/allow` `/deny` `/allowed` reflex (`src/acl.rs`),
-  gated on the incoming message's `role == owner` — security stays out of the LLM.
+- **Telegram** — transport checks chat and sender access independently and emits
+  verified source metadata (chat/author IDs, chat type, addressing signal). The
+  deterministic Albert reflex (`src/acl/mod.rs`) drops unaddressed group traffic
+  before cognition or cancellation. ACL controls are owner/admin-only; opening
+  a group with `/groupmode all` is owner-only and gives other participants guest
+  access. The connector rechecks the sender before changing its persisted ACL.
+  Bootstrap commands in unlisted groups are restricted to owner/admin and never
+  become model turns. Source metadata accompanies each prompt and stored user turn.
 - **CalDAV calendar** — a generic (RFC 4791) organ: one crate, many calendars (a
   configured instance per account, basic-app-password or OAuth2). Commands
   `calendar.{list,create,delete}_event`.
