@@ -92,7 +92,7 @@ impl AlbertCogitator {
                 is_owner(&incoming),
             )
         };
-        records.push(Turn::user(input.transcript()));
+        records.push(Turn::user(input.transcript_with_source(&incoming)));
         if let Err(error) = self.history.append(&channel, &records).await {
             warn!(%error, %channel, "cannot persist incoming message; refusing to start tools");
             self.emit_reply(
@@ -105,7 +105,7 @@ impl AlbertCogitator {
             return;
         }
         info!(source = %incoming.source, %channel, "← {}", input.transcript());
-        messages.push(input.prompt());
+        messages.push(input.prompt_with_source(&incoming));
         let scope = format!(
             "{}/{}-{}",
             self.id,
@@ -371,7 +371,8 @@ mod integration_tests {
     use kaeru_core::Store;
     use kaeru_rig::KaeruMemory;
     use octo_core::{
-        Blob, ChannelId, CogitatorContext, ConnectorId, Envelope, EventKind, InProcessBus,
+        Blob, ChannelId, ChannelMetadata, CogitatorContext, ConnectorId, Envelope, EventKind,
+        InProcessBus,
     };
     use octo_openai_auth::SubscriptionAuth;
     use rig::message::UserContent;
@@ -523,6 +524,69 @@ mod integration_tests {
         );
         assert_eq!(messages[1], rig::completion::Message::user("skill recipe"));
         drop(locked);
+        agent.stop_turns(&ctx).await;
+    }
+    #[tokio::test]
+    async fn group_chatter_neither_starts_nor_interrupts_and_authors_survive_continuation() {
+        let (agent, ctx, history) = fixture();
+        let group = |sender: &str, called: bool, text: &str| {
+            Arc::new(
+                Envelope::new(
+                    ConnectorId::new("telegram"),
+                    EventKind::new("chat.message"),
+                    text.to_string(),
+                )
+                .with_channel(ChannelId::new("-42"))
+                .with_channel_metadata(
+                    ChannelMetadata::new()
+                        .with_tag("chat_type", "supergroup")
+                        .with_tag("chat_id", "-42")
+                        .with_tag("sender_id", sender)
+                        .with_tag("addressed", called.to_string()),
+                ),
+            )
+        };
+        agent
+            .clone()
+            .handle(group("2", false, "ambient"), &ctx)
+            .await;
+        assert!(agent.turns.lock().unwrap().is_empty());
+        assert!(history.load("-42").await.is_empty());
+        agent
+            .clone()
+            .handle(group("1", true, "Albert, first"), &ctx)
+            .await;
+        let key = turn_key(&group("1", true, ""));
+        let state = agent.turns.lock().unwrap()[&key].clone();
+        let scope = state.lock().await.active.as_ref().unwrap().scope.clone();
+        agent
+            .clone()
+            .handle(group("2", false, "ambient again"), &ctx)
+            .await;
+        assert_eq!(state.lock().await.active.as_ref().unwrap().scope, scope);
+        agent
+            .clone()
+            .handle(group("2", true, "Albert, second"), &ctx)
+            .await;
+        let records = history.load("-42").await;
+        assert_eq!(records.len(), 2);
+        assert!(records[0].content.contains("\"sender_id\":\"1\""));
+        assert!(records[1].content.contains("\"sender_id\":\"2\""));
+        assert_eq!(
+            state.lock().await.active.as_ref().unwrap().messages.len(),
+            2
+        );
+        let scope = state.lock().await.active.as_ref().unwrap().scope.clone();
+        let mut command = group("2", true, "[Reply to bot]\n/help");
+        Arc::get_mut(&mut command)
+            .unwrap()
+            .channel_metadata
+            .as_mut()
+            .unwrap()
+            .tags
+            .insert("command_text".into(), "/help".into());
+        agent.clone().handle(command, &ctx).await;
+        assert_eq!(state.lock().await.active.as_ref().unwrap().scope, scope);
         agent.stop_turns(&ctx).await;
     }
 }

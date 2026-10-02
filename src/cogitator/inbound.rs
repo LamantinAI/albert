@@ -5,7 +5,7 @@ use tracing::info;
 
 use super::{channel_of, command_reply, turn_key, AlbertCogitator, UserInput};
 use crate::{
-    acl::{command as acl_command, is_owner},
+    acl::{command as acl_command, is_acl_admin, is_owner, should_respond, tag},
     commands::{help, parse, seed},
 };
 
@@ -16,6 +16,9 @@ impl AlbertCogitator {
         }
         match incoming.kind.as_str() {
             "chat.message" => {
+                if !should_respond(&incoming) {
+                    return;
+                }
                 // A text payload is a normal turn; a Blob payload is media the
                 // connector downloaded, its caption in tags — an image goes to the
                 // model as-is, a voice message becomes text first (no Codex model
@@ -98,14 +101,28 @@ impl AlbertCogitator {
         let channel_key = channel_of(&incoming);
 
         // Reflexes fire on text-only turns: instant, no LLM.
-        if input.images.is_empty() {
+        if input.images.is_empty() && tag(&incoming, "forwarded") != Some("true") {
             let owner = is_owner(&incoming);
-            let word = input.text.split_whitespace().next().unwrap_or("");
+            let command_text = tag(&incoming, "command_text").unwrap_or(&input.text);
+            let invocation = parse(command_text);
+            let command = invocation
+                .as_ref()
+                .map(|cmd| cmd.name.as_str())
+                .unwrap_or("");
 
+            if !owner && matches!(command, "cancel" | "restart") {
+                self.emit_reply(
+                    &incoming,
+                    "Only the owner can use this command.".into(),
+                    ctx,
+                )
+                .await;
+                return;
+            }
             // Owner-only /cancel: stop this channel's in-flight turn — abort its task AND
             // cancel the connector work it started (forkd scripts) — with no successor.
             // Non-owners can't halt Albert, so for them it falls through as ordinary text.
-            if owner && word == "/cancel" {
+            if owner && command == "cancel" {
                 let stopped = self.cancel_channel(&turn_key(&incoming), ctx).await;
                 let msg = if stopped {
                     "Stopped."
@@ -120,7 +137,7 @@ impl AlbertCogitator {
 
             // Owner-only /restart: a deterministic reflex onto the same control signal
             // the model's `restart` tool uses — force a process restart, no LLM turn.
-            if owner && word == "/restart" {
+            if owner && command == "restart" {
                 self.emit_reply(
                     &incoming,
                     "Restarting — back in a couple of seconds.".to_string(),
@@ -134,14 +151,18 @@ impl AlbertCogitator {
             }
 
             // /help lists the system commands and the skills' commands this user may run.
-            if word == "/help" || word.starts_with("/help@") {
-                let reply = help(&self.skills.commands(), owner);
+            if command == "help" {
+                let reply = help(&self.skills.commands(), owner, is_acl_admin(&incoming));
                 self.emit_reply(&incoming, reply, ctx).await;
                 self.record(&channel_key, input.text, "(help)".into()).await;
                 return;
             }
 
-            if let Some(canned) = command_reply(&input.text) {
+            if let Some(canned) = command_reply(if command == "start" {
+                "/start"
+            } else {
+                &input.text
+            }) {
                 self.emit_reply(&incoming, canned.clone(), ctx).await;
                 self.record(&channel_key, input.text, "(reflex reply)".into())
                     .await;
@@ -149,8 +170,9 @@ impl AlbertCogitator {
             }
 
             // Reflex: owner-only ACL admin, deterministic (out of the LLM).
-            if let Some(reply) = acl_command(&self.self_source, &input.text, &incoming, ctx).await {
-                self.emit_reply(&incoming, reply, ctx).await;
+            if let Some(reply) = acl_command(&self.self_source, command_text, &incoming, ctx).await
+            {
+                self.emit_control_reply(&incoming, reply, ctx).await;
                 self.record(&channel_key, input.text, "(acl command)".into())
                     .await;
                 return;
@@ -158,7 +180,7 @@ impl AlbertCogitator {
 
             // A skill's command: an ordinary turn, seeded with that skill's instructions.
             // An unknown `/word` falls through and reaches the agent as text.
-            let invoked = parse(&input.text).and_then(|inv| {
+            let invoked = parse(command_text).and_then(|inv| {
                 self.skills
                     .command(&inv.name)
                     .map(|c| (c, inv.args.to_string()))

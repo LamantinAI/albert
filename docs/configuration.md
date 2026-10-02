@@ -305,11 +305,39 @@ acl_path  = "telegram_acl.json"         # runtime allow-list (gitignored; next t
 owner_chat = 100000000                  # <- YOUR real chat id (ask @userinfobot); a placeholder locks you out
 ```
 
-`owner_chat` is not optional in practice: the ACL starts **empty and drops every
-chat, including you**, until an owner is seeded. A wrong/placeholder `owner_chat`
-locks you out of your own bot — which is the safe failure (better than open). At
-runtime the owner grows the list with the `/allow <id>` `/deny <id>` `/allowed`
-commands, and the same owner-role gate exposes the `restart` tool.
+`owner_chat` must be the owner's **positive Telegram user ID**. Roles come from
+message authors, never from the group's ID. Optional `admins = [123456789]`
+grants ACL administration only, without owner restart or self-configuration.
+`address_names = ["Альберт", "Albert"]` configures direct name addressing; the bot's
+Telegram first name is also recognized.
+
+| Command | Effect | Who |
+|---------|--------|-----|
+| `/chatinfo` | Show current chat ID/type, author user ID and group mode | Admitted participants |
+| `/allow [id]` | Allow a chat/user; omitted ID means this group | Owner / ACL admin |
+| `/deny [id]` | Revoke access; omitted ID means this group | Owner / ACL admin |
+| `/allowed` | Show ACL and group modes | Owner / ACL admin |
+| `/groupmode all [group_id]` | Allow every participant in the group | Owner only |
+| `/groupmode allowed [group_id]` | Return to individually allowed participants | Owner only |
+
+Inside a group, omit `group_id`; from a private chat, supply its negative ID.
+Setting a group mode also allows that group. The default mode is `allowed`:
+**both the group and the author** need access. In `all`, other participants are
+guests; they do not acquire owner permissions. Anonymous/channel senders cannot
+exercise owner/admin privileges.
+
+Albert responds in groups only to an @mention, a reply to his message, a message
+starting with his name (for example `Альберт, помоги`), or a registered command.
+`/command@another_bot` is ignored. Unaddressed chatter neither calls the model nor
+interrupts an active turn. Outbound task results/reminders need no mention, but
+the destination must remain allowed. Telegram must deliver the updates to the bot:
+configure BotFather privacy/group access or grant the bot appropriate group access.
+
+An owner/admin can use the administration commands and `/chatinfo` even in a group
+not yet on the ACL. Adding the bot automatically allows a group only when Telegram
+reports that the owner/admin added it. Group modes persist in `telegram_acl.json`;
+old ACL files default to `allowed`. Telegram group-to-supergroup migration carries
+access and mode to the new ID.
 
 ### `connectors/calendar/calendar.toml`
 

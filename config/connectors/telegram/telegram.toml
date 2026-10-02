@@ -8,3 +8,8 @@ acl_path  = "telegram_acl.json"
 # EMPTY and drops every chat — including you — until an owner is seeded. Without a
 # correct owner_chat you lock yourself out of your own bot (better than open).
 owner_chat = 100000000
+
+# Address aliases used to recognise a direct call in a group (in addition to @bot and replies).
+address_names = ["Альберт", "Albert"]
+# Optional ACL admins can /allow, /deny and /allowed, but cannot enable groupmode all.
+# admins = [123456789]
