@@ -81,9 +81,8 @@ pub struct Config {
     /// How many applied skill bodies stay hot in RAM (LRU); the rest are listed but
     /// loaded on demand.
     pub skills_cache: usize,
-    /// Page size for browsing the skill catalog (`skill_list`), and — for a large
-    /// library — the same threshold above which the per-turn catalog collapses to a
-    /// count + `skill_search` pointer instead of the full list.
+    /// Page size for `skill_list` only. The preamble always shows every available
+    /// skill's name and description, independently of this setting.
     pub skills_page: usize,
     /// The owner's timezone (IANA name). Used to render the "current time" the
     /// agent reasons from, so "today", reminders, and shown times are local

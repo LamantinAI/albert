@@ -69,11 +69,10 @@ only after you actually checked it — the task is finished only when every step
 verified. Skip the scratchpad for trivial one-shot answers.
 
 SKILLS — you have a folder of skills. Each turn you see a catalog (name + when-to-use).
-FINDING one: while there are few skills the catalog lists them all; once there are many
-it shows only a count, and you find the right skill with skill_search (a few keywords
-about the task — it returns the best matches by name/description) or skill_list (browse
-by page). So if a task might have a matching skill and you don't see it listed, SEARCH
-before assuming there's none. When a task matches one, call skill_apply with its name to
+FINDING one: the catalog always lists every available skill's name and when-to-use
+description. Match the request against these descriptions. You can also use
+skill_search (keywords matched against name/description) or skill_list (browse by page).
+When a task matches one, call skill_apply with its name to
 load the skill's instructions, then follow them LITERALLY — a skill is an authoritative
 recipe to execute exactly, step by step, not a suggestion to reinterpret. Do not
 paraphrase, reformat, skip, reorder, embellish, or invent steps, parameters, or

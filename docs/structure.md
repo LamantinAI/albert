@@ -11,7 +11,7 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 | `commands.rs` | Chat commands: the built-in system reflexes (`/help`, `/cancel`, `/restart`, ACL — reserved names) and skill commands (`command:` in a skill's frontmatter → a turn seeded with its instructions); `/help` and the channel menu (`chat.set_commands`). |
 | `manifests.rs` | A read-only look at which connector types the manifests declare, so capabilities (a skill's `requires:`) follow what is configured. |
 | `acl.rs` | The owner-only Telegram ACL admin reflex (`/allow` `/deny` `/allowed`): role check + dispatch of the `octo.telegram.*` control command. `is_owner` (role == owner) also gates the owner-only `restart` tool. Deterministic — no LLM in a security action. |
-| `skills.rs` | The declarative skill system: a folder of `<name>/SKILL.md` (frontmatter `name`/`description` + body). Renders the per-turn catalog (full when small, a count + `skill_search` pointer when large — threshold `[skills] page`); the `skill_list` (paginated) / `skill_search` (ranked by name/description) / `skill_apply` / `skill_file` tools; an LRU read-through cache so only applied bodies (not the whole folder) sit in context. |
+| `skills/` | The declarative skill system: a folder of `<name>/SKILL.md` (frontmatter `name`/`description` + body). Renders the per-turn catalog (every available name + description, independent of `[skills] page`); the `skill_list` (paginated) / `skill_search` (ranked by name/description) / `skill_apply` / `skill_file` tools; an LRU read-through cache so only applied bodies (not the whole folder) sit in context. |
 | `routines.rs` | Proactive routines: idempotently seed the base memory-reflection alarm on startup (retry until the scheduler answers). The routine handler itself lives in the cogitator (`run_routine`). |
 | `scratchpad.rs` | The loop scratchpad: a channel-keyed in-memory store + the five rig tools (`scratchpad_goal/step/mark/note/clear`) and the render shown each turn. |
 | `status.rs` | Live progress feedback: a rig `PromptHook` (`StatusFeed`) that streams the agent's tool calls / thoughts into one in-place-edited chat status message (opt-in `stream_status`), plus the always-on typing indicator. |
@@ -36,7 +36,7 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 - **Files & the workspace** = the octo-code tools (`read/write/edit/list/glob/grep`,
   jailed to `$OCTO_CODE_WORKSPACE`) and `send_file`, added in `run_agent`; the
   workspace is one shared directory that storage + forkd also inherit by name.
-- **Skills** = `skills.rs` (catalog + the `skill_*` tools); the folder is `[skills] dir`.
+- **Skills** = `skills/` (catalog + the `skill_*` tools); the folder is `[skills] dir`.
 - **Scripts** = the `forkd` connector, reached over `dispatch_to_connector`
   (`forkd.run`); executable skills name a bundled script run in place via `skill_path`.
 - **Self-restart** = the owner-only `restart` tool (`octo-rig`), added in `run_agent`
