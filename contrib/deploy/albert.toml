@@ -39,7 +39,7 @@ max_tool_turns = 30
 [skills]
 dir   = "skills"
 cache = 5
-page  = 10   # skill_list page size + inline-catalog threshold (larger library -> skill_search)
+page  = 10   # skill_list page size only; the preamble always includes every skill
 
 [code]
 # Ephemeral file-tool workspace, on the /data volume so it and the forkd handoff

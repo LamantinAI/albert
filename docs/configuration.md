@@ -72,7 +72,7 @@ max_tool_turns = 30      # max rig tool-loop rounds per message
 [skills]
 dir   = "skills"         # folder of <name>/SKILL.md (catalog shown each turn)
 cache = 5                # LRU size for applied skill bodies
-page  = 10               # skill_list page size + inline-catalog threshold (see below)
+page  = 10               # skill_list page size only (see below)
 
 [code]
 workspace = "state/workspace"   # ephemeral file-tool jail ($OCTO_CODE_WORKSPACE)
@@ -146,11 +146,13 @@ default.
   body, optionally bundling resource files). Only the **catalog** (name + when-to-use)
   is shown to the model each turn; `skill_apply` loads a body on demand and keeps it in
   an LRU cache of `[skills] cache` entries. A missing folder just means no skills.
-  - **Scaling:** `[skills] page` (default 10) is both the `skill_list` page size and the
-    inline threshold — a catalog up to `page` skills is shown in full each turn; a larger
-    library collapses in the preamble to a count + a pointer, and the model finds skills
-    with `skill_search <keywords>` (ranked by name/description) or `skill_list <page>`.
-    So 100 skills cost a line of context, not a hundred.
+  - **Discovery:** every available skill's name and full when-to-use description
+    stays in the preamble, regardless of the number of installed skills. Bodies
+    still load only through `skill_apply`, except for `always: true` standing
+    instructions. `[skills] page` (default 10) controls only `skill_list` pagination;
+    `skill_search <keywords>` remains available to search names and descriptions.
+    Catalog metadata grows with the number of skills; adding a skill never hides
+    the existing ones or truncates their trigger descriptions.
   - **Commands:** a skill can declare a chat command in its frontmatter —
     `command: brief` (lower-case letters, digits, `_`, `-`; a channel's stricter rules —
     Telegram's 1-32 of `a-z0-9_` — are applied by that channel to its menu), `command_about: Your day at a glance` (its one

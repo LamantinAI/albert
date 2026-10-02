@@ -68,9 +68,7 @@ max_tool_turns = 30
 # many. Path resolves relative to this file; a missing folder just means no skills.
 dir   = "skills"
 cache = 5
-# Skill-catalog page size (skill_list) AND the inline threshold: a catalog up to this
-# many skills is shown in full each turn; a larger library collapses to a count + a
-# skill_search pointer, so it never floods context. skill_search finds by keyword.
+# Page size for skill_list only; names and descriptions stay visible every turn.
 page  = 10
 
 [code]
