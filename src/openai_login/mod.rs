@@ -9,6 +9,9 @@
 use std::{path::Path, process::Command, time::Duration};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use octo_openai_auth::{
+    account_id_from_jwt, plan_from_jwt, AuthDotJson, Tokens, CLIENT_ID, TOKEN_URL,
+};
 use rand::{rngs::OsRng, RngCore};
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
@@ -20,10 +23,6 @@ use tokio::{
 };
 use tracing::warn;
 use url::Url;
-
-use octo_openai_auth::{
-    account_id_from_jwt, plan_from_jwt, AuthDotJson, Tokens, CLIENT_ID, TOKEN_URL,
-};
 
 use crate::error::{Error, Result};
 

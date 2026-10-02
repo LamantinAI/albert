@@ -6,7 +6,9 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 |--------|------|
 | `memory/` | Backend selection, embedded kaeru setup, the dedicated MCP session (HTTP/stdio), scoped `kaeru_*` tool adapters and the idempotent startup migration creating the `albert` initiative when absent. |
 | `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history (memory / file / sqlite), the scheduler, the scratchpad, the skill catalog, the prompt loader; export `$OCTO_CODE_WORKSPACE` + `$OCTO_SKILLS_DIR`; register the connector factories (telegram, caldav, scheduler, storage, forkd) and `from_config_file`, or fall back to console; run the Octo runtime. |
-| `cogitator.rs` | `AlbertCogitator` — the `Cogitator`: the perceive → reflex → assemble-context → tool-loop → reply cycle for `chat.message` and `alarm.fired`. Holds config, kaeru handle, history, scratchpad, skills, prompt loader; builds the rig agent + the full toolset (dispatch, kaeru verbs, scratchpad, file workspace, `send_file`, skills, and — owner-only — `restart`). |
+| `cogitator/` | `AlbertCogitator` — the `Cogitator`: the perceive → reflex → assemble-context → tool-loop → reply cycle for `chat.message` and `alarm.fired`. Holds config, kaeru handle, history, scratchpad, skills, prompt loader; builds the rig agent + the full toolset (dispatch, kaeru verbs, scratchpad, file workspace, `send_file`, skills, and — owner-only — `restart`). |
+| `cogitator/turns/` | Per-channel interruption and reply commit gates; preserves accepted input and tool checkpoints, cancels the old scope and resumes with the new message. |
+| `status/trace/` | Captures complete tool rounds, including interrupted/unknown outcomes, for replay and persistence. |
 | `cogitator/hearing.rs` | Hearing: a voice message is handed to the `transcribe` organ (`transcribe.run { path }` on the recording the channel saved) and the text becomes the turn; with no transcribe organ Albert says he can't hear. |
 | `commands.rs` | Chat commands: the built-in system reflexes (`/help`, `/cancel`, `/restart`, ACL — reserved names) and skill commands (`command:` in a skill's frontmatter → a turn seeded with its instructions); `/help` and the channel menu (`chat.set_commands`). |
 | `manifests.rs` | A read-only look at which connector types the manifests declare, so capabilities (a skill's `requires:`) follow what is configured. |
@@ -26,10 +28,10 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 ## Where a concern lives
 
 - **The action space** (what the model can do) = the registered connectors' catalogs,
-  assembled in `cogitator.rs::catalog` from `ctx.connectors()`. Add an organ → it
+  assembled in `cogitator/context.rs::catalog` from `ctx.connectors()`. Add an organ → it
   appears automatically in the `dispatch_to_connector` tool (scheduler, calendar,
   storage, forkd all reached this way).
-- **The memory tools** = kaeru verbs installed in `cogitator.rs::drive` through
+- **The memory tools** = kaeru verbs installed in `cogitator/agent.rs::drive` through
   `Memory::install`: embedded `KaeruMemory`, or the dedicated MCP memory session.
   Embedded cloud verbs are enabled by `[clouds.*]`; MCP cloud settings belong to
   the memory server.
@@ -42,7 +44,7 @@ Albert is a single binary crate. Modules by concern (all under `src/`):
 - **Self-restart** = the owner-only `restart` tool (`octo-rig`), added in `run_agent`
   only when `is_owner`; it emits the `octo.control.*` signals the runtime carries out.
 - **A user reminder vs. a routine** = distinguished by the `alarm.fired` payload in
-  `cogitator.rs::on_alarm` (`routine` marker → silent `run_routine`; else the
+  `cogitator/alarms.rs::on_alarm` (`routine` marker → silent `run_routine`; else the
   reminder path).
 - **Connector config** (Telegram, calendar, storage, forkd) = the manifests under
   `config/`, not the code — see [configuration.md](configuration.md).

@@ -32,7 +32,7 @@ bus, supervision, or connector lifecycle.
 
 ## The cogitator loop
 
-`AlbertCogitator` (`src/cogitator.rs`) subscribes to `chat.message` and `alarm.fired`
+`AlbertCogitator` (`src/cogitator/`) subscribes to `chat.message` and `alarm.fired`
 and, per event:
 
 1. **Perceive** — a user message (with any attached file dropped into the workspace
@@ -68,6 +68,36 @@ dispatches `calendar.list_events` / `octo.scheduler.add_alarm` / `storage.put` /
 `<kind>.result`. (The file, `send_file`, skill, and `restart` tools are the
 exceptions — native rig tools the host binds directly, not connector dispatch.)
 
+## Interrupting a conversation
+
+Albert decides what a new chat event means; Octo does not impose an interruption
+policy on other cogitators. A message in the same conversation interrupts the
+current model/tool future, sends `octo.control.cancel` for that attempt's unique
+scope and resumes with the complete working context plus the new input.
+Different connector/channel pairs have separate interruption gates. An unfinished
+trusted-user task cannot gain owner tools just because the owner sends the next
+message.
+
+Accepted user messages enter history **before** model execution. Completed tool
+rounds retain their full results; outstanding calls get explicit unknown-outcome
+results, and calls not yet dispatched are marked not executed. Complete call/result
+pairs are stored together, so trimming the rolling history cannot leave a dangling
+tool call. Pending images and skill instructions survive interruptions in memory;
+completed conversations retain the existing text representation of user media.
+Secret-setting arguments are redacted from stored tool traces.
+
+The reply commit and accepting a new input are serialized. Once an interrupt wins,
+the old task cannot publish a stale final reply. `/cancel` stops without launching
+a continuation, while keeping accepted messages and the tool checkpoint. Provider
+retries are allowed only before any tool calls have been issued.
+
+Voice transcription runs inside the scoped turn, so it does not hold up incoming
+chat events. Periodic routines and scheduled reminders do not block the intake
+loop. A connector owns its cancellation mechanics: forkd terminates its process
+group; speech, transcription and image generation cancel their I/O. Cancellation
+cannot roll back external effects, and interrupted writes are not automatically
+replayed.
+
 ## Three context tiers
 
 The memory tier has a dedicated backend boundary (`src/memory/`): embedded
@@ -81,8 +111,8 @@ Kept deliberately distinct (they are different things, with different owners):
 
 | Tier | What it is | Owner |
 |------|-----------|-------|
-| **Chat transcript** | the dialogue + actions, a linear log | Octo history (`src/history.rs`) |
-| **Scratchpad** | super-operational task state (goal + steps + status) | the loop (`src/scratchpad.rs`) |
+| **Chat transcript** | the dialogue + actions, a linear log | Octo history (`src/history/mod.rs`) |
+| **Scratchpad** | super-operational task state (goal + steps + status) | the loop (`src/scratchpad/mod.rs`) |
 | **Memory** | durable, on-demand recall/write | kaeru, reached as a tool |
 
 kaeru is **operational + persistent** memory the agent queries; the scratchpad is
