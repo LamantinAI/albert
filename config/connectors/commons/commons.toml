@@ -11,17 +11,9 @@ id       = "commons"
 type     = "http"
 base_url = "https://commons.wikimedia.org"
 
-# Wikimedia answers 403 to a request without a User-Agent, and the http connector
-# sends none of its own. Until it can set static headers, the one auth header carries
-# it: the UA string is the prefix, the "secret" an env var that may be empty.
-[connector.auth]
-type         = "header"
-header       = "User-Agent"
-secret_var   = "${secret.ua_suffix}"
-value_prefix = "AlbertBot/0.2 (https://github.com/LamantinAI/albert)"
-
-[connector.secrets]
-ua_suffix = { env = "COMMONS_UA_SUFFIX" }
+# Wikimedia answers 403 to a request without a descriptive User-Agent.
+[connector.headers]
+User-Agent = "AlbertBot/0.2 (https://github.com/LamantinAI/albert)"
 
 [connector.timeout]
 request_ms = 15000
