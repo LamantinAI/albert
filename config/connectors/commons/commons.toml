@@ -1,0 +1,40 @@
+# Wikimedia Commons — image search (octo-connector-http, pure manifest).
+#
+# One command, `commons.cmd.search { query }`: full-text search over Commons files
+# (namespace 6), each hit with a ~1024px thumbnail URL, its MIME type, title, author
+# and licence. The agent puts the thumbnail URLs into its reply as Markdown images
+# (`![](url "caption")`), which Telegram lays out as photo blocks inside the message.
+# Free, no key. Search in English — Commons file titles and descriptions mostly are.
+
+[connector]
+id       = "commons"
+type     = "http"
+base_url = "https://commons.wikimedia.org"
+
+# Wikimedia answers 403 to a request without a User-Agent, and the http connector
+# sends none of its own. Until it can set static headers, the one auth header carries
+# it: the UA string is the prefix, the "secret" an env var that may be empty.
+[connector.auth]
+type         = "header"
+header       = "User-Agent"
+secret_var   = "${secret.ua_suffix}"
+value_prefix = "AlbertBot/0.2 (https://github.com/LamantinAI/albert)"
+
+[connector.secrets]
+ua_suffix = { env = "COMMONS_UA_SUFFIX" }
+
+[connector.timeout]
+request_ms = 15000
+
+[connector.retry]
+max_attempts       = 2
+backoff_initial_ms = 500
+backoff_max_ms     = 3000
+retry_on_status    = [429, 502, 503, 504]
+
+[[connector.endpoint]]
+cmd_kind      = "commons.cmd.search"
+method        = "GET"
+path          = "/w/api.php?action=query&format=json&formatversion=2&generator=search&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime|extmetadata&iiextmetadatafilter=ObjectName|Artist|LicenseShortName&iiurlwidth=1024"
+query_params  = { gsrsearch = "$.query" }
+response_kind = "commons.event.search"
