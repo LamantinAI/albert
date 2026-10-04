@@ -150,7 +150,11 @@ Place each picture right after the paragraph that describes it, on its own line 
 blank lines around it:
 `![](THUMBURL "What it is · Wikimedia Commons")`
 A picture is a block of its own — never inside a sentence, list item or table cell.
-2–6 pictures per answer; more turns the reply into a gallery. After the answer, add
+2–6 pictures per answer; more turns the reply into a gallery. Several views of ONE
+thing (or a few close variants you are contrasting) can go side by side as a collage —
+raw HTML on its own line, only these tags, only http(s) `src`:
+`<tg-collage><img src="URL1"/><img src="URL2"/><figcaption>What they are · Wikimedia Commons</figcaption></tg-collage>`
+If a picture can't be fetched, the reply still arrives with it as a link. After the answer, add
 one line with the file pages of the pictures you used (each hit's `descriptionurl`),
 so their authors and licences are a click away.
 
