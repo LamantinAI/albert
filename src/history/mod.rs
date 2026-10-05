@@ -5,9 +5,15 @@
 
 pub use octo_history::{FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn};
 
-use rig::completion::Message;
-use serde_json::{from_str, to_string};
 use std::borrow::Cow;
+
+use rig::{
+    completion::Message,
+    message::{AssistantContent, UserContent},
+};
+use serde_json::{from_str, to_string};
+
+use crate::status::responses_ids;
 
 const TOOL_TRACE_MARKER: &str = "[albert tool trace v1]\n";
 const ESCAPED_TEXT_MARKER: &str = "[albert assistant text v1]\n";
@@ -60,13 +66,47 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
         .flat_map(|t| match t.role {
             Role::User => vec![Message::user(t.content.clone())],
             Role::Assistant => match t.content.strip_prefix(TOOL_TRACE_MARKER) {
-                Some(json) => from_str::<Vec<Message>>(json).unwrap_or_else(|_| vec![
-                    Message::assistant("[Stored tool history could not be read; verify external state before repeating actions.]")
-                ]),
+                Some(json) => from_str::<Vec<Message>>(json)
+                    .map(with_call_ids)
+                    .unwrap_or_else(|_| vec![
+                        Message::assistant("[Stored tool history could not be read; verify external state before repeating actions.]")
+                    ]),
                 None => vec![Message::assistant(spoken(&assistant_text(&t.content)).to_string())],
             },
         })
         .collect()
+}
+
+/// Give every stored tool call and result a `call_id`. The OpenAI Responses API
+/// refuses a round without one, and before the hearing fix a transcription was
+/// journaled that way — one such round in a chat's history failed every later turn
+/// there. Calls the model made already carry theirs and pass through untouched.
+fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
+    for message in &mut messages {
+        match message {
+            Message::Assistant { content, .. } => {
+                for item in content.iter_mut() {
+                    if let AssistantContent::ToolCall(call) = item {
+                        if call.call_id.is_none() {
+                            let (item_id, call_id) = responses_ids(&call.id);
+                            call.id = item_id;
+                            call.call_id = Some(call_id);
+                        }
+                    }
+                }
+            }
+            Message::User { content } => {
+                for item in content.iter_mut() {
+                    if let UserContent::ToolResult(result) = item {
+                        if result.call_id.is_none() {
+                            result.call_id = Some(responses_ids(&result.id).1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    messages
 }
 
 /// An assistant turn's reply text with any appended action log stripped off.
@@ -107,6 +147,13 @@ pub fn recent_actions(turns: &[Turn], max_turns: usize) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use rig::{
+        message::{ToolCall, ToolFunction},
+        providers::openai::responses_api::InputItem,
+        OneOrMany,
+    };
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -178,5 +225,35 @@ mod tests {
     fn recent_actions_none_when_nothing_done() {
         let turns = vec![assistant("just talking")];
         assert!(recent_actions(&turns, 3).is_none());
+    }
+
+    #[test]
+    fn a_stored_round_without_call_ids_is_repaired_on_read() {
+        // Exactly what a pre-fix voice turn persisted: no call_id on either side.
+        let stored = vec![
+            Message::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
+                    "auto-hear-1:2".into(),
+                    ToolFunction {
+                        name: "dispatch_to_connector".into(),
+                        arguments: json!({"target":"transcribe"}),
+                    },
+                ))),
+            },
+            Message::tool_result("auto-hear-1:2", "{\"text\":\"hi\"}"),
+        ];
+        let turns = vec![tool_trace(&stored).unwrap()];
+        let mut items = Vec::new();
+        for message in to_messages(&turns) {
+            items.extend(Vec::<InputItem>::try_from(message).expect("Responses-legal round"));
+        }
+        let wire = to_string(&items).unwrap();
+        assert_eq!(
+            wire.matches("\"call_id\":\"call_auto_hear_1_2\"").count(),
+            2,
+            "{wire}"
+        );
+        assert!(wire.contains("\"id\":\"fc_auto_hear_1_2\""), "{wire}");
     }
 }
