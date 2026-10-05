@@ -23,6 +23,17 @@ use tracing::warn;
 mod trace;
 use self::trace::Trace;
 
+/// The Responses-API identity for a host-made tool call: a `fc_…` item id and a
+/// `call_…` call id, both derived from the host's own id. Used when journaling an
+/// external call and when repairing a stored round that was journaled without them.
+pub fn responses_ids(id: &str) -> (String, String) {
+    let slug: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    (format!("fc_{slug}"), format!("call_{slug}"))
+}
+
 /// Where a turn's status lines go, plus a durable record of the actions taken.
 /// `silent()` (no target) makes every live emit a no-op, but still accumulates
 /// actions — so the agent loop code stays branch-free.
@@ -97,13 +108,9 @@ impl StatusFeed {
     /// sent), and names a function-call item `fc_…`.
     pub fn start_external(&self, id: &str, name: &str, arguments: Value) {
         let args = arguments.to_string();
-        let slug: String = id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
-        let call_id = format!("call_{slug}");
+        let (item_id, call_id) = responses_ids(id);
         let call = ToolCall::new(
-            format!("fc_{slug}"),
+            item_id,
             ToolFunction {
                 name: name.into(),
                 arguments,
