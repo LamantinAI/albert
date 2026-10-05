@@ -104,6 +104,7 @@ fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
                     }
                 }
             }
+            Message::System { .. } => {}
         }
     }
     messages
