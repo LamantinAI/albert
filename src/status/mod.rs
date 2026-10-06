@@ -131,10 +131,6 @@ impl StatusFeed {
         self.trace.lock().unwrap().call_count()
     }
 
-    pub async fn model_status(&self, text: String) {
-        self.emit(text).await;
-    }
-
     async fn emit(&self, line: String) {
         let Some(feed) = &self.feed else { return };
         let mut env = Envelope::new(

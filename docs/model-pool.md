@@ -95,7 +95,7 @@ Provider changes normalize both sides of stored tool IDs so Responses and
 OpenRouter continue to match calls with their results.
 
 Model IDs, attempt counts, skipped capabilities and safe failure reasons appear
-in logs and in the live status feed when `stream_status` is enabled. No raw provider
+in logs only; routine model selection does not clutter the chat status. No raw provider
 error body or credential is included in these messages. Automatic fallback does
 not overwrite the owner's preferred model for future turns.
 

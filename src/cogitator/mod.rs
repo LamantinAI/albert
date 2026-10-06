@@ -42,6 +42,7 @@ use crate::{
 mod agent;
 mod alarms;
 mod context;
+mod dispatch;
 mod errors;
 mod inbound;
 mod output;
