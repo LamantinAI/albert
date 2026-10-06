@@ -16,6 +16,8 @@
 #[cfg(test)]
 mod fixture;
 mod hearing;
+#[cfg(test)]
+mod provider_fixture;
 
 use std::{
     collections::HashMap,
@@ -42,7 +44,6 @@ use crate::{
 mod agent;
 mod alarms;
 mod context;
-mod dispatch;
 mod errors;
 mod inbound;
 mod output;
@@ -331,126 +332,18 @@ mod tests {
 
 #[cfg(test)]
 mod model_pool_tests {
-    use std::{
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use std::time::Duration;
 
-    use axum::{extract::State, http::StatusCode, routing::post, serve, Json, Router};
-    use octo_core::CogitatorContext;
+    use octo_core::{
+        CogitatorContext, ConnectorCapabilities, ConnectorId, ConnectorInfo, Envelope, EventBus,
+        EventKind, Filter, SubscribeOptions,
+    };
     use rig::completion::Message;
-    use serde_json::{json, Value};
-    use tokio::{net::TcpListener, spawn, task::JoinHandle, time::timeout};
+    use serde_json::json;
+    use tokio::{spawn, time::timeout};
 
-    use super::{fixture::fixture, AlbertCogitator};
-    use crate::{
-        config::AuthMode,
-        models::{ModelPool, ModelSpec, PoolConfig},
-        status::StatusFeed,
-    };
-
-    struct Server {
-        requests: Arc<Mutex<Vec<Value>>>,
-        task: JoinHandle<()>,
-        url: String,
-    }
-    impl Drop for Server {
-        fn drop(&mut self) {
-            self.task.abort();
-        }
-    }
-
-    async fn completion(
-        State(requests): State<Arc<Mutex<Vec<Value>>>>,
-        Json(body): Json<Value>,
-    ) -> (StatusCode, Json<Value>) {
-        let model = body["model"].as_str().unwrap();
-        let count = {
-            let mut requests = requests.lock().unwrap();
-            requests.push(body.clone());
-            requests.iter().filter(|r| r["model"] == model).count()
-        };
-        if model == "hanging" {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        if model == "failing" || (model == "writes" && count > 1) {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error":{"code":503,"message":"overloaded"}})),
-            );
-        }
-        if model == "incompatible" {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
-            );
-        }
-        let (message, finish) = if model == "switches" && count == 1 {
-            (
-                json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_select","type":"function","function":{"name":"model_select","arguments":"{\"model_id\":\"healthy\"}"}}]}),
-                "tool_calls",
-            )
-        } else if model == "writes" {
-            (
-                json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_note","type":"function","function":{"name":"scratchpad_note","arguments":"{\"text\":\"recorded once\"}"}}]}),
-                "tool_calls",
-            )
-        } else {
-            (
-                json!({"role":"assistant","content":if model == "empty" { " ".to_string() } else { format!("answer from {model}") }}),
-                "stop",
-            )
-        };
-        (
-            StatusCode::OK,
-            Json(
-                json!({"id":"test-completion","object":"chat.completion","created":1,"model":model,
-            "choices":[{"index":0,"message":message,"finish_reason":finish}],
-            "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}),
-            ),
-        )
-    }
-
-    async fn setup(first: &str) -> (Arc<AlbertCogitator>, CogitatorContext, Server) {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let app = Router::new()
-            .route("/chat/completions", post(completion))
-            .with_state(requests.clone());
-        let task = spawn(async move {
-            serve(listener, app).await.unwrap();
-        });
-        let server = Server {
-            requests,
-            task,
-            url,
-        };
-        let (mut agent, ctx, _) = fixture();
-        let me = Arc::get_mut(&mut agent).unwrap();
-        me.config.api_key = Some("local-test-key".into());
-        me.config.models = Some(PoolConfig {
-            default: first.into(),
-            max_attempts: 3,
-            retries_per_model: 0,
-            retry_delay_ms: 0,
-            models: [first, "healthy"]
-                .into_iter()
-                .map(|id| ModelSpec {
-                    id: id.into(),
-                    model: id.into(),
-                    provider: AuthMode::ApiKey,
-                    base_url: Some(server.url.clone()),
-                    api_key_env: None,
-                    vision: true,
-                    tools: true,
-                    request_timeout_ms: if id == "hanging" { 20 } else { 2000 },
-                })
-                .collect(),
-        });
-        me.models = ModelPool::new(&me.config);
-        (agent, ctx, server)
-    }
+    use super::{provider_fixture::setup, AlbertCogitator};
+    use crate::status::StatusFeed;
 
     async fn ask(agent: &AlbertCogitator, ctx: &CogitatorContext, feed: StatusFeed) -> String {
         timeout(
@@ -561,6 +454,69 @@ mod model_pool_tests {
                 // The mock provider tried calling an unoffered tool anyway.
                 assert_eq!(agent.models.snapshot().selected, "switches");
             }
+        }
+    }
+    #[tokio::test]
+    async fn model_file_tools_keep_the_chat_and_receive_delivery_confirmation() {
+        for model in ["file-dispatch", "file-native"] {
+            let (agent, original, server) = setup(model).await;
+            let target = ConnectorId::new("telegram");
+            let bus = original.bus();
+            let mut requests = bus
+                .subscribe(
+                    Filter::by_target(target.clone()),
+                    SubscribeOptions::default(),
+                )
+                .await
+                .unwrap();
+            let ctx = CogitatorContext::new(
+                Default::default(),
+                bus.clone(),
+                vec![ConnectorInfo {
+                    id: target.clone(),
+                    capabilities: ConnectorCapabilities::bidirectional()
+                        .with_emit_kinds([EventKind::new("chat.send_file.result")]),
+                }],
+            );
+            let connector = spawn(async move {
+                let req = timeout(Duration::from_secs(3), requests.next())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(req.kind.as_str(), "chat.send_file");
+                assert_eq!(req.channel.as_ref().unwrap().as_str(), "-42");
+                bus.publish(
+                    Envelope::new(
+                        ConnectorId::new("telegram"),
+                        EventKind::new("chat.send_file.result"),
+                        json!({"ok":true,"status":"sent","message_id":17}),
+                    )
+                    .with_correlation(req.id),
+                )
+                .await
+                .unwrap();
+            });
+            let (answer, _) = timeout(
+                Duration::from_secs(5),
+                agent.run_agent(
+                    &ctx,
+                    "-42",
+                    "test",
+                    Message::user("send file"),
+                    vec![],
+                    Some(target),
+                    false,
+                    StatusFeed::silent(),
+                    Some("file-scope"),
+                ),
+            )
+            .await
+            .unwrap();
+            connector.await.unwrap();
+            assert_eq!(answer, format!("answer from {model}"));
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(requests[1]["messages"].to_string().contains("message_id"));
         }
     }
 }

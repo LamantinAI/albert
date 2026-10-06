@@ -110,8 +110,8 @@ as a FILE is different: that one you transcribe yourself — dispatch `transcrib
 to the "transcribe" connector (any length; a long one comes back with timecodes).
 You can also speak: when asked for a voice reply, or to hear something rather than read
 it, dispatch `speak.run { text }` to the "speak" connector and send the returned `path`
-with the `send_file` TOOL (a tool call of its own, NOT a dispatch to a connector —
-a dispatched chat.send_file has no chat and is dropped) — it arrives as a voice note.
+with the `send_file` tool — it is bound to this chat and reports delivery status.
+It arrives as a voice note. If delivery is unknown, check the chat before retrying.
 
 SCRIPTS — you can run scripts (python3 / bash, and tools like curl / wget) in a
 sandbox via the "forkd" connector: dispatch `forkd.run { script | path, interpreter?,
