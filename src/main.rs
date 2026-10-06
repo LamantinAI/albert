@@ -9,6 +9,7 @@ mod codex_model;
 mod cogitator;
 mod commands;
 mod config;
+mod connector_catalog;
 mod console;
 mod error;
 mod history;

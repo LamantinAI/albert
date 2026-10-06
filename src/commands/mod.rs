@@ -39,19 +39,15 @@ pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
 const SYSTEM: [(&str, &str, bool); 9] = [
-    ("help", "What I can do, and my commands", false),
-    ("model", "Model pool: /model [id|list|reload]", true),
-    ("chatinfo", "Show this chat and author IDs", false),
-    (
-        "groupmode",
-        "Group access: /groupmode all|allowed [chat_id]",
-        true,
-    ),
-    ("cancel", "Stop the reply in progress", true),
-    ("restart", "Restart me", true),
-    ("allow", "Give a chat access: /allow <chat_id>", true),
-    ("deny", "Take a chat's access away: /deny <chat_id>", true),
-    ("allowed", "List the chats with access", true),
+    ("help", "Справка по командам", false),
+    ("model", "Выбрать модель", true),
+    ("chatinfo", "ID этого чата и автора", false),
+    ("groupmode", "Режим группы: all или allowed", true),
+    ("cancel", "Остановить текущую задачу", true),
+    ("restart", "Перезапустить Альберта", true),
+    ("allow", "Разрешить доступ: /allow [id]", true),
+    ("deny", "Отозвать доступ: /deny [id]", true),
+    ("allowed", "Список разрешённых чатов", true),
 ];
 
 /// A command a skill declares.
@@ -109,14 +105,15 @@ pub fn refusal(name: &str) -> Option<&'static str> {
 
 /// A skill's description cut to one short line for `/help` and the menu.
 pub fn about(description: &str) -> String {
-    let first = description
+    let normalized = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    let first = normalized
         .split(". ")
         .next()
-        .unwrap_or(description)
+        .unwrap_or(&normalized)
         .trim()
         .trim_end_matches('.');
-    let mut line: String = first.chars().take(100).collect();
-    if first.chars().count() > 100 {
+    let mut line: String = first.chars().take(80).collect();
+    if first.chars().count() > 80 {
         line.push('…');
     }
     line
@@ -126,20 +123,51 @@ pub fn about(description: &str) -> String {
 /// run (the owner sees the owner-only ones too).
 pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
     let mut out = String::from(
-        "I keep context and act: reminders and calendar, voice messages (and answers in voice), \
-         pictures, files, web search, and skills. Just write — or use a command.\n\nSystem commands:",
+        "**Альберт**\nОпиши задачу обычным сообщением или выбери команду.\n\n**Команды**",
     );
     for (name, what, owner_only) in SYSTEM {
-        if owner || !owner_only || (acl_admin && matches!(name, "allow" | "deny" | "allowed")) {
-            out.push_str(&format!("\n/{name} — {what}"));
+        if !owner_only {
+            out.push_str(&format!("\n- /{name} — {what}"));
         }
     }
-    let usable: Vec<&SkillCommand> = skills.iter().filter(|c| owner || !c.owner).collect();
+    let usable: Vec<_> = skills.iter().filter(|c| owner || !c.owner).collect();
     if !usable.is_empty() {
-        out.push_str("\n\nSkill commands:");
+        out.push_str("\n\n**Навыки**");
         for c in usable {
-            out.push_str(&format!("\n/{} — {}", c.name, c.about));
+            out.push_str(&format!(
+                "\n- /{} — {}",
+                c.name,
+                help_text(&about(&c.about))
+            ));
         }
+    }
+    let management: Vec<_> = SYSTEM
+        .into_iter()
+        .filter(|(name, _, owner_only)| {
+            *owner_only && (owner || (acl_admin && matches!(*name, "allow" | "deny" | "allowed")))
+        })
+        .collect();
+    if !management.is_empty() {
+        out.push_str(if owner {
+            "\n\n**Управление**"
+        } else {
+            "\n\n**Доступ к чатам**"
+        });
+        for (name, what, _) in management {
+            out.push_str(&format!("\n- /{name} — {what}"));
+        }
+    }
+    out
+}
+
+/// Skill metadata should remain one readable line, not introduce chat markup.
+fn help_text(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if matches!(c, '\\' | '*' | '_' | '[' | ']' | '<' | '>') {
+            out.push('\\');
+        }
+        out.push(c);
     }
     out
 }
@@ -279,6 +307,10 @@ mod tests {
         );
         let owner = help(&skills, true, true);
         assert!(owner.contains("/settings") && owner.contains("/restart"));
+        let admin = help(&skills, false, true);
+        assert!(
+            admin.contains("/allow") && !admin.contains("/model") && !admin.contains("/restart")
+        );
         let m = menu(&skills);
         let names = |key: &str| {
             m[key]

@@ -269,3 +269,16 @@ growing from the per-turn scratchpad toward reusable, self-authored task graphs
 per-skill capabilities; more connectors + web search. The working-first loop stays;
 the non-cognition layer (memory, reminders, scratchpad, files, connectors) is
 unchanged.
+
+### Finding a connector
+
+The `dispatch_to_connector` definition retains the complete advertised connector
+catalog. Albert does not duplicate that list in the per-turn preamble. `system.md`
+states the routing policy: use an appropriate configured connector before a network
+script; if the task is unfamiliar, look it up before inventing an integration.
+
+The read-only `connector_search` tool searches advertised IDs and descriptions,
+with task hints for core web/media commands. Empty query lists every advertised
+target (no pagination cutoff); a target-ID query returns its full public contract.
+Unadvertised control commands, manifests and credentials are not exposed, and
+discovery neither grants access nor promises a connector is currently healthy.

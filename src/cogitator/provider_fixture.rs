@@ -47,7 +47,12 @@ async fn completion(
             Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
         );
     }
-    let (message, finish) = if matches!(model, "file-dispatch" | "file-native") && count == 1 {
+    let (message, finish) = if model == "discovery" && count == 1 {
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"find-connector","type":"function","function":{"name":"connector_search","arguments":"{\"query\":\"inventory\"}"}}]}),
+            "tool_calls",
+        )
+    } else if matches!(model, "file-dispatch" | "file-native") && count == 1 {
         let (name, args) = if model == "file-dispatch" {
             (
                 "dispatch_to_connector",

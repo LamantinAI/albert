@@ -519,4 +519,35 @@ mod model_pool_tests {
             assert!(requests[1]["messages"].to_string().contains("message_id"));
         }
     }
+    #[tokio::test]
+    async fn connector_discovery_is_callable_without_duplicating_catalog_in_preamble() {
+        let (agent, original, server) = setup("discovery").await;
+        let ctx = CogitatorContext::new(
+            Default::default(),
+            original.bus(),
+            vec![ConnectorInfo {
+                id: ConnectorId::new("stockroom"),
+                capabilities: ConnectorCapabilities::bidirectional()
+                    .with_description("inventory.reserve { sku, quantity } reserves stock"),
+            }],
+        );
+        assert_eq!(
+            ask(&agent, &ctx, StatusFeed::silent()).await,
+            "answer from discovery"
+        );
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(!requests[0]["messages"]
+            .to_string()
+            .contains("inventory.reserve"));
+        assert!(requests[0]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["function"]["name"] == "connector_search"));
+        assert!(requests[1]["messages"].to_string().contains("stockroom"));
+        assert!(requests[1]["messages"]
+            .to_string()
+            .contains("inventory.reserve"));
+    }
 }
