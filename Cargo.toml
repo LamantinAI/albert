@@ -6,7 +6,7 @@ license = "LicenseRef-BSL-1.1"
 description = "Albert — the assembly: an Octo cogitator with kaeru memory and a scheduler connector. Talk to it; it remembers and reminds."
 
 [dependencies]
-# Octo — pinned to the dispatch-channel-and-delivery branch for confirmed file delivery.
+# Octo — pinned to the merged channel routing and confirmed file delivery commit.
 # One repository, one revision for every crate. Move to a tag at the next release.
 # NOTE: linking the mail crate pulls a second rustls provider (ring); main() MUST call
 # ensure_crypto_provider().
