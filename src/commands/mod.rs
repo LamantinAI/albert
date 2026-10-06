@@ -39,15 +39,15 @@ pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
 const SYSTEM: [(&str, &str, bool); 9] = [
-    ("help", "Справка по командам", false),
-    ("model", "Выбрать модель", true),
-    ("chatinfo", "ID этого чата и автора", false),
-    ("groupmode", "Режим группы: all или allowed", true),
-    ("cancel", "Остановить текущую задачу", true),
-    ("restart", "Перезапустить Альберта", true),
-    ("allow", "Разрешить доступ: /allow [id]", true),
-    ("deny", "Отозвать доступ: /deny [id]", true),
-    ("allowed", "Список разрешённых чатов", true),
+    ("help", "Command reference", false),
+    ("model", "Select a model", true),
+    ("chatinfo", "Chat and author IDs", false),
+    ("groupmode", "Group mode: all or allowed", true),
+    ("cancel", "Stop the current task", true),
+    ("restart", "Restart Albert", true),
+    ("allow", "Grant access: /allow [id]", true),
+    ("deny", "Revoke access: /deny [id]", true),
+    ("allowed", "List allowed chats", true),
 ];
 
 /// A command a skill declares.
@@ -119,12 +119,9 @@ pub fn about(description: &str) -> String {
     line
 }
 
-/// The `/help` reply: what Albert does, then the system and skill commands this user may
-/// run (the owner sees the owner-only ones too).
+/// A compact command reference filtered by the caller's permissions.
 pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
-    let mut out = String::from(
-        "**Альберт**\nОпиши задачу обычным сообщением или выбери команду.\n\n**Команды**",
-    );
+    let mut out = String::from("**Commands**\n");
     for (name, what, owner_only) in SYSTEM {
         if !owner_only {
             out.push_str(&format!("\n- /{name} — {what}"));
@@ -132,7 +129,7 @@ pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
     }
     let usable: Vec<_> = skills.iter().filter(|c| owner || !c.owner).collect();
     if !usable.is_empty() {
-        out.push_str("\n\n**Навыки**");
+        out.push_str("\n\n**Skills**\n");
         for c in usable {
             out.push_str(&format!(
                 "\n- /{} — {}",
@@ -149,9 +146,9 @@ pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
         .collect();
     if !management.is_empty() {
         out.push_str(if owner {
-            "\n\n**Управление**"
+            "\n\n**Owner commands**\n"
         } else {
-            "\n\n**Доступ к чатам**"
+            "\n\n**Access management**\n"
         });
         for (name, what, _) in management {
             out.push_str(&format!("\n- /{name} — {what}"));
