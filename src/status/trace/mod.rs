@@ -89,8 +89,8 @@ impl Trace {
         }
     }
 
-    pub fn has_calls(&self) -> bool {
-        !self.rounds.is_empty()
+    pub fn call_count(&self) -> usize {
+        self.rounds.iter().map(|round| round.calls.len()).sum()
     }
 
     pub fn drain(&mut self) -> Vec<Message> {

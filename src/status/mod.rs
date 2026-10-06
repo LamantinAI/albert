@@ -127,8 +127,12 @@ impl StatusFeed {
     }
 
     /// Retrying a whole model attempt after tools ran could repeat external effects.
-    pub fn has_tool_calls(&self) -> bool {
-        self.trace.lock().unwrap().has_calls()
+    pub fn tool_call_count(&self) -> usize {
+        self.trace.lock().unwrap().call_count()
+    }
+
+    pub async fn model_status(&self, text: String) {
+        self.emit(text).await;
     }
 
     async fn emit(&self, line: String) {

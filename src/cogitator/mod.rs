@@ -13,6 +13,8 @@
 //! Owner-only ACL admin (`/allow` etc.) lives in [`crate::acl`]; the base routines
 //! in [`crate::routines`].
 
+#[cfg(test)]
+mod fixture;
 mod hearing;
 
 use std::{
@@ -30,6 +32,7 @@ use crate::{
     config::Config,
     history::HistoryStore,
     memory::Memory,
+    models::ModelPool,
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
@@ -49,7 +52,6 @@ use self::{
         action_context, catalog, channel_of, command_reply, incoming_context, now_rfc3339,
         with_action_log, UserInput,
     },
-    errors::{llm_error, token_rejected, transient, TRANSIENT_BACKOFF_SECS},
     turns::{turn_key, ChannelState},
 };
 
@@ -61,6 +63,7 @@ pub struct AlbertCogitator {
     id: String,
     self_source: ConnectorId,
     config: Config,
+    models: ModelPool,
     history: Arc<dyn HistoryStore>,
     memory: Memory,
     scratchpad: Arc<ScratchpadStore>,
@@ -87,7 +90,9 @@ impl AlbertCogitator {
         auth: Arc<SubscriptionAuth>,
     ) -> Arc<Self> {
         let id = id.into();
+        let models = ModelPool::new(&config);
         Arc::new(Self {
+            models,
             self_source: ConnectorId::new(format!("cogitator/{id}")),
             id,
             config,
@@ -165,8 +170,8 @@ impl Cogitator for AlbertCogitator {
 
 #[cfg(test)]
 mod tests {
-    use super::errors::{provider_status_code, user_facing_llm_error};
-    use super::{token_rejected, UserInput};
+    use super::errors::{provider_status_code, token_rejected, user_facing_llm_error};
+    use super::UserInput;
     use octo_core::Blob;
     use rig::{
         completion::{Message, PromptError},
@@ -320,5 +325,194 @@ mod tests {
         };
         let items: Vec<_> = content.into_iter().collect();
         assert!(matches!(&items[1], UserContent::Text(t) if t.text.contains("no caption")));
+    }
+}
+
+#[cfg(test)]
+mod model_pool_tests {
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+
+    use axum::{extract::State, http::StatusCode, routing::post, serve, Json, Router};
+    use octo_core::CogitatorContext;
+    use rig::completion::Message;
+    use serde_json::{json, Value};
+    use tokio::{net::TcpListener, spawn, task::JoinHandle, time::timeout};
+
+    use super::{fixture::fixture, AlbertCogitator};
+    use crate::{
+        config::AuthMode,
+        models::{ModelPool, ModelSpec, PoolConfig},
+        status::StatusFeed,
+    };
+
+    struct Server {
+        requests: Arc<Mutex<Vec<Value>>>,
+        task: JoinHandle<()>,
+        url: String,
+    }
+    impl Drop for Server {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn completion(
+        State(requests): State<Arc<Mutex<Vec<Value>>>>,
+        Json(body): Json<Value>,
+    ) -> (StatusCode, Json<Value>) {
+        let model = body["model"].as_str().unwrap();
+        let count = {
+            let mut requests = requests.lock().unwrap();
+            requests.push(body.clone());
+            requests.iter().filter(|r| r["model"] == model).count()
+        };
+        if model == "hanging" {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if model == "failing" || (model == "writes" && count > 1) {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error":{"code":503,"message":"overloaded"}})),
+            );
+        }
+        if model == "incompatible" {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
+            );
+        }
+        let (message, finish) = if model == "writes" {
+            (
+                json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_note","type":"function","function":{"name":"scratchpad_note","arguments":"{\"text\":\"recorded once\"}"}}]}),
+                "tool_calls",
+            )
+        } else {
+            (
+                json!({"role":"assistant","content":if model == "empty" { " ".to_string() } else { format!("answer from {model}") }}),
+                "stop",
+            )
+        };
+        (
+            StatusCode::OK,
+            Json(
+                json!({"id":"test-completion","object":"chat.completion","created":1,"model":model,
+            "choices":[{"index":0,"message":message,"finish_reason":finish}],
+            "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}),
+            ),
+        )
+    }
+
+    async fn setup(first: &str) -> (Arc<AlbertCogitator>, CogitatorContext, Server) {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new()
+            .route("/chat/completions", post(completion))
+            .with_state(requests.clone());
+        let task = spawn(async move {
+            serve(listener, app).await.unwrap();
+        });
+        let server = Server {
+            requests,
+            task,
+            url,
+        };
+        let (mut agent, ctx, _) = fixture();
+        let me = Arc::get_mut(&mut agent).unwrap();
+        me.config.api_key = Some("local-test-key".into());
+        me.config.models = Some(PoolConfig {
+            default: first.into(),
+            max_attempts: 3,
+            retries_per_model: 0,
+            retry_delay_ms: 0,
+            models: [first, "healthy"]
+                .into_iter()
+                .map(|id| ModelSpec {
+                    id: id.into(),
+                    model: id.into(),
+                    provider: AuthMode::ApiKey,
+                    base_url: Some(server.url.clone()),
+                    api_key_env: None,
+                    vision: true,
+                    tools: true,
+                    request_timeout_ms: if id == "hanging" { 20 } else { 2000 },
+                })
+                .collect(),
+        });
+        me.models = ModelPool::new(&me.config);
+        (agent, ctx, server)
+    }
+
+    async fn ask(agent: &AlbertCogitator, ctx: &CogitatorContext, feed: StatusFeed) -> String {
+        timeout(
+            Duration::from_secs(5),
+            agent.run_agent(
+                ctx,
+                "room",
+                "test",
+                Message::user("continue"),
+                vec![Message::user("earlier context")],
+                None,
+                false,
+                feed,
+                Some("test-scope"),
+            ),
+        )
+        .await
+        .unwrap()
+        .0
+    }
+
+    #[tokio::test]
+    async fn real_http_fallback_keeps_history_permissions_and_supports_live_selection() {
+        for first in ["failing", "incompatible", "hanging", "empty"] {
+            let (agent, ctx, server) = setup(first).await;
+            // A completed perception call must not prevent fallback before model tools.
+            let feed = StatusFeed::silent();
+            feed.start_external(
+                "heard",
+                "dispatch_to_connector",
+                json!({"target":"transcribe"}),
+            );
+            feed.finish_external("heard", "transcript");
+            assert_eq!(ask(&agent, &ctx, feed).await, "answer from healthy");
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0]["messages"], requests[1]["messages"]);
+            assert_eq!(requests[0]["tools"], requests[1]["tools"]);
+            assert!(!requests[1]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["function"]["name"] == "restart"));
+            assert!(requests[1]["messages"]
+                .to_string()
+                .contains("earlier context"));
+            agent.models.command("healthy", true);
+            assert_eq!(
+                ask(&agent, &ctx, StatusFeed::silent()).await,
+                "answer from healthy"
+            );
+            assert_eq!(server.requests.lock().unwrap().len(), 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_failure_after_a_real_tool_does_not_replay_the_action() {
+        let (agent, ctx, server) = setup("writes").await;
+        let feed = StatusFeed::silent();
+        let answer = ask(&agent, &ctx, feed.clone()).await;
+        assert!(answer.contains("fallback stopped"), "{answer}");
+        assert_eq!(feed.tool_call_count(), 1);
+        assert!(agent.scratchpad.render("room").contains("recorded once"));
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|r| r["model"] == "writes"));
+        assert!(serde_json::to_string(&feed.snapshot())
+            .unwrap()
+            .contains("recorded once"));
     }
 }

@@ -1,0 +1,35 @@
+# Copy to config/models.toml and set model_pool = "config/models.toml" in albert.toml.
+# IDs are local aliases; model is the provider's actual model identifier.
+default = "primary"
+max_attempts = 3
+retries_per_model = 0
+retry_delay_ms = 2000
+
+[[models]]
+id = "primary"
+provider = "api_key"
+model = "your-provider/text-model"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "ALBERT_OPENAI_KEY"
+vision = false
+tools = true
+request_timeout_ms = 120000
+
+[[models]]
+id = "vision"
+provider = "api_key"
+model = "your-provider/vision-model"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "ALBERT_OPENAI_KEY"
+vision = true
+tools = true
+request_timeout_ms = 120000
+
+# A subscription member shares Albert's existing OAuth token manager with the
+# speech connectors. Set model to a slug available to your subscription.
+# [[models]]
+# id = "subscription"
+# provider = "subscription"
+# model = "your-codex-model"
+# vision = true
+# tools = true

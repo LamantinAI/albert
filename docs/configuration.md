@@ -538,3 +538,9 @@ real deployment is those files with three edits:
 
 Everything else — the `albert.toml` above, the storage and forkd manifests — works
 unchanged. See [deploy.md](deploy.md) for the host provisioning that pairs with it.
+
+## Model pool
+
+For multiple model endpoints, live `/model` selection and bounded fallback, see
+[the model pool guide](model-pool.md). Without `model_pool`, the existing single-model
+configuration remains supported.
