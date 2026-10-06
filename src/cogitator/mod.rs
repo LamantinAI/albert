@@ -384,7 +384,12 @@ mod model_pool_tests {
                 Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
             );
         }
-        let (message, finish) = if model == "writes" {
+        let (message, finish) = if model == "switches" && count == 1 {
+            (
+                json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_select","type":"function","function":{"name":"model_select","arguments":"{\"model_id\":\"healthy\"}"}}]}),
+                "tool_calls",
+            )
+        } else if model == "writes" {
             (
                 json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_note","type":"function","function":{"name":"scratchpad_note","arguments":"{\"text\":\"recorded once\"}"}}]}),
                 "tool_calls",
@@ -514,5 +519,47 @@ mod model_pool_tests {
         assert!(serde_json::to_string(&feed.snapshot())
             .unwrap()
             .contains("recorded once"));
+    }
+    #[tokio::test]
+    async fn only_owner_turns_can_switch_and_current_loop_keeps_its_model() {
+        for owner in [false, true] {
+            let (agent, ctx, server) = setup("switches").await;
+            let (answer, _) = timeout(
+                Duration::from_secs(5),
+                agent.run_agent(
+                    &ctx,
+                    "room",
+                    "test",
+                    Message::user("Switch to healthy"),
+                    vec![],
+                    None,
+                    owner,
+                    StatusFeed::silent(),
+                    Some("switch-scope"),
+                ),
+            )
+            .await
+            .unwrap();
+            let requests = server.requests.lock().unwrap().clone();
+            let offered = requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["function"]["name"] == "model_select");
+            assert_eq!(offered, owner);
+            if owner {
+                assert_eq!(agent.models.snapshot().selected, "healthy");
+                assert_eq!(answer, "answer from switches");
+                assert_eq!(requests.len(), 2);
+                assert!(requests.iter().all(|r| r["model"] == "switches"));
+                assert_eq!(
+                    ask(&agent, &ctx, StatusFeed::silent()).await,
+                    "answer from healthy"
+                );
+            } else {
+                // The mock provider tried calling an unoffered tool anyway.
+                assert_eq!(agent.models.snapshot().selected, "switches");
+            }
+        }
     }
 }

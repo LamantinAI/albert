@@ -2,8 +2,12 @@
 //! holds an immutable snapshot, including fallback order and retry limits.
 mod config;
 mod run;
+mod tool;
 
-use std::{path::PathBuf, sync::RwLock};
+use std::{
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use rig::{
     completion::Message,
@@ -32,8 +36,9 @@ impl Snapshot {
     }
 }
 
+#[derive(Clone)]
 pub struct ModelPool {
-    state: RwLock<Snapshot>,
+    state: Arc<RwLock<Snapshot>>,
     path: Option<PathBuf>,
 }
 
@@ -44,10 +49,10 @@ impl ModelPool {
             .clone()
             .unwrap_or_else(|| PoolConfig::legacy(config));
         Self {
-            state: RwLock::new(Snapshot {
+            state: Arc::new(RwLock::new(Snapshot {
                 selected: pool.default.clone(),
                 config: pool,
-            }),
+            })),
             path: config.model_pool.clone(),
         }
     }
@@ -56,7 +61,19 @@ impl ModelPool {
         self.state.read().unwrap().clone()
     }
 
-    /// Only a deterministic owner reflex calls this; model tools cannot select models.
+    /// Shared validation for the owner command and owner-only tool.
+    fn select(&self, id: &str) -> Result<String, String> {
+        let mut state = self.state.write().unwrap();
+        if !state.config.models.iter().any(|m| m.id == id) {
+            return Err(format!(
+                "Unknown model ID: {id}. Inspect the model pool first."
+            ));
+        }
+        state.selected = id.into();
+        Ok(state.selected.clone())
+    }
+
+    /// Deterministic owner command; the tool is separately gated by turn permissions.
     pub fn command(&self, args: &str, owner: bool) -> String {
         if !owner {
             return "Only the owner can manage the model pool.".into();
@@ -106,14 +123,10 @@ impl ModelPool {
                     state.selected
                 )
             }
-            id => {
-                let mut state = self.state.write().unwrap();
-                if !state.config.models.iter().any(|m| m.id == id) {
-                    return format!("Unknown model ID: {id}. Use /model list.");
-                }
-                state.selected = id.into();
-                format!("Preferred model: {id}. Applies to new model turns; running work continues unchanged.")
-            }
+            id => match self.select(id) {
+                Ok(id) => format!("Preferred model: {id}. Applies to new model turns; running work continues unchanged."),
+                Err(error) => error,
+            },
         }
     }
 }
@@ -315,7 +328,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("models.toml");
         let pool = ModelPool {
-            state: RwLock::new(pool()),
+            state: Arc::new(RwLock::new(pool())),
             path: Some(path.clone()),
         };
         let old = pool.snapshot();
@@ -352,5 +365,37 @@ mod tests {
         ];
         assert!(needs_vision(messages.iter()));
         assert!(!needs_vision([&messages[1]]));
+    }
+    #[tokio::test]
+    async fn selection_tool_lists_safe_metadata_and_rejects_unknown_ids() {
+        use super::tool::SelectArgs;
+        use rig::tool::Tool;
+        let pool = ModelPool {
+            state: Arc::new(RwLock::new(pool())),
+            path: None,
+        };
+        let tool = pool.select_tool();
+        let listing = tool.call(SelectArgs { model_id: None }).await.unwrap();
+        assert_eq!(listing["preferred"], "first");
+        assert_eq!(listing["models"].as_array().unwrap().len(), 2);
+        assert!(!listing.to_string().contains("api_key_env"));
+        let invalid = tool
+            .call(SelectArgs {
+                model_id: Some("reload".into()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(invalid["ok"], false);
+        assert_eq!(pool.snapshot().selected, "first");
+        let old = pool.snapshot();
+        let switched = tool
+            .call(SelectArgs {
+                model_id: Some("second".into()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(switched["current_turn_unchanged"], true);
+        assert_eq!(pool.snapshot().selected, "second");
+        assert_eq!(old.selected, "first");
     }
 }
