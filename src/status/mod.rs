@@ -23,6 +23,17 @@ use tracing::warn;
 mod trace;
 use self::trace::Trace;
 
+/// The Responses-API identity for a host-made tool call: a `fc_…` item id and a
+/// `call_…` call id, both derived from the host's own id. Used when journaling an
+/// external call and when repairing a stored round that was journaled without them.
+pub fn responses_ids(id: &str) -> (String, String) {
+    let slug: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    (format!("fc_{slug}"), format!("call_{slug}"))
+}
+
 /// Where a turn's status lines go, plus a durable record of the actions taken.
 /// `silent()` (no target) makes every live emit a no-op, but still accumulates
 /// actions — so the agent loop code stays branch-free.
@@ -90,18 +101,25 @@ impl StatusFeed {
     }
 
     /// A deterministic perception call participates in the same tool journal.
+    ///
+    /// The journal is replayed to the model as an ordinary tool round, so the call
+    /// must look like one the model made: the OpenAI Responses API refuses a
+    /// function call without a `call_id` (rig fails the whole request before it is
+    /// sent), and names a function-call item `fc_…`.
     pub fn start_external(&self, id: &str, name: &str, arguments: Value) {
         let args = arguments.to_string();
+        let (item_id, call_id) = responses_ids(id);
         let call = ToolCall::new(
-            id.into(),
+            item_id,
             ToolFunction {
                 name: name.into(),
                 arguments,
             },
-        );
+        )
+        .with_call_id(call_id.clone());
         let mut trace = self.trace.lock().unwrap();
         trace.response(None, OneOrMany::one(AssistantContent::ToolCall(call)));
-        trace.start(name, None, id, &args);
+        trace.start(name, Some(&call_id), id, &args);
     }
 
     pub fn finish_external(&self, id: &str, result: &str) {
@@ -279,6 +297,7 @@ mod rig_tests {
             Prompt, ToolDefinition, Usage,
         },
         message::{AssistantContent, ToolCall, ToolFunction},
+        providers::openai::responses_api::InputItem,
         streaming::StreamingCompletionResponse,
         tool::Tool,
         OneOrMany,
@@ -430,5 +449,52 @@ mod rig_tests {
         ] {
             assert!(last.contains(text), "missing {text}: {last}");
         }
+    }
+
+    #[test]
+    fn external_call_replays_as_a_valid_responses_round() {
+        let feed = StatusFeed::silent();
+        let id = "auto-hear-225894988:1791189153035";
+        feed.start_external(id, "dispatch_to_connector", json!({"target":"transcribe"}));
+        feed.finish_external(id, "{\"text\":\"hello\"}");
+        let history = feed.snapshot();
+        assert_eq!(history.len(), 2);
+        let mut items = Vec::new();
+        for message in history {
+            items.extend(Vec::<InputItem>::try_from(message).expect("Responses-legal round"));
+        }
+        let wire = to_string(&items).unwrap();
+        assert!(
+            wire.contains("\"call_id\":\"call_auto_hear_225894988_1791189153035\""),
+            "{wire}"
+        );
+        assert!(
+            wire.contains("\"id\":\"fc_auto_hear_225894988_1791189153035\""),
+            "{wire}"
+        );
+        assert!(
+            wire.contains("hello"),
+            "the transcript is the tool output: {wire}"
+        );
+    }
+    #[test]
+    fn interrupted_hearing_keeps_responses_pair() {
+        let feed = StatusFeed::silent();
+        feed.start_external(
+            "auto-hear-1:2",
+            "dispatch_to_connector",
+            json!({"target":"transcribe"}),
+        );
+        let mut items = Vec::new();
+        for message in feed.checkpoint() {
+            items.extend(Vec::<InputItem>::try_from(message).unwrap());
+        }
+        let wire = to_string(&items).unwrap();
+        assert_eq!(
+            wire.matches("\"call_id\":\"call_auto_hear_1_2\"").count(),
+            2,
+            "{wire}"
+        );
+        assert!(wire.contains("UNKNOWN"), "{wire}");
     }
 }
