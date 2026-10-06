@@ -477,4 +477,24 @@ mod rig_tests {
             "the transcript is the tool output: {wire}"
         );
     }
+    #[test]
+    fn interrupted_hearing_keeps_responses_pair() {
+        let feed = StatusFeed::silent();
+        feed.start_external(
+            "auto-hear-1:2",
+            "dispatch_to_connector",
+            json!({"target":"transcribe"}),
+        );
+        let mut items = Vec::new();
+        for message in feed.checkpoint() {
+            items.extend(Vec::<InputItem>::try_from(message).unwrap());
+        }
+        let wire = to_string(&items).unwrap();
+        assert_eq!(
+            wire.matches("\"call_id\":\"call_auto_hear_1_2\"").count(),
+            2,
+            "{wire}"
+        );
+        assert!(wire.contains("UNKNOWN"), "{wire}");
+    }
 }

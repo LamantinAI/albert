@@ -5,7 +5,7 @@
 
 pub use octo_history::{FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn};
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 use rig::{
     completion::Message,
@@ -80,31 +80,40 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
 /// Give every stored tool call and result a `call_id`. The OpenAI Responses API
 /// refuses a round without one, and before the hearing fix a transcription was
 /// journaled that way — one such round in a chat's history failed every later turn
-/// there. Calls the model made already carry theirs and pass through untouched.
+/// there. Existing call IDs pass through untouched. Re-key both sides together:
+/// OpenRouter matches by `id`, while Responses matches by `call_id`.
 fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
+    let mut identities = HashMap::new();
     for message in &mut messages {
-        match message {
-            Message::Assistant { content, .. } => {
-                for item in content.iter_mut() {
-                    if let AssistantContent::ToolCall(call) = item {
-                        if call.call_id.is_none() {
-                            let (item_id, call_id) = responses_ids(&call.id);
-                            call.id = item_id;
-                            call.call_id = Some(call_id);
-                        }
+        if let Message::Assistant { content, .. } = message {
+            for item in content.iter_mut() {
+                if let AssistantContent::ToolCall(call) = item {
+                    let original = call.id.clone();
+                    if call.call_id.is_none() {
+                        let (item_id, call_id) = responses_ids(&original);
+                        call.id = item_id;
+                        call.call_id = Some(call_id);
                     }
+                    identities.insert(original, (call.id.clone(), call.call_id.clone()));
                 }
             }
+        }
+    }
+    for message in &mut messages {
+        match message {
             Message::User { content } => {
                 for item in content.iter_mut() {
                     if let UserContent::ToolResult(result) = item {
-                        if result.call_id.is_none() {
-                            result.call_id = Some(responses_ids(&result.id).1);
+                        if let Some((item_id, call_id)) = identities.get(&result.id) {
+                            result.id = item_id.clone();
+                            if result.call_id.is_none() {
+                                result.call_id = call_id.clone();
+                            }
                         }
                     }
                 }
             }
-            Message::System { .. } => {}
+            Message::System { .. } | Message::Assistant { .. } => {}
         }
     }
     messages
@@ -150,10 +159,10 @@ pub fn recent_actions(turns: &[Turn], max_turns: usize) -> Option<String> {
 mod tests {
     use rig::{
         message::{ToolCall, ToolFunction},
-        providers::openai::responses_api::InputItem,
+        providers::{openai::responses_api::InputItem, openrouter::Message as OpenRouterMessage},
         OneOrMany,
     };
-    use serde_json::json;
+    use serde_json::{json, to_value};
 
     use super::*;
 
@@ -179,8 +188,24 @@ mod tests {
     #[test]
     fn persisted_tool_rounds_replay_as_protocol_messages_not_assistant_text() {
         let messages = vec![
-            Message::assistant("tool round"),
-            Message::tool_result("id", "full result"),
+            Message::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::ToolCall(
+                    ToolCall::new(
+                        "fc_native".into(),
+                        ToolFunction {
+                            name: "read".into(),
+                            arguments: json!({"path":"report.txt"}),
+                        },
+                    )
+                    .with_call_id("call_native".into()),
+                )),
+            },
+            Message::tool_result_with_call_id(
+                "fc_native",
+                Some("call_native".into()),
+                "full result",
+            ),
         ];
         let record = tool_trace(&messages).unwrap();
         assert_eq!(to_messages(&[record]), messages);
@@ -256,5 +281,30 @@ mod tests {
             "{wire}"
         );
         assert!(wire.contains("\"id\":\"fc_auto_hear_1_2\""), "{wire}");
+    }
+    #[test]
+    fn migration_preserves_openrouter_call_result_pair() {
+        let stored = vec![
+            Message::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
+                    "call-old-1".into(),
+                    ToolFunction {
+                        name: "dispatch_to_connector".into(),
+                        arguments: json!({"target":"transcribe"}),
+                    },
+                ))),
+            },
+            Message::tool_result("call-old-1", "hello"),
+        ];
+        let mut wire = Vec::new();
+        for msg in to_messages(&[tool_trace(&stored).unwrap()]) {
+            wire.extend(Vec::<OpenRouterMessage>::try_from(msg).unwrap());
+        }
+        let wire = to_value(wire).unwrap();
+        assert_eq!(
+            wire[0]["tool_calls"][0]["id"], wire[1]["tool_call_id"],
+            "{wire}"
+        );
     }
 }
