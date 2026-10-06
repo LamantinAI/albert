@@ -17,7 +17,7 @@ use rig::{
 };
 use tracing::{debug, info};
 
-use super::{catalog, AlbertCogitator};
+use super::{catalog, dispatch::AgentDispatch, AlbertCogitator};
 use crate::{
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
@@ -105,12 +105,8 @@ impl AlbertCogitator {
                     }
                 },
                 || feed.tool_call_count() > baseline,
-                |message| {
+                |message| async move {
                     info!(channel, status = %message, "model pool");
-                    let feed = feed.clone();
-                    async move {
-                        feed.model_status(message).await;
-                    }
                 },
             )
             .await
@@ -272,7 +268,7 @@ impl AlbertCogitator {
         );
         let installed = self.memory.install(base);
         let with_tools = installed
-            .tool(dispatch)
+            .tool(AgentDispatch(dispatch))
             .tool(pad.goal())
             .tool(pad.step())
             .tool(pad.mark())
