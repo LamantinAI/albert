@@ -23,6 +23,7 @@ use crate::{
     codex_model::CodexResponsesModel,
     cogitator::errors::model_failure,
     config::AuthMode,
+    connector_catalog::ConnectorCatalog,
     history::with_call_ids,
     models::{needs_vision, Failure, FailureKind, ModelSpec},
     selfconfig::SelfConfig,
@@ -51,6 +52,7 @@ impl AlbertCogitator {
         let pending: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         // One drive run consumes its tool instances, and the forced-refresh retry
         // below needs a second set — so the tools are built per attempt.
+        let discovery = ConnectorCatalog::new(ctx.connectors());
         let make_tools = || {
             // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
             // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
@@ -94,7 +96,7 @@ impl AlbertCogitator {
             // Owner-only: read/edit its own config + prompt + skill files (jailed to the
             // deploy dir, allow-listed). Applied via the restart tool above.
             let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
-            (dispatch, send_file, restart, selfconfig)
+            (dispatch, send_file, restart, selfconfig, discovery.clone())
         };
         let snapshot = self.models.snapshot();
         let vision = needs_vision(history.iter().chain([&prompt]));
@@ -154,7 +156,7 @@ impl AlbertCogitator {
             .timeout(Duration::from_millis(model.request_timeout_ms))
             .build()
             .map_err(|_| unavailable("Could not construct HTTP client."))?;
-        let (dispatch, send_file, restart, selfconfig) = tools;
+        let (dispatch, send_file, restart, selfconfig, discovery) = tools;
         let result = match model.provider {
             AuthMode::ApiKey => {
                 let key = match &model.api_key_env {
@@ -179,6 +181,7 @@ impl AlbertCogitator {
                     send_file,
                     restart,
                     selfconfig,
+                    discovery,
                     channel,
                     prompt,
                     history,
@@ -212,6 +215,7 @@ impl AlbertCogitator {
                     send_file,
                     restart,
                     selfconfig,
+                    discovery,
                     channel,
                     prompt,
                     history,
@@ -270,6 +274,7 @@ impl AlbertCogitator {
         send_file: Option<SendFileTool>,
         restart: Option<RestartTool>,
         selfconfig: Option<SelfConfig>,
+        discovery: ConnectorCatalog,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -288,6 +293,7 @@ impl AlbertCogitator {
         let installed = self.memory.install(base);
         let with_tools = installed
             .tool(dispatch)
+            .tool(discovery)
             .tool(pad.goal())
             .tool(pad.step())
             .tool(pad.mark())
@@ -339,4 +345,5 @@ type TurnTools = (
     Option<SendFileTool>,
     Option<RestartTool>,
     Option<SelfConfig>,
+    ConnectorCatalog,
 );
