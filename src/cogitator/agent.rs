@@ -5,7 +5,7 @@ use std::{
 };
 
 use octo_code::code_tools;
-use octo_core::{CogitatorContext, ConnectorId};
+use octo_core::{ChannelId, CogitatorContext, ConnectorId};
 use octo_openai_auth::Subscription as SubToken;
 use octo_rig::{OctoDispatchTool, RestartTool, SendFileTool};
 use rig::{
@@ -17,7 +17,7 @@ use rig::{
 };
 use tracing::{debug, info};
 
-use super::{catalog, dispatch::AgentDispatch, AlbertCogitator};
+use super::{catalog, AlbertCogitator};
 use crate::{
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
@@ -63,14 +63,33 @@ impl AlbertCogitator {
             let mut dispatch =
                 OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
                     .with_timeout(Duration::from_secs(360));
+            if let Some(target) = &reply_target {
+                dispatch = dispatch
+                    .with_channel_for(target.clone(), ChannelId::new(channel))
+                    .with_origin(target.clone(), ChannelId::new(channel));
+            }
             // Stamp this turn's cancellation scope on every dispatch, so a /cancel can
             // reach the connector work (forkd scripts) the model starts this turn.
             if let Some(s) = scope {
                 dispatch = dispatch.with_scope(s);
             }
-            let send_file = reply_target
-                .clone()
-                .map(|t| SendFileTool::new(ctx.bus(), self.self_source.clone(), t, channel));
+            let send_file = reply_target.clone().map(|t| {
+                let confirmed = ctx.connectors().iter().any(|c| {
+                    c.id == t
+                        && c.capabilities
+                            .event_kinds_emit
+                            .iter()
+                            .any(|k| k.as_str() == "chat.send_file.result")
+                });
+                let tool =
+                    SendFileTool::new(ctx.bus(), self.self_source.clone(), t.clone(), channel)
+                        .with_origin(t, ChannelId::new(channel));
+                if confirmed {
+                    tool.with_confirmation_timeout(Duration::from_secs(120))
+                } else {
+                    tool
+                }
+            });
             let restart = owner.then(|| RestartTool::new(pending.clone()));
             // Owner-only: read/edit its own config + prompt + skill files (jailed to the
             // deploy dir, allow-listed). Applied via the restart tool above.
@@ -268,7 +287,7 @@ impl AlbertCogitator {
         );
         let installed = self.memory.install(base);
         let with_tools = installed
-            .tool(AgentDispatch(dispatch))
+            .tool(dispatch)
             .tool(pad.goal())
             .tool(pad.step())
             .tool(pad.mark())

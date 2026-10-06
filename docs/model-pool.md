@@ -106,3 +106,9 @@ Tests use local HTTP provider fixtures, without contacting paid model services:
 identical history/tool permissions on fallback, and refusal to replay a real
 scratchpad action after a provider failure. Policy tests cover snapshot isolation,
 atomic reload, capability filtering, exhausted budgets and bounded token refresh.
+
+File delivery keeps the host-provided origin separate from the destination. Dispatch
+uses the current chat only as the default for its connector; an explicit `channel`
+can target another chat or connector. Telegram file sends return correlated delivery
+results, and the native `send_file` tool awaits those results when advertised. The
+temporary Albert-side ban on dispatching `chat.send_file` has been removed.
