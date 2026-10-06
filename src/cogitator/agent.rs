@@ -295,6 +295,7 @@ impl AlbertCogitator {
         // self-config tools: owner turns only — read/list/write/edit its own deploy files.
         let with_tools = match selfconfig {
             Some(sc) => with_tools
+                .tool(self.models.select_tool())
                 .tool(sc.read_tool())
                 .tool(sc.list_tool())
                 .tool(sc.write_tool())

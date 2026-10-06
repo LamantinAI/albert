@@ -53,6 +53,14 @@ Only the owner can use these deterministic commands:
 - `/model reload`: atomically reload the pool file. Preserve the selected ID if it
   still exists; otherwise use the file's `default`.
 
+The owner can also ask in ordinary language, for example “switch to codex”.
+Owner turns expose the `model_select` tool: omit `model_id` to inspect configured
+IDs and capabilities, then pass a valid `model_id` to select it. Guest turns do not
+receive the tool, even if the model fabricates a call to it. The tool cannot edit
+pool configuration, reload it, or add arbitrary models. Its result explicitly
+states that the current turn is unchanged and no restart is needed. This tool is
+for the owner's request, not autonomous task delegation.
+
 The preference is in memory; process startup uses the file's `default`. It applies
 to all chats and scheduled model work. It does not grant tools or owner privileges.
 
