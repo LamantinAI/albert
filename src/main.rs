@@ -14,6 +14,7 @@ mod error;
 mod history;
 mod manifests;
 mod memory;
+mod models;
 mod openai_login;
 mod prompt;
 mod routines;
@@ -95,17 +96,21 @@ async fn main() -> Result<()> {
     ensure_crypto_provider();
 
     let config = Config::load()?;
-    match config.auth {
-        AuthMode::Subscription => {
-            info!(model = %config.model, base_url = %config.subscription_base_url, "llm backend: subscription");
-        }
-        AuthMode::ApiKey => {
-            let base = if config.base_url.is_empty() {
-                "(provider default)"
-            } else {
-                &config.base_url
-            };
-            info!(model = %config.model, base_url = base, "llm backend: api_key");
+    if let Some(pool) = &config.models {
+        info!(preferred = %pool.default, members = pool.models.len(), max_attempts = pool.max_attempts, "llm model pool loaded");
+    } else {
+        match config.auth {
+            AuthMode::Subscription => {
+                info!(model = %config.model, base_url = %config.subscription_base_url, "llm backend: subscription");
+            }
+            AuthMode::ApiKey => {
+                let base = if config.base_url.is_empty() {
+                    "(provider default)"
+                } else {
+                    &config.base_url
+                };
+                info!(model = %config.model, base_url = base, "llm backend: api_key");
+            }
         }
     }
 

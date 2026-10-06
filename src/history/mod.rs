@@ -82,7 +82,7 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
 /// journaled that way — one such round in a chat's history failed every later turn
 /// there. Existing call IDs pass through untouched. Re-key both sides together:
 /// OpenRouter matches by `id`, while Responses matches by `call_id`.
-fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
+pub(crate) fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
     let mut identities = HashMap::new();
     for message in &mut messages {
         if let Message::Assistant { content, .. } = message {

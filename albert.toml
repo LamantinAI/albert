@@ -6,6 +6,8 @@
 #   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible). The default.
 #   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth). An option.
 auth  = "api_key"
+# Optional live model pool; see docs/model-pool.md and config/models.toml.example.
+# model_pool = "config/models.toml"
 model = "deepseek/deepseek-v4-flash"
 base_url = "https://openrouter.ai/api/v1"
 openai_key_env = "ALBERT_OPENAI_KEY"

@@ -20,7 +20,7 @@ use crate::acl::BOOTSTRAP_COMMANDS;
 use tracing::{info, warn};
 
 /// Names no skill can claim.
-pub const RESERVED: [&str; 10] = [
+pub const RESERVED: [&str; 11] = [
     "start",
     "help",
     "cancel",
@@ -31,14 +31,16 @@ pub const RESERVED: [&str; 10] = [
     "status",
     "chatinfo",
     "groupmode",
+    "model",
 ];
 
 /// The channel command that sets the bot's menu (octo's telegram connector accepts it).
 pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
-const SYSTEM: [(&str, &str, bool); 8] = [
+const SYSTEM: [(&str, &str, bool); 9] = [
     ("help", "What I can do, and my commands", false),
+    ("model", "Model pool: /model [id|list|reload]", true),
     ("chatinfo", "Show this chat and author IDs", false),
     (
         "groupmode",

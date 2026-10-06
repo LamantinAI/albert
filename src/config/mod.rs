@@ -23,10 +23,12 @@ use toml::{from_str, Table, Value};
 use crate::{
     error::{Error, Result},
     memory::config::MemoryConfig,
+    models::PoolConfig,
 };
 
 /// How Albert authenticates to the model backend.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AuthMode {
     /// An API key against OpenRouter or any OpenAI-compatible endpoint. The default.
     ApiKey,
@@ -46,6 +48,8 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub model_pool: Option<PathBuf>,
+    pub models: Option<PoolConfig>,
     pub memory: MemoryConfig,
     pub model: String,
     /// How the LLM call authenticates — API key (default) or ChatGPT subscription.
@@ -123,10 +127,10 @@ impl Config {
         // The API key is required only for the api-key path; a subscription reads
         // its bearer from the OAuth token store, so the env var may be unset.
         let api_key = match auth {
-            AuthMode::ApiKey => Some(
+            AuthMode::ApiKey if raw.model_pool.is_none() => Some(
                 var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?,
             ),
-            AuthMode::Subscription => var(key_var).ok(),
+            _ => var(key_var).ok(),
         };
 
         let timezone = raw
@@ -172,7 +176,15 @@ impl Config {
         }
 
         raw.memory.validate(dir, !clouds.is_empty())?;
+        let model_pool = raw.model_pool.as_ref().map(|p| resolve_path(dir, p));
+        let models = model_pool
+            .as_deref()
+            .map(PoolConfig::read)
+            .transpose()
+            .map_err(Error::Config)?;
         Ok(Config {
+            model_pool,
+            models,
             memory: raw.memory,
             multimodal,
             stream_status: raw.stream_status.unwrap_or(true),
@@ -270,6 +282,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    model_pool: Option<String>,
     #[serde(default)]
     memory: MemoryConfig,
     model: String,

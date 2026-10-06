@@ -110,6 +110,13 @@ impl AlbertCogitator {
                 .map(|cmd| cmd.name.as_str())
                 .unwrap_or("");
 
+            if command == "model" {
+                let args = invocation.as_ref().map(|c| c.args).unwrap_or("");
+                let reply = self.models.command(args, owner);
+                self.emit_reply(&incoming, reply, ctx).await;
+                return;
+            }
+
             if !owner && matches!(command, "cancel" | "restart") {
                 self.emit_reply(
                     &incoming,
@@ -212,17 +219,6 @@ impl AlbertCogitator {
                 }
                 return;
             }
-        }
-
-        // Images on a text-only model: say so instead of silently ignoring them.
-        if !input.images.is_empty() && !self.config.multimodal {
-            let reply = "I got an image, but the current model can't see pictures — \
-                         describe in words what's on it. (Or switch on a multimodal model: \
-                         `multimodal = true` + a vision model in albert.toml.)"
-                .to_string();
-            self.emit_reply(&incoming, reply.clone(), ctx).await;
-            self.record(&channel_key, input.transcript(), reply).await;
-            return;
         }
 
         // The actual agent turn runs as its own task, so the perceive loop stays free to

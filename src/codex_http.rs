@@ -29,6 +29,10 @@ pub struct CodexHttp {
 }
 
 impl CodexHttp {
+    pub fn with_client(inner: ReqwestClient) -> Self {
+        Self { inner }
+    }
+
     /// Rewrite the body of a `POST .../responses` so every `system`-role input
     /// item becomes `developer`; leave every other request (and any unrecognized
     /// body) untouched.

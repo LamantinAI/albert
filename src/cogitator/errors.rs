@@ -1,13 +1,7 @@
-use rig::completion::PromptError;
+use rig::completion::{CompletionError, PromptError};
 use serde_json::Value;
-use tracing::warn;
 
-/// The user-facing stand-in when the tool-loop itself failed — rendered as the
-/// turn's answer (explain, don't vanish).
-pub(super) fn llm_error(e: PromptError) -> String {
-    warn!(error = %e, "llm tool-call failed");
-    user_facing_llm_error(&e)
-}
+use crate::models::{Failure, FailureKind};
 
 /// A short, polite English message for an LLM failure — never the raw provider payload.
 /// On a non-2xx the provider (via rig) hands back the whole response body as the error
@@ -81,12 +75,6 @@ pub(super) fn token_rejected(e: &PromptError) -> bool {
     msg.contains("token_expired") || msg.contains("401 Unauthorized")
 }
 
-/// Backoff between retries of a turn the provider failed to serve, in seconds. The
-/// array length also sets the attempt count: two waits = three attempts and at most
-/// eight extra seconds of delay. A slump longer than that is not a hiccup and is not
-/// fixed by waiting here.
-pub(super) const TRANSIENT_BACKOFF_SECS: [u64; 2] = [2, 6];
-
 /// A provider-side failure that clears on its own — overload, a rate limit, a dropped
 /// connection. Distinct from a malformed request, which no retry can fix.
 pub(super) fn transient(e: &PromptError) -> bool {
@@ -111,4 +99,50 @@ pub(super) fn transient(e: &PromptError) -> bool {
         provider_status_code(&msg),
         Some(429 | 500 | 502 | 503 | 504)
     )
+}
+
+/// Classify before selecting another model; malformed generic requests and tool
+/// errors must not become repeated attempts against every provider.
+pub(super) fn model_failure(error: PromptError) -> Failure {
+    let raw = error.to_string();
+    let lower = raw.to_ascii_lowercase();
+    let completion = matches!(error, PromptError::CompletionError(_));
+    let capability = [
+        "does not support",
+        "not supported",
+        "unsupported",
+        "no endpoints found",
+        "context_length_exceeded",
+        "maximum context length",
+    ]
+    .iter()
+    .any(|hint| lower.contains(hint));
+    let kind = if transient(&error)
+        || matches!(
+            &error,
+            PromptError::CompletionError(CompletionError::HttpError(_))
+        ) {
+        FailureKind::Transient
+    } else if completion
+        && (token_rejected(&error) || matches!(provider_status_code(&raw), Some(401 | 403)))
+    {
+        FailureKind::Authentication
+    } else if (completion && capability)
+        || matches!(
+            &error,
+            PromptError::CompletionError(
+                CompletionError::ResponseError(_) | CompletionError::JsonError(_)
+            )
+        )
+    {
+        FailureKind::Incompatible
+    } else if completion && matches!(provider_status_code(&raw), Some(404)) {
+        FailureKind::Unavailable
+    } else {
+        FailureKind::Fatal
+    };
+    Failure {
+        kind,
+        message: format!("{kind:?}: {}", user_facing_llm_error(&error)),
+    }
 }

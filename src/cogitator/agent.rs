@@ -1,4 +1,5 @@
 use std::{
+    env::var,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -11,18 +12,21 @@ use rig::{
     agent::{AgentBuilder, NoToolConfig},
     client::CompletionClient,
     completion::{CompletionModel, Message, Prompt, PromptError},
-    http_client::{HeaderMap, HeaderValue},
+    http_client::{HeaderMap, HeaderValue, ReqwestClient},
     providers::{openai, openrouter::Client as OpenRouterClient},
 };
-use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
-use super::{
-    catalog, llm_error, token_rejected, transient, AlbertCogitator, TRANSIENT_BACKOFF_SECS,
-};
+use super::{catalog, AlbertCogitator};
 use crate::{
-    codex_http::CodexHttp, codex_model::CodexResponsesModel, config::AuthMode,
-    selfconfig::SelfConfig, status::StatusFeed,
+    codex_http::CodexHttp,
+    codex_model::CodexResponsesModel,
+    cogitator::errors::model_failure,
+    config::AuthMode,
+    history::with_call_ids,
+    models::{needs_vision, Failure, FailureKind, ModelSpec},
+    selfconfig::SelfConfig,
+    status::StatusFeed,
 };
 
 impl AlbertCogitator {
@@ -73,18 +77,89 @@ impl AlbertCogitator {
             let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
             (dispatch, send_file, restart, selfconfig)
         };
-        let answer = match self.config.auth {
+        let snapshot = self.models.snapshot();
+        let vision = needs_vision(history.iter().chain([&prompt]));
+        // Hearing is already complete and is part of the supplied history, not
+        // an action to repeat. Only new model-generated tool rounds block retry.
+        let baseline = feed.tool_call_count();
+        let answer = snapshot
+            .run(
+                vision,
+                |model, force_refresh| {
+                    let tools = make_tools();
+                    let history = with_call_ids(history.clone());
+                    let prompt = prompt.clone();
+                    let feed = feed.clone();
+                    async move {
+                        self.model_attempt(
+                            &model,
+                            force_refresh,
+                            preamble,
+                            tools,
+                            channel,
+                            prompt,
+                            history,
+                            feed,
+                        )
+                        .await
+                    }
+                },
+                || feed.tool_call_count() > baseline,
+                |message| {
+                    info!(channel, status = %message, "model pool");
+                    let feed = feed.clone();
+                    async move {
+                        feed.model_status(message).await;
+                    }
+                },
+            )
+            .await
+            .unwrap_or_else(|error| error);
+        // Drain any restart the model requested during the loop (owner turns only).
+        let restart_target = pending.lock().ok().and_then(|mut p| p.take());
+        (answer, restart_target)
+    }
+
+    async fn model_attempt(
+        &self,
+        model: &ModelSpec,
+        force_refresh: bool,
+        preamble: &str,
+        tools: TurnTools,
+        channel: &str,
+        prompt: Message,
+        history: Vec<Message>,
+        feed: StatusFeed,
+    ) -> Result<String, Failure> {
+        let unavailable = |message: &str| Failure {
+            kind: FailureKind::Unavailable,
+            message: message.into(),
+        };
+        let http = ReqwestClient::builder()
+            .timeout(Duration::from_millis(model.request_timeout_ms))
+            .build()
+            .map_err(|_| unavailable("Could not construct HTTP client."))?;
+        let (dispatch, send_file, restart, selfconfig) = tools;
+        let result = match model.provider {
             AuthMode::ApiKey => {
-                let Some(key) = self.config.api_key.as_deref() else {
-                    return ("(config: api-key auth but no key loaded)".into(), None);
-                };
-                let client = match OpenRouterClient::new(key) {
-                    Ok(c) => c,
-                    Err(e) => return (format!("(llm client error: {e})"), None),
-                };
-                let (dispatch, send_file, restart, selfconfig) = make_tools();
+                let key = match &model.api_key_env {
+                    Some(name) => var(name).ok(),
+                    None => self.config.api_key.clone(),
+                }
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| unavailable("API key is unavailable."))?;
+                let mut builder = OpenRouterClient::builder()
+                    .api_key(key.as_str())
+                    .http_client(http);
+                let base = model.base_url.as_deref().unwrap_or(&self.config.base_url);
+                if !base.is_empty() {
+                    builder = builder.base_url(base);
+                }
+                let client = builder
+                    .build()
+                    .map_err(|_| unavailable("Could not construct API client."))?;
                 self.drive(
-                    client.agent(&self.config.model).preamble(preamble),
+                    client.agent(&model.model).preamble(preamble),
                     dispatch,
                     send_file,
                     restart,
@@ -95,116 +170,49 @@ impl AlbertCogitator {
                     feed,
                 )
                 .await
-                .unwrap_or_else(llm_error)
             }
             AuthMode::Subscription => {
-                // Load (and, if it's expiring, refresh) the OAuth tokens, then build
-                // the Codex client for this turn.
-                let sub = match self.auth.fresh().await {
-                    Ok(s) => s,
-                    Err(e) => return (format!("(subscription auth: {e})"), None),
-                };
-                // Two different failures both want the turn run again, so the attempt
-                // lives in a loop rather than in two hand-written retries.
-                let mut sub = sub;
-                let mut refreshed = false;
-                let mut hiccups = 0usize;
-                loop {
-                    let attempt = self
-                        .subscription_attempt(
-                            &sub,
-                            preamble,
-                            make_tools(),
-                            channel,
-                            prompt.clone(),
-                            history.clone(),
-                            feed.clone(),
-                        )
-                        .await;
-                    match attempt {
-                        Ok(answer) => break answer,
-                        // The server can revoke an access token ahead of its JWT `exp`
-                        // (live incident 2026-08-10: 401 token_expired with exp on 08-18),
-                        // and `ensure_fresh` trusts `exp` — so without this the turn (and
-                        // every turn after it) would 401 forever. Force the refresh and
-                        // retry the whole turn once; a rejected refresh surfaces the auth
-                        // error, which already points at `albert login`.
-                        Err(e) if token_rejected(&e) && !refreshed && !feed.has_tool_calls() => {
-                            warn!(error = %e, "access token rejected live; forcing refresh and retrying the turn");
-                            match self.auth.force_refresh().await {
-                                Ok(fresh) => {
-                                    // The aborted attempt may have recorded a restart
-                                    // target in `pending`; clear it so only what the retried
-                                    // turn actually asks for is carried out — otherwise a
-                                    // restart requested by the failed attempt leaks into an
-                                    // otherwise-clean retry and fires unbidden.
-                                    let _ = pending.lock().map(|mut p| p.take());
-                                    sub = fresh;
-                                    refreshed = true;
-                                    continue;
-                                }
-                                Err(e) => break format!("(subscription auth: {e})"),
-                            }
-                        }
-                        // A busy provider is not an answer. Upstream returns
-                        // `server_is_overloaded` in bursts (live: 5 of 13 turns on
-                        // 2026-08-27), and handing that straight to the user turns a
-                        // hiccup lasting seconds into a failed request. Wait and run the
-                        // turn again; the user sees the delay, not the error.
-                        Err(e)
-                            if transient(&e)
-                                && hiccups < TRANSIENT_BACKOFF_SECS.len()
-                                && !feed.has_tool_calls() =>
-                        {
-                            let wait = TRANSIENT_BACKOFF_SECS[hiccups];
-                            warn!(error = %e, attempt = hiccups + 1, wait_s = wait, "provider hiccup; retrying the turn");
-                            let _ = pending.lock().map(|mut p| p.take());
-                            sleep(Duration::from_secs(wait)).await;
-                            hiccups += 1;
-                            continue;
-                        }
-                        Err(e) => break llm_error(e),
-                    }
+                let sub = if force_refresh {
+                    self.auth.force_refresh().await
+                } else {
+                    self.auth.fresh().await
                 }
+                .map_err(|_| {
+                    unavailable("Subscription authentication failed; check albert login.")
+                })?;
+                let client = self
+                    .subscription_client(
+                        &sub,
+                        model
+                            .base_url
+                            .as_deref()
+                            .unwrap_or(&self.config.subscription_base_url),
+                        http,
+                    )
+                    .map_err(|_| unavailable("Could not construct subscription client."))?;
+                let model = CodexResponsesModel::make(&client, &model.model);
+                self.drive(
+                    AgentBuilder::new(model).preamble(preamble),
+                    dispatch,
+                    send_file,
+                    restart,
+                    selfconfig,
+                    channel,
+                    prompt,
+                    history,
+                    feed,
+                )
+                .await
             }
-        };
-        // Drain any restart the model requested during the loop (owner turns only).
-        let restart_target = pending.lock().ok().and_then(|mut p| p.take());
-        (answer, restart_target)
-    }
-
-    /// One subscription-mode attempt: build the per-turn Codex client from `sub` and
-    /// run the tool-loop. A client-build failure is config-shaped and no retry can
-    /// fix it, so it lands in `Ok` as the final user-facing answer; `Err` is the live
-    /// tool-loop error, which the caller inspects for a revoked-token 401.
-    pub(super) async fn subscription_attempt(
-        &self,
-        sub: &SubToken,
-        preamble: &str,
-        tools: TurnTools,
-        channel: &str,
-        prompt: Message,
-        history: Vec<Message>,
-        feed: StatusFeed,
-    ) -> Result<String, PromptError> {
-        let client = match self.subscription_client(sub) {
-            Ok(c) => c,
-            Err(e) => return Ok(format!("(subscription auth: {e})")),
-        };
-        let model = CodexResponsesModel::make(&client, self.config.model.as_str());
-        let (dispatch, send_file, restart, selfconfig) = tools;
-        self.drive(
-            AgentBuilder::new(model).preamble(preamble),
-            dispatch,
-            send_file,
-            restart,
-            selfconfig,
-            channel,
-            prompt,
-            history,
-            feed,
-        )
-        .await
+        }
+        .map_err(model_failure)?;
+        if result.trim().is_empty() {
+            return Err(Failure {
+                kind: FailureKind::Incompatible,
+                message: "Model returned an empty answer.".into(),
+            });
+        }
+        Ok(result)
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
@@ -213,6 +221,8 @@ impl AlbertCogitator {
     pub(super) fn subscription_client(
         &self,
         sub: &SubToken,
+        base_url: &str,
+        http: ReqwestClient,
     ) -> Result<openai::Client<CodexHttp>, String> {
         if let Some(plan) = &sub.plan {
             info!(plan, "subscription auth loaded");
@@ -224,10 +234,10 @@ impl AlbertCogitator {
         );
         headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
         openai::Client::builder()
-            .base_url(&self.config.subscription_base_url)
+            .base_url(base_url)
             .api_key(sub.access_token.as_str())
             .http_headers(headers)
-            .http_client(CodexHttp::default())
+            .http_client(CodexHttp::with_client(http))
             .build()
             .map_err(|e| format!("client build: {e}"))
     }
@@ -237,7 +247,7 @@ impl AlbertCogitator {
     /// so both auth modes share it; `install` takes the no-tools-yet builder, so
     /// it runs before the dispatch/scratchpad tools are chained on. Returns the
     /// raw loop error so the caller can decide (retry a revoked-token 401, or
-    /// render it via [`llm_error`]).
+    /// classify it for the pool).
     pub(super) async fn drive<M>(
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
