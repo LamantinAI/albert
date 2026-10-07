@@ -114,7 +114,7 @@ impl AlbertCogitator {
     }
 
     /// A system routine fired — internal self-care, no user message.
-    pub(super) async fn run_routine(&self, routine: &str, ctx: &CogitatorContext) {
+    pub(super) async fn run_routine(self: &Arc<Self>, routine: &str, ctx: &CogitatorContext) {
         match routine {
             ROUTINE_MEMORY_REFLECTION => {
                 info!("running memory-reflection routine");

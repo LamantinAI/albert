@@ -116,3 +116,13 @@ backend = "embedded"
 # [clouds.work]
 # url       = "https://kaeru.work.example"
 # token_env = "ALBERT_CLOUD_WORK_TOKEN"
+
+# Bounded one-level delegation. Omit a child's connectors/tools to grant none.
+# See docs/subagents.md; model IDs come from the configured model pool.
+[subagents]
+enabled = true
+max_concurrent = 4
+max_retained = 64
+max_runs_per_turn = 8
+max_tool_turns = 16
+timeout_secs = 600

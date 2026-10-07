@@ -26,6 +26,25 @@ impl Snapshot {
     pub async fn run<T, F, Fut, G, N, Notify>(
         &self,
         vision: bool,
+        attempt: F,
+        touched_tools: G,
+        notify: N,
+    ) -> Result<T, String>
+    where
+        F: FnMut(ModelSpec, bool) -> Fut,
+        Fut: Future<Output = Result<T, Failure>>,
+        G: Fn() -> bool,
+        N: FnMut(String) -> Notify,
+        Notify: Future<Output = ()>,
+    {
+        self.run_with_tools(vision, true, attempt, touched_tools, notify)
+            .await
+    }
+
+    pub async fn run_with_tools<T, F, Fut, G, N, Notify>(
+        &self,
+        vision: bool,
+        tools: bool,
         mut attempt: F,
         touched_tools: G,
         mut notify: N,
@@ -41,7 +60,7 @@ impl Snapshot {
         let mut refreshed = false;
         let mut failures = Vec::new();
         for model in self.ordered() {
-            if !model.tools || (vision && !model.vision) {
+            if (tools && !model.tools) || (vision && !model.vision) {
                 let why = format!(
                     "{}: incompatible (requires tools{}).",
                     model.id,

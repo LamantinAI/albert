@@ -24,6 +24,7 @@ use crate::{
     error::{Error, Result},
     memory::config::MemoryConfig,
     models::PoolConfig,
+    subagents::Limits,
 };
 
 /// How Albert authenticates to the model backend.
@@ -48,6 +49,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub subagents: Limits,
     pub model_pool: Option<PathBuf>,
     pub models: Option<PoolConfig>,
     pub memory: MemoryConfig,
@@ -182,7 +184,9 @@ impl Config {
             .map(PoolConfig::read)
             .transpose()
             .map_err(Error::Config)?;
+        raw.subagents.validate().map_err(Error::Config)?;
         Ok(Config {
+            subagents: raw.subagents,
             model_pool,
             models,
             memory: raw.memory,
@@ -282,6 +286,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    subagents: Limits,
     #[serde(default)]
     model_pool: Option<String>,
     #[serde(default)]

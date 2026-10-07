@@ -1,6 +1,7 @@
 //! Memory has one selected backend. Both expose kaeru verbs to cognition.
 
 pub mod config;
+mod delegation;
 mod mcp;
 mod migration;
 
@@ -13,12 +14,13 @@ use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
 use rig::{
     agent::{AgentBuilder, NoToolConfig, WithBuilderTools},
     completion::CompletionModel,
+    tool::ToolDyn,
 };
 use thiserror::Error;
 use tokio::task::{spawn_blocking, JoinError};
 use tracing::{info, warn};
 
-use self::{config::MemoryConfig, mcp::McpMemory, migration::embedded};
+use self::{config::MemoryConfig, delegation::embedded_tools, mcp::McpMemory, migration::embedded};
 use crate::config::Config;
 
 pub const INITIATIVE: &str = "albert";
@@ -95,6 +97,14 @@ impl Memory {
         embedded(&memory).await?;
         info!(initiative = INITIATIVE, clouds, "memory: embedded kaeru");
         Ok(Self::Embedded { memory, clouds })
+    }
+
+    /// Individually grantable native verbs. No bulk installation in children.
+    pub fn delegation_tools(&self) -> Vec<Box<dyn ToolDyn>> {
+        match self {
+            Self::Mcp(memory) => memory.tools(),
+            Self::Embedded { memory, clouds } => embedded_tools(memory, *clouds),
+        }
     }
 
     pub fn install<M: CompletionModel + 'static>(
@@ -211,5 +221,36 @@ mod tests {
             assert!(has_initiative(&result(text)).is_err());
         }
         assert!(has_initiative(&CallToolResult::error(vec![Content::text("offline")])).is_err());
+    }
+    #[tokio::test]
+    async fn delegation_candidates_match_installed_memory_surface() {
+        for clouds in [false, true] {
+            let memory =
+                KaeruMemory::with_initiative(Arc::new(Store::open_in_memory().unwrap()), "albert");
+            let mut expected: Vec<_> = memory
+                .local_tool_definitions()
+                .await
+                .into_iter()
+                .map(|t| t.name)
+                .collect();
+            if clouds {
+                expected.extend(
+                    memory
+                        .cloud_tool_definitions()
+                        .await
+                        .into_iter()
+                        .map(|t| t.name),
+                );
+            }
+            let backend = super::Memory::Embedded { memory, clouds };
+            let mut names: Vec<_> = backend
+                .delegation_tools()
+                .iter()
+                .map(|t| t.name())
+                .collect();
+            expected.sort();
+            names.sort();
+            assert_eq!(names, expected);
+        }
     }
 }

@@ -544,3 +544,8 @@ unchanged. See [deploy.md](deploy.md) for the host provisioning that pairs with 
 For multiple model endpoints, live `/model` selection and bounded fallback, see
 [the model pool guide](model-pool.md). Without `model_pool`, the existing single-model
 configuration remains supported.
+
+## Subagents
+
+The `[subagents]` table controls delegation limits and enablement. See
+[subagents.md](subagents.md) for grants, model subpools, lifecycle and examples.
