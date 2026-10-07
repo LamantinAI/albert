@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     acl::is_owner,
-    history::{assistant_turn, to_messages, tool_trace, Turn},
+    history::{assistant_turn, journal_messages, to_messages, tool_trace, Turn},
     status::StatusFeed,
 };
 
@@ -48,7 +48,7 @@ impl ChannelState {
         let _ = active.task.await; // no old hooks/replies may race the checkpoint
         let checkpoint = active.feed.checkpoint();
         let mut messages = active.messages;
-        messages.extend(checkpoint.clone());
+        messages.extend(journal_messages(&checkpoint));
         Some(Interrupted {
             scope: active.scope,
             messages,
@@ -206,7 +206,7 @@ impl AlbertCogitator {
             match self.hear(&incoming, &path, ctx, scope, &feed).await {
                 Ok(text) => {
                     history.push(prompt.clone());
-                    history.extend(feed.snapshot());
+                    history.extend(journal_messages(&feed.snapshot()));
                     prompt = Message::user(text);
                     None
                 }
