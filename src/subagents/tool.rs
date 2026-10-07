@@ -49,6 +49,20 @@ pub enum Args {
     List,
     Inspect {
         run_id: String,
+        #[serde(default)]
+        offset: usize,
+    },
+    Read {
+        run_id: String,
+        entry: usize,
+        #[serde(default = "result_part")]
+        part: String,
+        #[serde(default)]
+        field: Vec<String>,
+        #[serde(default)]
+        offset: usize,
+        #[serde(default)]
+        limit: Option<usize>,
     },
     Wait {
         run_id: String,
@@ -58,6 +72,9 @@ pub enum Args {
     Cancel {
         run_id: String,
     },
+}
+fn result_part() -> String {
+    "result".into()
 }
 fn wait_default() -> u64 {
     30
@@ -72,9 +89,14 @@ impl ToolDyn for SubagentTool {
     fn definition(&self, _: String) -> WasmBoxedFuture<'_, ToolDefinition> {
         Box::pin(async {
             ToolDefinition { name: "subagent".into(),
-                description: "Delegate a bounded task with explicitly supplied context, whole connector IDs, individual native tool names, and an ordered model subpool (one ID pins a model). First use capabilities to discover grants and model IDs. Spawn returns run_id; use wait to collect its result before answering. Children keep working when the user interrupts you; list recovers their IDs. A child receives no conversation history, owner tools or delegation tool. Default grants are empty. Results return here, never directly to the user unless you explicitly grant a messaging connector. Grant forkd only if its full script/SSH/network authority is needed. Cancelled or failed tools can have UNKNOWN effects; inspect the journal before retrying.".into(),
+                description: "Delegate a bounded task with explicitly supplied context, whole connector IDs, individual native tool names, and an ordered model subpool (one ID pins a model). First use capabilities to discover grants and model IDs. Spawn returns run_id; use wait to collect its result before answering. Children keep working when the user interrupts you; list recovers their IDs. A child receives no conversation history, owner tools or delegation tool. Default grants are empty. Results return here, never directly to the user unless you explicitly grant a messaging connector. Grant forkd only if its full script/SSH/network authority is needed. Cancelled or failed tools can have UNKNOWN effects; inspect the journal before retrying. inspect returns a paginated action index and paths to heavy payload files, never the full journal. Use read with run_id, entry, part (result or arguments), optional field path (e.g. [result,html]) and character offset/limit to examine selected data. inspect offset is an entry index; read offset is a character index. wait returns the final answer.".into(),
                 parameters: json!({"type":"object","properties":{
-                    "action":{"type":"string","enum":["capabilities","spawn","list","inspect","wait","cancel"]},
+                    "action":{"type":"string","enum":["capabilities","spawn","list","inspect","read","wait","cancel"]},
+                    "entry":{"type":"integer","minimum":0},
+                    "part":{"type":"string","enum":["arguments","result"]},
+                    "field":{"type":"array","items":{"type":"string"}},
+                    "offset":{"type":"integer","minimum":0},
+                    "limit":{"type":"integer","minimum":1},
                     "run_id":{"type":"string"},"seconds":{"type":"integer","minimum":0,"maximum":60},
                     "task":{"type":"object","properties":{
                         "task":{"type":"string"},"context":{"type":"string"},

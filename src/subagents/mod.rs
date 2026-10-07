@@ -1,5 +1,6 @@
 //! Host-owned child runs. Connector grants are whole instances, not a sandbox.
 mod dispatch;
+pub mod inspection;
 mod tool;
 mod workspace;
 
@@ -20,6 +21,7 @@ use tokio::{sync::watch, time::timeout};
 
 use crate::status::StatusFeed;
 pub use dispatch::ScopedDispatch;
+use inspection::Settings as InspectionSettings;
 pub use tool::{Args, SubagentTool};
 pub use workspace::{WorkspaceRead, WorkspaceWrite};
 
@@ -29,6 +31,7 @@ pub type Conversation = (String, String);
 #[serde(default, deny_unknown_fields)]
 pub struct Limits {
     pub enabled: bool,
+    pub inspection: InspectionSettings,
     pub max_concurrent: usize,
     pub max_retained: usize,
     pub max_runs_per_turn: usize,
@@ -39,6 +42,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             enabled: true,
+            inspection: Default::default(),
             max_concurrent: 4,
             max_retained: 64,
             max_runs_per_turn: 8,
@@ -54,6 +58,7 @@ impl Limits {
             || self.max_runs_per_turn == 0
             || self.max_tool_turns == 0
             || self.timeout_secs == 0
+            || !self.inspection.validate()
         {
             return Err(
                 "subagents: limits must be positive; max_retained >= max_concurrent".into(),
@@ -106,6 +111,14 @@ impl Run {
             .and_then(|v| v.get("status"))
             .cloned()
             .unwrap_or(json!("running"))
+    }
+
+    pub fn summary(&self) -> Value {
+        let result = self.result.borrow().clone();
+        json!({"run_id":self.id,"parent_run_id":self.parent,"status":self.status(),
+            "tool_calls":self.feed.tool_call_count(),"workspace":result.get("workspace"),
+            "journal_saved":result.get("journal_saved"),"result_available":!result.is_null(),
+            "history_key":format!("subagent/{}",self.id)})
     }
 
     pub fn view(&self) -> Value {

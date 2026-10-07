@@ -126,3 +126,10 @@ max_retained = 64
 max_runs_per_turn = 8
 max_tool_turns = 16
 timeout_secs = 600
+
+# Compact journal inspection; full records remain in history storage.
+[subagents.inspection]
+page_size = 20
+preview_chars = 300
+artifact_bytes = 8192
+read_chars = 8192

@@ -258,7 +258,10 @@ needs, an ordered list of model IDs (one ID pins the model), whole connector IDs
 and individual native tool names. Empty grants mean no tools or connectors.
 Prefer a small worker over duplicating your entire task. A researcher can receive
 search/browser; a writer can receive only the supplied materials and one model.
-Collect results with wait/inspect before relying on them. New user messages do
+Collect final results with wait before relying on them. Inspect returns a compact
+action index and payload file paths; use subagent read with an entry, optional
+field path, and offset/limit to examine only relevant journal data. The journal
+stays in history storage. Do not read entire large payload files into context. New user messages do
 not stop children: review the pending run statuses, reuse relevant work, and
 cancel obsolete runs. /cancel stops the chat's children as well as your turn.
 Children have no owner/config/restart/model-selection or further delegation tools.

@@ -38,8 +38,14 @@ version; parent conversation history, persona and attachments are not copied.
 Spawn returns a `run_id`. Other actions:
 
 - `list`: runs visible in this source connector and conversation.
-- `inspect`, with `run_id`: state and execution journal, including uncertain
-  outcomes for interrupted calls.
+- `inspect`, with `run_id` and optional entry `offset`: compact state and a page
+  of actions, previews, extraction metadata and paths to heavy payload files.
+  The full journal stays in the configured history store; completed runs are
+  inspected from that store. Live/unpersisted runs use their in-memory trace.
+- `read`, with `run_id`, `entry`, optional `part` (`result` or `arguments`),
+  `field` (e.g. `["result", "html"]`), character `offset` and `limit`: read a
+  bounded portion of one journal payload. It preserves the same conversation and
+  owner access checks as inspect. `next_offset` continues either form of paging.
 - `wait`, with `run_id` and optional `seconds` (default 30, maximum 60): wait for
   completion and return its outcome. Repeat if still running.
 - `cancel`, with `run_id`: cancel work, propagate cancellation to connectors and
@@ -85,7 +91,8 @@ fallback stops once a child has attempted a tool, avoiding replay of effects.
 
 A new message interrupts **only the parent turn**. Children continue under their
 own scopes. Pending run IDs and statuses are supplied to the next parent turn;
-completed results stop appearing there after `wait` or `inspect` collects them.
+completed results stop appearing there after `wait` collects them. Inspecting the action index alone does not mark the
+final answer as collected.
 The agent can cancel an obsolete child. Explicit `/cancel` cancels the parent and
 all children in that conversation, including children surviving an earlier turn.
 Runtime shutdown and each child's deadline also cancel work.
@@ -129,3 +136,32 @@ provider retries. Each child may request lower tool-turn/time limits, never
 higher. Model attempts/retries inherit the pool's configured bounds. With no
 nested delegation, children cannot grow another task tree. These are execution
 budgets, not a currency or token-spend quota.
+
+## Inspection payload files
+
+Inspection writes only large requested payloads to
+`<code_workspace>/tool-results/<content-hash>.json` or `.txt`. Browser HTML and
+text also get standalone files for analysis without JSON escaping. These are
+payload artifacts, **not journal exports**. The original journal is not rewritten
+or removed. Repeated inspection reuses the same content-derived paths. Artifacts
+are generated only for the requested inspection page and currently retained for
+operator-managed cleanup under the workspace's existing access policy.
+
+If artifact storage fails, inspect still returns a bounded preview and an explicit
+error; `subagent read` can retrieve the original payload from history. Native file
+`read` can return a much larger chunk; prefer `subagent read` for selective model
+context loading. Completed run handles retain their existing in-memory lifetime;
+this change does not add cross-restart run discovery.
+
+```toml
+[subagents.inspection]
+page_size = 20
+preview_chars = 300
+artifact_bytes = 8192
+read_chars = 8192
+```
+
+`list` also returns compact metadata, while `wait` continues to return the final
+answer. General tool-result offloading before model ingestion, artifact lifecycle
+management, and conversation-window compaction remain follow-up work in
+[#37](https://github.com/LamantinAI/albert/issues/37).

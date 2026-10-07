@@ -4,14 +4,17 @@ mod runner;
 // Assembly policy for one-level delegation. The Octo bus remains generic.
 use std::{path::PathBuf, sync::Arc};
 
-use rig::tool::ToolDyn;
+use rig::{completion::Message, tool::ToolDyn};
 use serde_json::{json, Value};
 
 use super::AlbertCogitator;
 use crate::{
-    history::journal_messages,
+    history::{journal_messages, to_messages},
     scratchpad::ScratchpadStore,
-    subagents::{Args, SubagentTool, WorkspaceRead, WorkspaceWrite},
+    subagents::{
+        inspection::{inspect, read_entry},
+        Args, Run, SubagentTool, WorkspaceRead, WorkspaceWrite,
+    },
 };
 
 impl AlbertCogitator {
@@ -57,16 +60,38 @@ impl AlbertCogitator {
             Args::Spawn { task } => self.spawn_child(tool, task),
             Args::List => Ok(
                 json!({"runs":self.children.visible(&tool.conversation, tool.owner)
-                .iter().map(|run| run.view()).collect::<Vec<_>>()}),
+                .iter().map(|run| run.summary()).collect::<Vec<_>>()}),
             ),
-            Args::Inspect { run_id } => {
+            Args::Inspect { run_id, offset } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
-                let result =
-                    json!({"run":run.view(),"journal":journal_messages(&run.feed.snapshot())});
-                if !result["run"]["result"].is_null() {
-                    run.acknowledge();
-                }
-                Ok(result)
+                let messages = self.inspection_messages(&run).await;
+                let index = inspect(
+                    &messages,
+                    &self.config.code_workspace.join("tool-results"),
+                    &self.config.subagents.inspection,
+                    offset,
+                );
+                Ok(json!({"run":run.summary(),"journal":index}))
+            }
+            Args::Read {
+                run_id,
+                entry,
+                part,
+                field,
+                offset,
+                limit,
+            } => {
+                let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
+                let messages = self.inspection_messages(&run).await;
+                read_entry(
+                    &messages,
+                    entry,
+                    &part,
+                    &field,
+                    offset,
+                    limit,
+                    &self.config.subagents.inspection,
+                )
             }
             Args::Wait { run_id, seconds } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
@@ -81,6 +106,21 @@ impl AlbertCogitator {
                 let _ = run.cancel.send(true);
                 Ok(run.wait(60).await)
             }
+        }
+    }
+    async fn inspection_messages(&self, run: &Run) -> Vec<Message> {
+        let persisted = run
+            .result
+            .borrow()
+            .get("journal_saved")
+            .and_then(Value::as_bool)
+            == Some(true);
+        if persisted {
+            to_messages(&self.history.load(&format!("subagent/{}", run.id)).await)
+        } else {
+            // Running or unpersisted work remains available, without pretending a
+            // failed database write succeeded. Never write a journal file.
+            journal_messages(&run.feed.snapshot())
         }
     }
 }
@@ -335,6 +375,7 @@ mod tests {
                 &tool,
                 Args::Inspect {
                     run_id: run.id.clone(),
+                    offset: 0,
                 },
             )
             .await
@@ -407,5 +448,48 @@ mod tests {
             .await
             .unwrap_err()
             .contains("limits"));
+    }
+    #[tokio::test]
+    async fn completed_inspection_reads_history_and_enforces_run_access() {
+        let (host, ctx, _server) = setup("writes").await;
+        let tool = tool(&host, ctx);
+        let mut child = task("writes");
+        child.tools.push("scratchpad_note".into());
+        let started = host
+            .subagent_command(&tool, Args::Spawn { task: child })
+            .await
+            .unwrap();
+        wait(&host, &tool, &started["run_id"]).await;
+        let id = started["run_id"].as_str().unwrap().to_owned();
+        let run = host.children.get(&id, &tool.conversation, true).unwrap();
+        run.feed.checkpoint(); // Drop live trace: persisted journal is authoritative.
+        let view = host
+            .subagent_command(
+                &tool,
+                Args::Inspect {
+                    run_id: id.clone(),
+                    offset: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(view["journal"]["entries"][0]["tool"], "scratchpad_note");
+        assert!(view["run"].get("result").is_none());
+        let args = || Args::Read {
+            run_id: id.clone(),
+            entry: 0,
+            part: "arguments".into(),
+            field: vec!["text".into()],
+            offset: 0,
+            limit: None,
+        };
+        let read = host.subagent_command(&tool, args()).await.unwrap();
+        assert_eq!(read["content"], "recorded once");
+        let mut outsider = tool.clone();
+        outsider.conversation.1 = "another-room".into();
+        assert!(host.subagent_command(&outsider, args()).await.is_err());
+        outsider.conversation = tool.conversation.clone();
+        outsider.owner = false;
+        assert!(host.subagent_command(&outsider, args()).await.is_err());
     }
 }
