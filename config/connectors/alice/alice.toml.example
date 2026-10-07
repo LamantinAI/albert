@@ -25,21 +25,9 @@ sender_name = "голос через Яндекс Станцию"
 reply_wait_ms = 2500
 max_chars = 900
 
-# What the speaker says while Albert thinks (random each time).
-fillers = [
-    "Думаю. Бегу за пончиком, сейчас вернусь.",
-    "Чешу свои бульдожьи усы. Минутку.",
-    "Так-так, листаю записную книжку.",
-    "Хм. Завариваю чай и думаю.",
-    "Секунду, спрашиваю у умных людей.",
-    "Шевелю извилинами, не уходите.",
-    "Ищу очки. А, вот они. Сейчас отвечу.",
-    "Думаю. Это не быстро, но я стараюсь.",
-    "Сверяюсь с архивами. Пыльно тут.",
-    "Перекладываю бумажки, почти нашёл.",
-    "Звоню знакомому профессору. Гудки идут.",
-    "Ещё чуть-чуть. Дожёвываю пончик.",
-]
+# What the speaker says while Albert thinks: a random line of fillers.txt (next to
+# this manifest, ~200 of them), never the same twice in a row.
+fillers_file = "fillers.txt"
 
 # The speaker's own voice: a reply that misses Alice's ~3 s window is said by the
 # speaker by itself (and so are reminders). Needs the Yandex account's x-token —
@@ -50,12 +38,13 @@ fillers = [
 x_token_env = "YANDEX_X_TOKEN"
 # device = "Яндекс Станция"   # name or id; omit if the account has one speaker (logged at startup)
 # Deliver the finished reply whole: the speaker reopens this skill by itself and
-# says the reply as the skill's answer, conversation still open. Use the exact
-# launch phrase of YOUR skill (its name in the Dialogs console). Without it the
-# reply is read out by the cloud voice in 100-character pieces.
-# relaunch = "запусти навык Помощник Альберт"
-filler_every_secs = 5
-max_fillers = 12
+# says the reply as the skill's answer, conversation still open. Phrase it as
+# "попроси <YOUR skill's name> дальше" — NOT "запусти навык …", which makes Alice
+# announce «Запускаю навык…» out loud first. Without it the reply is read out by
+# the cloud voice in 100-character pieces.
+# relaunch = "попроси Помощника Альберта дальше"
+filler_every_secs = 4
+max_fillers = 20
 
 [connector.phrases]
 greeting = "Альберт слушает."
