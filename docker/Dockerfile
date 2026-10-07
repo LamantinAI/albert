@@ -125,7 +125,7 @@ ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     # missing one; point it at the writable volume.
     HOME=/data \
     OCTO_SKILLS_DIR=/opt/albert/skills \
-    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_connector_browser=info,octo_connector_transcribe=info,octo_connector_speak=info,octo_connector_imagegen=info,octo_http_auth=info,octo_core=warn
+    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_connector_browser=info,octo_connector_transcribe=info,octo_connector_speak=info,octo_connector_imagegen=info,octo_connector_alice=info,octo_http_auth=info,octo_core=warn
 
 # Run as the unprivileged service user. forkd still drops scripts to albert-scripts —
 # from non-root that needs CAP_SETUID/CAP_SETGID, granted in docker-compose (cap_add).

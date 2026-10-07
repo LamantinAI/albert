@@ -33,6 +33,7 @@ use std::{
 
 use dotenvy::{dotenv, from_path};
 use octo_code::WORKSPACE_ENV;
+use octo_connector_alice::factory as alice_factory;
 use octo_connector_browser::factory as browser_factory;
 use octo_connector_caldav::factory as caldav_factory;
 use octo_connector_forkd::{factory as forkd_factory, SKILLS_ENV};
@@ -83,7 +84,7 @@ async fn main() -> Result<()> {
              octo_connector_mail=info,octo_connector_search=info,\
              octo_connector_http=info,octo_connector_browser=info,\
              octo_connector_transcribe=info,octo_connector_speak=info,\
-             octo_connector_imagegen=info,octo_core=warn"
+             octo_connector_imagegen=info,octo_connector_alice=info,octo_core=warn"
                 .into()
         }))
         .with_target(true)
@@ -238,6 +239,7 @@ async fn main() -> Result<()> {
         // so from_config_file instantiates it only once a real manifest is dropped in.
         builder = builder
             .register_connector_type("telegram", telegram_factory())
+            .register_connector_type("alice", alice_factory())
             .register_connector_type("caldav", caldav_factory())
             .register_connector_type("storage", storage_factory())
             .register_connector_type("forkd", forkd_factory())
