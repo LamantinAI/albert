@@ -35,6 +35,10 @@ fillers = [
     "Шевелю извилинами, не уходите.",
     "Ищу очки. А, вот они. Сейчас отвечу.",
     "Думаю. Это не быстро, но я стараюсь.",
+    "Сверяюсь с архивами. Пыльно тут.",
+    "Перекладываю бумажки, почти нашёл.",
+    "Звоню знакомому профессору. Гудки идут.",
+    "Ещё чуть-чуть. Дожёвываю пончик.",
 ]
 
 # The speaker's own voice: a reply that misses Alice's ~3 s window is said by the
@@ -45,6 +49,13 @@ fillers = [
 [connector.push]
 x_token_env = "YANDEX_X_TOKEN"
 # device = "Яндекс Станция"   # name or id; omit if the account has one speaker (logged at startup)
+# Deliver the finished reply whole: the speaker reopens this skill by itself and
+# says the reply as the skill's answer, conversation still open. Use the exact
+# launch phrase of YOUR skill (its name in the Dialogs console). Without it the
+# reply is read out by the cloud voice in 100-character pieces.
+# relaunch = "запусти навык Помощник Альберт"
+filler_every_secs = 5
+max_fillers = 12
 
 [connector.phrases]
 greeting = "Альберт слушает."
