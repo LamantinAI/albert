@@ -1,21 +1,21 @@
 //! Albert's interruption policy. A channel transition is serialized with reply
 //! publication; only the model/tool future is aborted, never accepted input.
 
-use std::sync::{atomic::Ordering, Arc};
+mod compact;
+mod run;
+mod spawn;
+
+use std::sync::Arc;
 
 use octo_core::{CogitatorContext, Envelope};
 use octo_rig::carry_out_cancel;
 use rig::completion::Message;
-use tokio::{spawn, sync::Mutex, task::JoinHandle};
-use tracing::{info, warn};
+use tokio::task::JoinHandle;
+use tracing::warn;
 
-use super::{
-    action_context, channel_of, incoming_context, now_rfc3339, with_action_log, AlbertCogitator,
-    UserInput,
-};
+use super::{channel_of, AlbertCogitator};
 use crate::{
-    acl::is_owner,
-    history::{assistant_turn, journal_messages, to_messages, tool_trace, Turn},
+    history::{journal_messages, tool_trace},
     status::StatusFeed,
 };
 
@@ -25,6 +25,9 @@ pub(super) struct ChannelState {
 }
 
 struct ActiveTurn {
+    /// Original task envelope; absent for a compact started while idle.
+    continuation: Option<Arc<Envelope>>,
+    compact_id: Option<i64>,
     scope: String,
     task: JoinHandle<()>,
     feed: StatusFeed,
@@ -35,6 +38,9 @@ struct ActiveTurn {
 }
 
 struct Interrupted {
+    /// Original task envelope; absent for a compact started while idle.
+    continuation: Option<Arc<Envelope>>,
+    compact_id: Option<i64>,
     scope: String,
     messages: Vec<Message>,
     checkpoint: Vec<Message>,
@@ -50,6 +56,8 @@ impl ChannelState {
         let mut messages = active.messages;
         messages.extend(journal_messages(&checkpoint));
         Some(Interrupted {
+            continuation: active.continuation,
+            compact_id: active.compact_id,
             scope: active.scope,
             messages,
             checkpoint,
@@ -63,89 +71,6 @@ pub(super) fn turn_key(env: &Envelope) -> (String, String) {
 }
 
 impl AlbertCogitator {
-    pub(super) async fn spawn_turn(
-        self: Arc<Self>,
-        incoming: Arc<Envelope>,
-        input: UserInput,
-        ctx: &CogitatorContext,
-    ) {
-        let channel = channel_of(&incoming);
-        let state = self
-            .turns
-            .lock()
-            .unwrap()
-            .entry(turn_key(&incoming))
-            .or_insert_with(|| Arc::new(Mutex::new(ChannelState::default())))
-            .clone();
-        let mut locked = state.lock().await;
-        let interrupted = locked.interrupt().await;
-        let mut records = Vec::new();
-        let (mut messages, owner) = if let Some(previous) = interrupted {
-            self.cancel_scope(&previous.scope, ctx).await;
-            records.extend(tool_trace(&previous.checkpoint));
-            // A trusted user's work must not gain owner tools merely because the
-            // next participant is the owner. Re-evaluate at the next fresh turn.
-            (previous.messages, previous.owner && is_owner(&incoming))
-        } else {
-            (
-                to_messages(&self.history.load(&channel).await),
-                is_owner(&incoming),
-            )
-        };
-        records.push(Turn::user(input.transcript_with_source(&incoming)));
-        if let Err(error) = self.history.append(&channel, &records).await {
-            warn!(%error, %channel, "cannot persist incoming message; refusing to start tools");
-            self.emit_reply(
-                &incoming,
-                "I couldn't save your message, so I haven't started the work. Please try again."
-                    .into(),
-                ctx,
-            )
-            .await;
-            return;
-        }
-        info!(source = %incoming.source, %channel, "← {}", input.transcript());
-        messages.push(input.prompt_with_source(&incoming));
-        let scope = format!(
-            "{}/{}-{}",
-            self.id,
-            incoming.id,
-            self.turn_seq.fetch_add(1, Ordering::Relaxed)
-        );
-        let feed = self.feed(ctx, incoming.source.clone(), incoming.channel.clone());
-        let me = self.clone();
-        let owned_ctx = ctx.clone();
-        let owned_state = state.clone();
-        let owned_scope = scope.clone();
-        let owned_feed = feed.clone();
-        let mut history = messages.clone();
-        let prompt = history.pop().expect("new input was appended");
-        let voice = input.voice;
-        let task = spawn(async move {
-            me.run_turn(
-                incoming,
-                voice,
-                prompt,
-                history,
-                owner,
-                &owned_ctx,
-                &owned_scope,
-                owned_feed,
-                owned_state,
-            )
-            .await;
-        });
-        // Insert before releasing the gate; a fast completion cannot clear its
-        // slot before registration (the old spawn/insert race).
-        locked.active = Some(ActiveTurn {
-            scope,
-            task,
-            feed,
-            messages,
-            owner,
-        });
-    }
-
     pub(super) async fn cancel_channel(
         &self,
         key: &(String, String),
@@ -177,92 +102,6 @@ impl AlbertCogitator {
     async fn cancel_scope(&self, scope: &str, ctx: &CogitatorContext) {
         if let Err(error) = carry_out_cancel(&ctx.bus(), &self.self_source, scope).await {
             warn!(%error, %scope, "failed to publish cancellation");
-        }
-    }
-
-    async fn run_turn(
-        self: &Arc<Self>,
-        incoming: Arc<Envelope>,
-        voice: Option<String>,
-        mut prompt: Message,
-        mut history: Vec<Message>,
-        owner: bool,
-        ctx: &CogitatorContext,
-        scope: &str,
-        feed: StatusFeed,
-        state: Arc<Mutex<ChannelState>>,
-    ) {
-        let channel = channel_of(&incoming);
-        self.emit_typing(incoming.source.clone(), incoming.channel.clone(), ctx)
-            .await;
-        let active = self.active_reminders(ctx).await;
-        let pad = self.scratchpad.render(&channel);
-        let stored = self.history.load(&channel).await;
-        let preamble = format!(
-            "{}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}{}",
-            self.prompt.base(),
-            incoming_context(&incoming, &channel),
-            now_rfc3339(&self.config.timezone),
-            active,
-            pad,
-            self.skills.catalog(),
-            action_context(&stored)
-        );
-        let hearing_error = if let Some(path) = voice {
-            match self.hear(&incoming, &path, ctx, scope, &feed).await {
-                Ok(text) => {
-                    history.push(prompt.clone());
-                    history.extend(journal_messages(&feed.snapshot()));
-                    prompt = Message::user(text);
-                    None
-                }
-                Err(error) => Some(error),
-            }
-        } else {
-            None
-        };
-        let (answer, restart) = if let Some(error) = hearing_error {
-            (error, None)
-        } else {
-            self.run_agent(
-                ctx,
-                &channel,
-                &preamble,
-                prompt,
-                history,
-                Some(incoming.source.clone()),
-                owner,
-                feed.clone(),
-                Some(scope),
-            )
-            .await
-        };
-
-        // Reply commit and accepting a newer input cannot interleave. If the new
-        // input won, this task has been aborted while waiting for the gate.
-        let mut locked = state.lock().await;
-        if !locked
-            .active
-            .as_ref()
-            .is_some_and(|active| active.scope == scope)
-        {
-            return;
-        }
-        let checkpoint = feed.checkpoint();
-        let mut records: Vec<_> = tool_trace(&checkpoint).into_iter().collect();
-        records.push(assistant_turn(with_action_log(
-            &answer,
-            &feed.drain_actions(),
-        )));
-        if let Err(error) = self.history.append(&channel, &records).await {
-            warn!(%error, "failed to save completed turn");
-        }
-        info!("→ {answer}");
-        self.emit_reply(&incoming, answer, ctx).await;
-        locked.active = None;
-        drop(locked);
-        if let Some(target) = restart {
-            self.apply_restart(target, ctx).await;
         }
     }
 
@@ -298,6 +137,8 @@ mod tests {
         }
         let guard = DropNotice(Some(dropped));
         ActiveTurn {
+            continuation: None,
+            compact_id: None,
             scope: "scope".into(),
             messages,
             owner: true,
@@ -357,6 +198,8 @@ mod tests {
             state.active = None;
         });
         gate.active = Some(ActiveTurn {
+            continuation: None,
+            compact_id: None,
             scope: "quick".into(),
             task,
             feed: StatusFeed::silent(),
@@ -525,5 +368,203 @@ mod integration_tests {
         agent.clone().handle(command, &ctx).await;
         assert_eq!(state.lock().await.active.as_ref().unwrap().scope, scope);
         agent.stop_turns(&ctx).await;
+    }
+    #[tokio::test]
+    async fn interrupt_does_not_resurrect_a_prefix_compacted_by_another_task() {
+        use crate::history::{SqliteHistory, Turn};
+        use tempfile::tempdir;
+        let (mut host, ctx, _) = fixture();
+        let dir = tempdir().unwrap();
+        let db = Arc::new(
+            SqliteHistory::open_retained(dir.path().join("history.db"))
+                .await
+                .unwrap(),
+        );
+        Arc::get_mut(&mut host).unwrap().history = db.clone();
+        db.append("room", &[Turn::user("old original")])
+            .await
+            .unwrap();
+        let boundary = db.context("room").await.unwrap().through_id();
+        host.clone()
+            .spawn_turn(
+                envelope("room", "current question"),
+                input("current question"),
+                &ctx,
+            )
+            .await;
+        assert!(db
+            .save_compact("room", None, boundary, "durable compact")
+            .await
+            .unwrap());
+        let incoming = envelope("room", "new question");
+        host.clone()
+            .spawn_turn(incoming.clone(), input("new question"), &ctx)
+            .await;
+        let state = host
+            .turns
+            .lock()
+            .unwrap()
+            .get(&turn_key(&incoming))
+            .cloned()
+            .unwrap();
+        let view =
+            serde_json::to_string(&state.lock().await.active.as_ref().unwrap().messages).unwrap();
+        assert!(view.contains("durable compact"));
+        assert!(view.contains("current question"));
+        assert!(view.contains("new question"));
+        assert!(!view.contains("old original"));
+        host.stop_turns(&ctx).await;
+    }
+    #[tokio::test]
+    async fn a_new_message_interrupts_subagent_wait_without_cancelling_or_consuming_the_child() {
+        use crate::cogitator::provider_fixture::setup;
+        use octo_core::{EventBus, Filter, SubscribeOptions};
+        use serde_json::json;
+        use std::time::Duration;
+        use tokio::{spawn, task::yield_now, time::timeout};
+        let (host, ctx, server) = setup("waiting-parent").await;
+        let key = ("telegram".to_owned(), "room".to_owned());
+        let (child, cancelled, done) = host
+            .children
+            .reserve(
+                &host.config.subagents,
+                "previous".into(),
+                key.clone(),
+                false,
+                "test",
+            )
+            .unwrap();
+        let mut scheduler = ctx
+            .bus()
+            .subscribe(
+                Filter::by_kind("octo.scheduler.list_alarms"),
+                SubscribeOptions::default(),
+            )
+            .await
+            .unwrap();
+        let bus = ctx.bus();
+        let responder = spawn(async move {
+            while let Some(request) = scheduler.next().await {
+                bus.publish(
+                    Envelope::new(
+                        ConnectorId::new("scheduler"),
+                        EventKind::new("octo.scheduler.alarms"),
+                        json!({"alarms":[]}),
+                    )
+                    .with_target(request.source.clone())
+                    .with_correlation(request.id),
+                )
+                .await
+                .unwrap();
+            }
+        });
+        let mut replies = ctx
+            .bus()
+            .subscribe(Filter::by_kind("chat.reply"), SubscribeOptions::default())
+            .await
+            .unwrap();
+        let text = format!("WAIT_RUN: {} original task", child.id);
+        host.clone()
+            .spawn_turn(envelope("room", &text), input(&text), &ctx)
+            .await;
+        let state = host.turns.lock().unwrap().get(&key).cloned().unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if state
+                    .lock()
+                    .await
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.feed.tool_call_count() == 1)
+                {
+                    break;
+                }
+                yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(child.result.borrow().is_null());
+        timeout(
+            Duration::from_millis(500),
+            host.clone().spawn_turn(
+                envelope("room", "new direction"),
+                input("new direction"),
+                &ctx,
+            ),
+        )
+        .await
+        .unwrap();
+        let reply = timeout(Duration::from_secs(3), replies.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            reply.payload_as::<String>().unwrap(),
+            "answer from waiting-parent"
+        );
+        assert!(
+            !*cancelled.borrow(),
+            "ordinary interrupt must not cancel the child"
+        );
+        done.send_replace(json!({"outcome":{"status":"completed","answer":"late child report"}}));
+        // A detached old tool future must neither send a stale answer nor mark
+        // this late report as collected by the interrupted parent.
+        assert!(timeout(Duration::from_millis(100), replies.next())
+            .await
+            .is_err());
+        assert!(host.children.context(&key, false).contains(&child.id));
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        let resumed = requests[1]["messages"].to_string();
+        assert!(resumed.contains("original task") && resumed.contains("new direction"));
+        assert!(resumed.contains("UNKNOWN"));
+        drop(requests);
+        responder.abort();
+        host.stop_turns(&ctx).await;
+    }
+    #[tokio::test]
+    async fn delivered_child_report_is_acknowledged_after_the_parent_records_it() {
+        use crate::{cogitator::provider_fixture::setup, status::StatusFeed};
+        use rig::completion::Message;
+        use serde_json::json;
+        use std::time::Duration;
+        use tokio::time::timeout;
+        let (host, ctx, _server) = setup("waiting-parent").await;
+        let key = ("telegram".to_owned(), "room".to_owned());
+        let (child, _, done) = host
+            .children
+            .reserve(
+                &host.config.subagents,
+                "previous".into(),
+                key.clone(),
+                false,
+                "test",
+            )
+            .unwrap();
+        done.send_replace(
+            json!({"outcome":{"status":"completed","answer":"verified child report"}}),
+        );
+        let feed = StatusFeed::silent();
+        timeout(
+            Duration::from_secs(3),
+            host.run_agent(
+                &ctx,
+                "room",
+                "test",
+                Message::user(format!("WAIT_RUN: {} original task", child.id)),
+                vec![],
+                Some(ConnectorId::new("telegram")),
+                false,
+                feed.clone(),
+                Some("parent"),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(host.children.context(&key, false).is_empty());
+        assert!(serde_json::to_string(&feed.snapshot())
+            .unwrap()
+            .contains("verified child report"));
     }
 }

@@ -191,6 +191,7 @@ mod tests {
         ModelSpec {
             id: id.into(),
             model: id.into(),
+            context_window: None,
             provider: AuthMode::ApiKey,
             base_url: None,
             api_key_env: None,

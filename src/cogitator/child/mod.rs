@@ -1,42 +1,23 @@
 mod launch;
+mod native;
 mod runner;
 
 // Assembly policy for one-level delegation. The Octo bus remains generic.
 use std::{path::PathBuf, sync::Arc};
 
-use rig::{completion::Message, tool::ToolDyn};
-use serde_json::{json, Value};
+use rig::completion::Message;
+use serde_json::{from_str, json, Value};
 
 use super::AlbertCogitator;
 use crate::{
     history::{journal_messages, to_messages},
-    scratchpad::ScratchpadStore,
     subagents::{
         inspection::{inspect, read_entry},
-        Args, Run, SubagentTool, WorkspaceRead, WorkspaceWrite,
+        Args, Conversation, Run, SubagentTool,
     },
 };
 
 impl AlbertCogitator {
-    fn child_native_tools(&self, workspace: PathBuf) -> Vec<Box<dyn ToolDyn>> {
-        let pad = ScratchpadStore::new().handle("child");
-        let mut tools: Vec<Box<dyn ToolDyn>> = vec![
-            Box::new(pad.goal()),
-            Box::new(pad.step()),
-            Box::new(pad.mark()),
-            Box::new(pad.note()),
-            Box::new(pad.clear()),
-            Box::new(self.skills.list_tool()),
-            Box::new(self.skills.search_tool()),
-            Box::new(self.skills.apply_tool()),
-            Box::new(self.skills.file_tool()),
-            Box::new(WorkspaceRead(workspace.clone())),
-            Box::new(WorkspaceWrite(workspace)),
-        ];
-        tools.extend(self.memory.delegation_tools());
-        tools
-    }
-
     pub(crate) async fn subagent_command(
         self: &Arc<Self>,
         tool: &SubagentTool,
@@ -54,6 +35,7 @@ impl AlbertCogitator {
                 "tools":self.child_native_tools(PathBuf::new()).iter().map(|t| t.name()).collect::<Vec<_>>(),
                 "max_concurrent":self.config.subagents.max_concurrent,
                 "max_tool_turns":self.config.subagents.max_tool_turns,
+                "default_tool_turns":self.config.subagents.default_tool_turns.min(self.config.subagents.max_tool_turns),
                 "timeout_secs":self.config.subagents.timeout_secs,
                 "max_depth":1
             })),
@@ -96,9 +78,6 @@ impl AlbertCogitator {
             Args::Wait { run_id, seconds } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
                 let result = run.wait(seconds).await;
-                if !result["result"].is_null() {
-                    run.acknowledge();
-                }
                 Ok(result)
             }
             Args::Cancel { run_id } => {
@@ -108,6 +87,34 @@ impl AlbertCogitator {
             }
         }
     }
+    pub(super) fn acknowledge_subagent_result(
+        &self,
+        conversation: &Conversation,
+        owner: bool,
+        name: &str,
+        args: &str,
+        result: &str,
+    ) {
+        if name != "subagent" {
+            return;
+        }
+        let (Ok(args), Ok(result)) = (from_str::<Value>(args), from_str::<Value>(result)) else {
+            return;
+        };
+        if args["action"] != "wait" || result["result"].is_null() {
+            return;
+        }
+        let Some(id) = args["run_id"].as_str() else {
+            return;
+        };
+        if result["run_id"].as_str() != Some(id) {
+            return;
+        }
+        if let Ok(run) = self.children.get(id, conversation, owner) {
+            run.acknowledge();
+        }
+    }
+
     async fn inspection_messages(&self, run: &Run) -> Vec<Message> {
         let persisted = run
             .result
@@ -491,5 +498,57 @@ mod tests {
         outsider.conversation = tool.conversation.clone();
         outsider.owner = false;
         assert!(host.subagent_command(&outsider, args()).await.is_err());
+    }
+    #[tokio::test]
+    async fn exhausted_workers_return_partial_reports_with_a_tool_free_final_round() {
+        for limit in [Some(2), None] {
+            let (host, ctx, server) = setup("budget-aware").await;
+            let tool = tool(&host, ctx);
+            let mut child = task("budget-aware");
+            child.tools.push("scratchpad_note".into());
+            child.max_tool_turns = limit;
+            let expected = limit.unwrap_or(11);
+            let started = host
+                .subagent_command(&tool, Args::Spawn { task: child })
+                .await
+                .unwrap();
+            let result = wait(&host, &tool, &started["run_id"]).await;
+            let outcome = &result["result"]["outcome"];
+            assert_eq!(outcome["status"], "partial");
+            assert_eq!(outcome["answer"], "answer from budget-aware");
+            assert_eq!(outcome["tool_rounds"], expected);
+            assert_eq!(outcome["tool_round_limit"], expected);
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), expected + 1);
+            assert!(requests[0]
+                .to_string()
+                .contains(&format!("remaining: {expected}/{expected}")));
+            let final_request = requests.last().unwrap();
+            assert!(
+                final_request["tools"].is_null()
+                    || final_request["tools"].as_array().is_some_and(Vec::is_empty)
+            );
+            assert!(final_request.to_string().contains("evidence-1"));
+            assert!(final_request
+                .to_string()
+                .contains("single final reporting response"));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_uncooperative_report_cannot_extend_the_model_loop() {
+        let (host, ctx, server) = setup("budget-defiant").await;
+        let tool = tool(&host, ctx);
+        let mut child = task("budget-defiant");
+        child.tools.push("scratchpad_note".into());
+        child.max_tool_turns = Some(2);
+        let started = host
+            .subagent_command(&tool, Args::Spawn { task: child })
+            .await
+            .unwrap();
+        let result = wait(&host, &tool, &started["run_id"]).await;
+        assert_eq!(result["result"]["outcome"]["status"], "failed");
+        assert!(result.to_string().contains("final report"));
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
     }
 }

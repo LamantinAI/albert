@@ -21,6 +21,7 @@ use serde::Deserialize;
 use toml::{from_str, Table, Value};
 
 use crate::{
+    context::Settings as ContextSettings,
     error::{Error, Result},
     memory::config::MemoryConfig,
     models::PoolConfig,
@@ -49,6 +50,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub context: ContextSettings,
     pub subagents: Limits,
     pub model_pool: Option<PathBuf>,
     pub models: Option<PoolConfig>,
@@ -184,8 +186,10 @@ impl Config {
             .map(PoolConfig::read)
             .transpose()
             .map_err(Error::Config)?;
+        raw.context.validate().map_err(Error::Config)?;
         raw.subagents.validate().map_err(Error::Config)?;
         Ok(Config {
+            context: raw.context,
             subagents: raw.subagents,
             model_pool,
             models,
@@ -286,6 +290,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    context: ContextSettings,
     #[serde(default)]
     subagents: Limits,
     #[serde(default)]

@@ -22,6 +22,8 @@ use rig::{
 };
 use serde_json::{from_slice, to_vec, Value};
 
+use crate::transport::{normalize, responses_stream};
+
 /// reqwest transport that rewrites the Codex request body (`system` -> `developer`).
 #[derive(Clone, Default, Debug)]
 pub struct CodexHttp {
@@ -74,6 +76,10 @@ impl CodexHttp {
 fn codexify_body(bytes: &Bytes) -> Option<Bytes> {
     let mut body: Value = from_slice(bytes).ok()?;
     let obj = body.as_object_mut()?;
+    // Subscription Responses does not accept this API output-cap field. The
+    // context planner still reserves output capacity; validate compact size after
+    // completion instead of breaking the OAuth transport with an unsupported knob.
+    obj.remove("max_output_tokens");
     obj.insert("store".to_string(), Value::Bool(false));
     if let Some(input) = obj.get_mut("input").and_then(Value::as_array_mut) {
         for item in input.iter_mut() {
@@ -140,14 +146,33 @@ impl HttpClientExt for CodexHttp {
     {
         let fut = self.inner.send_streaming::<Bytes>(Self::reshape(req));
         async move {
-            let mut resp = fut.await?;
+            let mut resp = fut.await.map_err(normalize)?;
             // The Codex SSE response ships no `Content-Type` header at all; rig's
             // event parser rejects an empty content type, so assert the SSE type
             // the stream actually is (only when the server left it unset).
             resp.headers_mut()
                 .entry("content-type")
                 .or_insert(HeaderValue::from_static("text/event-stream"));
-            Ok(resp)
+            let (parts, body) = resp.into_parts();
+            let body = responses_stream(body);
+            Ok(Response::from_parts(parts, body))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::codexify_body;
+    use bytes::Bytes;
+    use serde_json::{from_slice, json, Value};
+
+    #[test]
+    fn subscription_omits_unsupported_output_cap_without_changing_input() {
+        let body = json!({"model":"test","max_output_tokens":4096,"input":[{"role":"user","content":"hello"}]});
+        let wire = codexify_body(&Bytes::from(body.to_string())).unwrap();
+        let value: Value = from_slice(&wire).unwrap();
+        assert!(value.get("max_output_tokens").is_none());
+        assert_eq!(value["input"], body["input"]);
+        assert_eq!(value["store"], false);
     }
 }

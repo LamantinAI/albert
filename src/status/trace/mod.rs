@@ -77,7 +77,7 @@ impl Trace {
         }
     }
 
-    pub fn result(&mut self, internal_id: &str, result: &str) {
+    pub fn result(&mut self, internal_id: &str, result: &str) -> bool {
         if let Some(call) = self
             .rounds
             .iter_mut()
@@ -86,6 +86,9 @@ impl Trace {
             .find(|c| c.internal_id.as_deref() == Some(internal_id))
         {
             call.result = Some(result.to_string());
+            true
+        } else {
+            false
         }
     }
 

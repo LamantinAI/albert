@@ -3,7 +3,9 @@ use std::sync::Arc;
 use octo_core::{Blob, CogitatorContext, Envelope, InboundMessage};
 use tracing::info;
 
-use super::{channel_of, command_reply, turn_key, AlbertCogitator, UserInput};
+use super::{
+    channel_of, command_reply, compaction::CompactOptions, turn_key, AlbertCogitator, UserInput,
+};
 use crate::{
     acl::{command as acl_command, is_acl_admin, is_owner, should_respond, tag},
     commands::{help, parse, seed},
@@ -109,6 +111,24 @@ impl AlbertCogitator {
                 .as_ref()
                 .map(|cmd| cmd.name.as_str())
                 .unwrap_or("");
+
+            if command == "compact" {
+                if !owner {
+                    self.emit_reply(
+                        &incoming,
+                        "Only the owner can compact this conversation.".into(),
+                        ctx,
+                    )
+                    .await;
+                } else {
+                    let args = invocation.as_ref().map(|c| c.args).unwrap_or("");
+                    match CompactOptions::parse(args) {
+                        Ok(options) => self.clone().spawn_compact(incoming, ctx, options).await,
+                        Err(error) => self.emit_reply(&incoming, error, ctx).await,
+                    }
+                }
+                return;
+            }
 
             if command == "model" {
                 let args = invocation.as_ref().map(|c| c.args).unwrap_or("");

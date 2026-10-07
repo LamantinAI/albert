@@ -11,6 +11,9 @@ use crate::config::{AuthMode, Config};
 pub struct ModelSpec {
     pub id: String,
     pub model: String,
+    /// Explicit provider context limit; absent uses Albert context.window_tokens.
+    #[serde(default)]
+    pub context_window: Option<usize>,
     pub provider: AuthMode,
     #[serde(default)]
     pub base_url: Option<String>,
@@ -72,6 +75,9 @@ impl PoolConfig {
         }
         let mut ids = HashSet::new();
         for model in &self.models {
+            if model.context_window == Some(0) {
+                return Err("context_window must be positive".into());
+            }
             if !(1..=1_800_000).contains(&model.request_timeout_ms) {
                 return Err(format!(
                     "Model {} request_timeout_ms must be 1..1800000",
@@ -134,6 +140,7 @@ impl PoolConfig {
             models: vec![ModelSpec {
                 id: "default".into(),
                 model: config.model.clone(),
+                context_window: None,
                 provider: config.auth,
                 base_url: None,
                 api_key_env: None,

@@ -1,4 +1,5 @@
 //! Host-owned child runs. Connector grants are whole instances, not a sandbox.
+pub mod budget;
 mod dispatch;
 pub mod inspection;
 mod tool;
@@ -36,6 +37,7 @@ pub struct Limits {
     pub max_retained: usize,
     pub max_runs_per_turn: usize,
     pub max_tool_turns: usize,
+    pub default_tool_turns: usize,
     pub timeout_secs: u64,
 }
 impl Default for Limits {
@@ -46,7 +48,8 @@ impl Default for Limits {
             max_concurrent: 4,
             max_retained: 64,
             max_runs_per_turn: 8,
-            max_tool_turns: 16,
+            max_tool_turns: 17,
+            default_tool_turns: 11,
             timeout_secs: 600,
         }
     }
@@ -57,6 +60,7 @@ impl Limits {
             || self.max_retained < self.max_concurrent
             || self.max_runs_per_turn == 0
             || self.max_tool_turns == 0
+            || self.default_tool_turns == 0
             || self.timeout_secs == 0
             || !self.inspection.validate()
         {
