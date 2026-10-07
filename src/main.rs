@@ -24,6 +24,7 @@ mod scratchpad;
 mod selfconfig;
 mod skills;
 mod status;
+mod subagents;
 
 use std::{
     env::{set_var, var},

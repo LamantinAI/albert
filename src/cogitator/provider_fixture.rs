@@ -47,7 +47,21 @@ async fn completion(
             Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
         );
     }
-    let (message, finish) = if model == "discovery" && count == 1 {
+    let (message, finish) = if model == "delegates" && count == 1 {
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"spawn-child","type":"function","function":{
+                "name":"subagent","arguments":json!({"action":"spawn","task":{"task":"Write a short answer","context":"Only this explicit context","models":["healthy"],"connectors":[],"tools":[]}}).to_string()
+            }}]}),
+            "tool_calls",
+        )
+    } else if model == "child-dispatch" && count == 1 {
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"child-search","type":"function","function":{
+                "name":"dispatch_to_connector","arguments":json!({"target":"search","kind":"search.web","payload":{"query":"test"}}).to_string()
+            }}]}),
+            "tool_calls",
+        )
+    } else if model == "discovery" && count == 1 {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"find-connector","type":"function","function":{"name":"connector_search","arguments":"{\"query\":\"inventory\"}"}}]}),
             "tool_calls",

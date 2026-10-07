@@ -39,10 +39,12 @@ use crate::{
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
+    subagents::Registry,
 };
 
 mod agent;
 mod alarms;
+mod child;
 mod context;
 mod errors;
 mod inbound;
@@ -62,6 +64,7 @@ pub(crate) const SCHEDULER_ID: &str = "scheduler";
 pub(crate) const ROUTINE_MEMORY_REFLECTION: &str = "memory_reflection";
 
 pub struct AlbertCogitator {
+    children: Registry,
     id: String,
     self_source: ConnectorId,
     config: Config,
@@ -94,6 +97,7 @@ impl AlbertCogitator {
         let id = id.into();
         let models = ModelPool::new(&config);
         Arc::new(Self {
+            children: Default::default(),
             models,
             self_source: ConnectorId::new(format!("cogitator/{id}")),
             id,
@@ -332,7 +336,7 @@ mod tests {
 
 #[cfg(test)]
 mod model_pool_tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use octo_core::{
         CogitatorContext, ConnectorCapabilities, ConnectorId, ConnectorInfo, Envelope, EventBus,
@@ -345,7 +349,7 @@ mod model_pool_tests {
     use super::{provider_fixture::setup, AlbertCogitator};
     use crate::status::StatusFeed;
 
-    async fn ask(agent: &AlbertCogitator, ctx: &CogitatorContext, feed: StatusFeed) -> String {
+    async fn ask(agent: &Arc<AlbertCogitator>, ctx: &CogitatorContext, feed: StatusFeed) -> String {
         timeout(
             Duration::from_secs(5),
             agent.run_agent(

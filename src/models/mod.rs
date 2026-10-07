@@ -25,6 +25,34 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// An owned subset, never an Arc clone of the live global selection.
+    pub fn scoped(&self, ids: &[String]) -> Result<Self, String> {
+        if ids.is_empty() {
+            return Err("Provide at least one model ID.".into());
+        }
+        let mut models = Vec::new();
+        for id in ids {
+            if models.iter().any(|m: &ModelSpec| &m.id == id) {
+                return Err(format!("Duplicate model ID: {id}"));
+            }
+            models.push(
+                self.config
+                    .models
+                    .iter()
+                    .find(|m| &m.id == id)
+                    .ok_or_else(|| format!("Unknown model ID: {id}"))?
+                    .clone(),
+            );
+        }
+        let mut config = self.config.clone();
+        config.models = models;
+        config.default = ids[0].clone();
+        Ok(Self {
+            config,
+            selected: ids[0].clone(),
+        })
+    }
+
     fn ordered(&self) -> Vec<ModelSpec> {
         self.config
             .models
@@ -353,6 +381,35 @@ mod tests {
         assert!(PoolConfig::parse(text).is_ok());
         assert!(PoolConfig::parse(&format!("max_attempts=0\n{text}")).is_err());
         assert!(PoolConfig::parse(&format!("{text}[[models]]\nid='a'\nmodel='other'\nprovider='api_key'\nvision=true\ntools=true\n")).is_err());
+    }
+
+    #[tokio::test]
+    async fn child_subpool_is_owned_and_supports_toolless_models() {
+        let mut global = pool();
+        global.config.models[1].tools = false;
+        let child = global.scoped(&["second".into()]).unwrap();
+        assert_eq!(global.selected, "first");
+        assert_eq!(child.selected, "second");
+        assert_eq!(child.config.models.len(), 1);
+        global.config.models.clear();
+        let seen = RefCell::new(vec![]);
+        child
+            .run_with_tools(
+                false,
+                false,
+                |model, _| {
+                    seen.borrow_mut().push(model.id);
+                    ready(Ok::<_, Failure>(()))
+                },
+                || false,
+                |_| ready(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(*seen.borrow(), ["second"]);
+        assert!(pool().scoped(&[]).is_err());
+        assert!(pool().scoped(&["missing".into()]).is_err());
+        assert!(pool().scoped(&["first".into(), "first".into()]).is_err());
     }
 
     #[test]

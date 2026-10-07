@@ -152,12 +152,18 @@ impl AlbertCogitator {
         ctx: &CogitatorContext,
     ) -> bool {
         let state = self.turns.lock().unwrap().get(key).cloned();
-        let Some(state) = state else { return false };
-        let mut locked = state.lock().await;
-        let Some(previous) = locked.interrupt().await else {
-            return false;
+        let Some(state) = state else {
+            return self.children.cancel_channel(key).await;
         };
-        self.cancel_scope(&previous.scope, ctx).await;
+        let mut locked = state.lock().await;
+        let previous = locked.interrupt().await;
+        if let Some(previous) = &previous {
+            self.cancel_scope(&previous.scope, ctx).await;
+        }
+        let children_cancelled = self.children.cancel_channel(key).await;
+        let Some(previous) = previous else {
+            return children_cancelled;
+        };
         // Caller records the explicit /cancel after this checkpoint.
         let channel = &key.1;
         if let Some(record) = tool_trace(&previous.checkpoint) {
@@ -265,6 +271,7 @@ impl AlbertCogitator {
         for key in keys {
             self.cancel_channel(&key, ctx).await;
         }
+        self.children.cancel_all().await;
     }
 }
 

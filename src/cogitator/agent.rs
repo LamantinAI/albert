@@ -14,6 +14,7 @@ use rig::{
     completion::{CompletionModel, Message, Prompt, PromptError},
     http_client::{HeaderMap, HeaderValue, ReqwestClient},
     providers::{openai, openrouter::Client as OpenRouterClient},
+    tool::ToolDyn,
 };
 use tracing::{debug, info};
 
@@ -28,6 +29,7 @@ use crate::{
     openrouter_http::OpenRouterHttp,
     selfconfig::SelfConfig,
     status::StatusFeed,
+    subagents::SubagentTool,
 };
 
 impl AlbertCogitator {
@@ -35,7 +37,7 @@ impl AlbertCogitator {
     /// tool-loop. The two modes yield different concrete model types, so the
     /// build-tools-and-run tail lives in the generic [`Self::drive`].
     pub(super) async fn run_agent(
-        &self,
+        self: &Arc<Self>,
         ctx: &CogitatorContext,
         channel: &str,
         preamble: &str,
@@ -53,6 +55,21 @@ impl AlbertCogitator {
         // One drive run consumes its tool instances, and the forced-refresh retry
         // below needs a second set — so the tools are built per attempt.
         let discovery = ConnectorCatalog::new(ctx.connectors());
+        let child_tool = self.config.subagents.enabled.then(|| {
+            SubagentTool::new(
+                Arc::downgrade(self),
+                ctx.clone(),
+                (
+                    reply_target
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_default(),
+                    channel.into(),
+                ),
+                scope.unwrap_or("routine").into(),
+                owner,
+            )
+        });
         let make_tools = || {
             // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
             // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
@@ -96,8 +113,29 @@ impl AlbertCogitator {
             // Owner-only: read/edit its own config + prompt + skill files (jailed to the
             // deploy dir, allow-listed). Applied via the restart tool above.
             let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
-            (dispatch, send_file, restart, selfconfig, discovery.clone())
+            AttemptTools::Root((
+                dispatch,
+                send_file,
+                restart,
+                selfconfig,
+                discovery.clone(),
+                child_tool.clone(),
+            ))
         };
+        let preamble = format!(
+            "{preamble}{}",
+            self.children.context(
+                &(
+                    reply_target
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_default(),
+                    channel.into()
+                ),
+                owner
+            )
+        );
+        let preamble = preamble.as_str();
         let snapshot = self.models.snapshot();
         let vision = needs_vision(history.iter().chain([&prompt]));
         // Hearing is already complete and is part of the supplied history, not
@@ -137,12 +175,12 @@ impl AlbertCogitator {
         (answer, restart_target)
     }
 
-    async fn model_attempt(
+    pub(super) async fn model_attempt(
         &self,
         model: &ModelSpec,
         force_refresh: bool,
         preamble: &str,
-        tools: TurnTools,
+        tools: AttemptTools,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -156,7 +194,7 @@ impl AlbertCogitator {
             .timeout(Duration::from_millis(model.request_timeout_ms))
             .build()
             .map_err(|_| unavailable("Could not construct HTTP client."))?;
-        let (dispatch, send_file, restart, selfconfig, discovery) = tools;
+
         let result = match model.provider {
             AuthMode::ApiKey => {
                 let key = match &model.api_key_env {
@@ -175,13 +213,9 @@ impl AlbertCogitator {
                 let client = builder
                     .build()
                     .map_err(|_| unavailable("Could not construct API client."))?;
-                self.drive(
+                self.drive_attempt(
                     client.agent(&model.model).preamble(preamble),
-                    dispatch,
-                    send_file,
-                    restart,
-                    selfconfig,
-                    discovery,
+                    tools,
                     channel,
                     prompt,
                     history,
@@ -209,13 +243,9 @@ impl AlbertCogitator {
                     )
                     .map_err(|_| unavailable("Could not construct subscription client."))?;
                 let model = CodexResponsesModel::make(&client, &model.model);
-                self.drive(
+                self.drive_attempt(
                     AgentBuilder::new(model).preamble(preamble),
-                    dispatch,
-                    send_file,
-                    restart,
-                    selfconfig,
-                    discovery,
+                    tools,
                     channel,
                     prompt,
                     history,
@@ -232,6 +262,35 @@ impl AlbertCogitator {
             });
         }
         Ok(result)
+    }
+
+    async fn drive_attempt<M: CompletionModel + 'static>(
+        &self,
+        base: AgentBuilder<M, (), NoToolConfig>,
+        tools: AttemptTools,
+        channel: &str,
+        prompt: Message,
+        history: Vec<Message>,
+        feed: StatusFeed,
+    ) -> Result<String, PromptError> {
+        match tools {
+            AttemptTools::Root((dispatch, send_file, restart, selfconfig, discovery, children)) => {
+                self.drive(
+                    base, dispatch, send_file, restart, selfconfig, discovery, children, channel,
+                    prompt, history, feed,
+                )
+                .await
+            }
+            AttemptTools::Child { tools, max_turns } => {
+                base.tools(tools)
+                    .build()
+                    .prompt(prompt)
+                    .with_history(history)
+                    .with_hook(feed)
+                    .max_turns(max_turns)
+                    .await
+            }
+        }
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
@@ -275,6 +334,7 @@ impl AlbertCogitator {
         restart: Option<RestartTool>,
         selfconfig: Option<SelfConfig>,
         discovery: ConnectorCatalog,
+        children: Option<SubagentTool>,
         channel: &str,
         prompt: Message,
         history: Vec<Message>,
@@ -327,6 +387,10 @@ impl AlbertCogitator {
         };
         // octo-code file tools (read/write/edit/list/glob/grep), jailed to
         // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
+        let with_tools = match children {
+            Some(tool) => with_tools.tools(vec![Box::new(tool)]),
+            None => with_tools,
+        };
         let agent = code_tools!(with_tools).build();
         agent
             .prompt(prompt)
@@ -346,4 +410,13 @@ type TurnTools = (
     Option<RestartTool>,
     Option<SelfConfig>,
     ConnectorCatalog,
+    Option<SubagentTool>,
 );
+
+pub(super) enum AttemptTools {
+    Root(TurnTools),
+    Child {
+        tools: Vec<Box<dyn ToolDyn>>,
+        max_turns: usize,
+    },
+}
