@@ -11,6 +11,7 @@ mod commands;
 mod config;
 mod connector_catalog;
 mod console;
+mod context;
 mod error;
 mod history;
 mod manifests;
@@ -25,6 +26,7 @@ mod selfconfig;
 mod skills;
 mod status;
 mod subagents;
+mod transport;
 
 use std::{
     env::{set_var, var},
@@ -143,7 +145,7 @@ async fn main() -> Result<()> {
         Some(spec) if spec.starts_with("sqlite:") => {
             let path = &spec["sqlite:".len()..];
             info!(path, "history: sqlite backend (migrated, persistent)");
-            Arc::new(SqliteHistory::open(path, HISTORY_MAX).await?)
+            Arc::new(SqliteHistory::open_retained(path).await?)
         }
         Some(spec) if spec.starts_with("file:") => {
             let dir = &spec["file:".len()..];

@@ -18,6 +18,8 @@ use rig::{
 };
 use serde_json::{from_slice, to_vec, Value};
 
+use crate::transport::normalize;
+
 #[derive(Clone, Default)]
 pub struct OpenRouterHttp {
     inner: ReqwestClient,
@@ -118,9 +120,9 @@ impl HttpClientExt for OpenRouterHttp {
         let future = self.inner.send::<Bytes, Bytes>(self.restore(request));
         let rounds = self.rounds.clone();
         async move {
-            let response = future.await?;
+            let response = future.await.map_err(normalize)?;
             let (parts, body) = response.into_parts();
-            let bytes = body.await?;
+            let bytes = body.await.map_err(normalize)?;
             if capture {
                 Self::remember(&rounds, &bytes);
             }

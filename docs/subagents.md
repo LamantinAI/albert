@@ -51,7 +51,9 @@ Spawn returns a `run_id`. Other actions:
 - `cancel`, with `run_id`: cancel work, propagate cancellation to connectors and
   return its state.
 
-The outcome is `completed`, `failed`, `cancelled`, or `timed_out`. Results go to
+The outcome is `completed`, `partial`, `failed`, `cancelled`, or `timed_out`.
+`partial` means the tool-round budget was exhausted and the worker returned a
+final report from its existing evidence. Review its limitations before using it. Results go to
 the parent tool caller. There are no automatic chat messages from children;
 explicitly granting a messaging connector permits that connector's normal
 operations. Inspect and verify results before using them in the final response.
@@ -125,7 +127,8 @@ enabled = true
 max_concurrent = 4
 max_retained = 64
 max_runs_per_turn = 8
-max_tool_turns = 16
+max_tool_turns = 17
+default_tool_turns = 11
 timeout_secs = 600
 ```
 
@@ -165,3 +168,24 @@ read_chars = 8192
 answer. General tool-result offloading before model ingestion, artifact lifecycle
 management, and conversation-window compaction remain follow-up work in
 [#37](https://github.com/LamantinAI/albert/issues/37).
+
+## Worker step budgets
+
+The default is **11 tool-enabled model rounds**, with a configurable ceiling of
+17. An omitted task limit uses `min(default_tool_turns, max_tool_turns)`; a parent
+may deliberately choose a smaller limit. Each request tells the worker its
+remaining budget and asks it to stop unproductive retries against blocked or
+empty sources. Parallel tools in one model response share a round. Failed HTTP
+attempts before a successful tool-requesting response do not consume a tool round.
+
+After exhausting those rounds, the worker gets **one separate tool-free response**
+to return findings, sources, blockers and remaining work. Host enforcement rejects
+all tool execution during that response even if the model guesses an earlier tool
+name. A report that tries to call tools instead of finishing does not get an
+unbounded continuation or tool replay. The normal wall-clock deadline still
+covers the whole run, including this report.
+
+This avoids turning useful research into a generic step-budget failure. It does
+not make blocked search providers or unavailable pages accessible: partial
+results must disclose those limitations. The parent should reuse collected
+findings and delegate only concrete gaps if more work is needed.

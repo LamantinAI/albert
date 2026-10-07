@@ -37,6 +37,8 @@ pub fn responses_ids(id: &str) -> (String, String) {
 /// Where a turn's status lines go, plus a durable record of the actions taken.
 /// `silent()` (no target) makes every live emit a no-op, but still accumulates
 /// actions — so the agent loop code stays branch-free.
+type ResultObserver = dyn Fn(&str, &str, &str) + Send + Sync;
+
 #[derive(Clone)]
 pub struct StatusFeed {
     feed: Option<Arc<Feed>>,
@@ -46,6 +48,7 @@ pub struct StatusFeed {
     /// Shared across clones; survives being moved through the tool-loop.
     actions: Arc<Mutex<Vec<String>>>,
     trace: Arc<Mutex<Trace>>,
+    result_observer: Option<Arc<ResultObserver>>,
 }
 
 struct Feed {
@@ -71,6 +74,7 @@ impl StatusFeed {
             })),
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
+            result_observer: None,
         }
     }
 
@@ -81,7 +85,17 @@ impl StatusFeed {
             feed: None,
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
+            result_observer: None,
         }
+    }
+
+    /// Called only after the tool response has reached the parent and its trace.
+    pub fn with_result_observer(
+        mut self,
+        observer: impl Fn(&str, &str, &str) + Send + Sync + 'static,
+    ) -> Self {
+        self.result_observer = Some(Arc::new(observer));
+        self
     }
 
     /// Take this turn's recorded actions, emptying the buffer.
@@ -129,6 +143,12 @@ impl StatusFeed {
     /// Retrying a whole model attempt after tools ran could repeat external effects.
     pub fn tool_call_count(&self) -> usize {
         self.trace.lock().unwrap().call_count()
+    }
+
+    /// Host operation progress is ephemeral: never append it to the conversation
+    /// or execution journal, and never expose provider reasoning/model names here.
+    pub(crate) async fn progress(&self, line: impl Into<String>) {
+        self.emit(line.into()).await;
     }
 
     async fn emit(&self, line: String) {
@@ -185,7 +205,12 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         args: &str,
         result: &str,
     ) -> impl std::future::Future<Output = HookAction> + Send {
-        self.trace.lock().unwrap().result(internal_call_id, result);
+        let recorded = self.trace.lock().unwrap().result(internal_call_id, result);
+        if recorded {
+            if let Some(observer) = &self.result_observer {
+                observer(tool_name, args, result);
+            }
+        }
         if let Ok(mut v) = self.actions.lock() {
             v.push(format!(
                 "{tool_name} {} -> {}",

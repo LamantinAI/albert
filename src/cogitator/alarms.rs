@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use super::{
     action_context, now_rfc3339, with_action_log, AlbertCogitator, ROUTINE_MEMORY_REFLECTION,
 };
-use crate::{history::to_messages, status::StatusFeed};
+use crate::status::StatusFeed;
 
 impl AlbertCogitator {
     /// Perform a restart the model requested this turn. The `restart` tool only records
@@ -64,8 +64,12 @@ impl AlbertCogitator {
         };
         info!(alarm_id, %task, channel, "reminder due");
 
-        let turns = self.history.load(&channel).await;
-        let history = to_messages(&turns);
+        let Ok(turns) = self.visible_turns(&channel).await else {
+            return;
+        };
+        let Ok(history) = self.visible_history(&channel).await else {
+            return;
+        };
         let base = self.prompt.base();
         let preamble = format!(
             "{base}\n\nAn internal reminder alarm just fired (alarm_id={alarm_id}) for the \

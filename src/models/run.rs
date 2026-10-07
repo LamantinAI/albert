@@ -14,6 +14,7 @@ pub enum FailureKind {
     Fatal,
 }
 
+#[derive(Debug)]
 pub struct Failure {
     pub kind: FailureKind,
     /// Safe, short summary; never raw provider bodies or credentials.

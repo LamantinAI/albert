@@ -35,7 +35,9 @@ impl AlbertCogitator {
         if task.task.trim().is_empty() {
             return Err("Subagent task is empty.".into());
         }
-        let max_turns = task.max_tool_turns.unwrap_or(limits.max_tool_turns);
+        let max_turns = task
+            .max_tool_turns
+            .unwrap_or(limits.default_tool_turns.min(limits.max_tool_turns));
         let seconds = task.timeout_secs.unwrap_or(limits.timeout_secs);
         if max_turns == 0
             || max_turns > limits.max_tool_turns
@@ -146,7 +148,9 @@ impl AlbertCogitator {
                     _ = ctx.shutdown.cancelled() => json!({"status":"cancelled"}),
                     _ = sleep(Duration::from_secs(seconds)) => json!({"status":"timed_out"}),
                     result = execution => match result {
-                        Ok(Ok(answer)) => json!({"status":"completed","answer":answer}),
+                        Ok(Ok(answer)) => json!({"status":if answer.budget_exhausted {"partial"} else {"completed"},
+                            "answer":answer.text,"tool_rounds":answer.tool_rounds,"tool_round_limit":max_turns,
+                            "budget_exhausted":answer.budget_exhausted}),
                         Ok(Err(error)) => json!({"status":"failed","error":error}),
                         Err(_) => json!({"status":"failed","error":"Subagent task stopped unexpectedly."}),
                     },

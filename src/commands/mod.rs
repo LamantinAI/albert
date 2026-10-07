@@ -20,10 +20,11 @@ use crate::acl::BOOTSTRAP_COMMANDS;
 use tracing::{info, warn};
 
 /// Names no skill can claim.
-pub const RESERVED: [&str; 11] = [
+pub const RESERVED: [&str; 12] = [
     "start",
     "help",
     "cancel",
+    "compact",
     "restart",
     "allow",
     "deny",
@@ -38,12 +39,17 @@ pub const RESERVED: [&str; 11] = [
 pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
-const SYSTEM: [(&str, &str, bool); 9] = [
+const SYSTEM: [(&str, &str, bool); 10] = [
     ("help", "Command reference", false),
     ("model", "Select a model", true),
     ("chatinfo", "Chat and author IDs", false),
     ("groupmode", "Group mode: all or allowed", true),
     ("cancel", "Stop the current task", true),
+    (
+        "compact",
+        "Compact this conversation (optional --dry-run and instructions)",
+        true,
+    ),
     ("restart", "Restart Albert", true),
     ("allow", "Grant access: /allow [id]", true),
     ("deny", "Revoke access: /deny [id]", true),

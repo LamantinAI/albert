@@ -1,7 +1,7 @@
 use std::{
     env::var,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use octo_code::code_tools;
@@ -16,7 +16,7 @@ use rig::{
     providers::{openai, openrouter::Client as OpenRouterClient},
     tool::ToolDyn,
 };
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::{catalog, AlbertCogitator};
 use crate::{
@@ -25,11 +25,12 @@ use crate::{
     cogitator::errors::model_failure,
     config::AuthMode,
     connector_catalog::ConnectorCatalog,
+    context::BudgetedModel,
     models::{needs_vision, Failure, FailureKind, ModelSpec},
     openrouter_http::OpenRouterHttp,
     selfconfig::SelfConfig,
     status::StatusFeed,
-    subagents::SubagentTool,
+    subagents::{budget::Budget, SubagentTool},
 };
 
 impl AlbertCogitator {
@@ -48,6 +49,19 @@ impl AlbertCogitator {
         feed: StatusFeed,
         scope: Option<&str>,
     ) -> (String, Option<String>) {
+        let host = Arc::downgrade(self);
+        let conversation = (
+            reply_target
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            channel.to_owned(),
+        );
+        let feed = feed.with_result_observer(move |name, args, result| {
+            if let Some(host) = host.upgrade() {
+                host.acknowledge_subagent_result(&conversation, owner, name, args, result);
+            }
+        });
         // Owner-only: restarting a connector (to reload its manifest) or the whole
         // process (to apply albert.toml) is an admin action. The tool records the
         // requested target here; the caller carries it out after the reply is sent.
@@ -190,11 +204,27 @@ impl AlbertCogitator {
             kind: FailureKind::Unavailable,
             message: message.into(),
         };
+        let turn_budget = match &tools {
+            AttemptTools::Child { budget, .. } => Some(budget.clone()),
+            _ => None,
+        };
+        let compact = matches!(&tools, AttemptTools::Compact { .. });
+        let timeout_ms = if compact {
+            self.config.context.request_timeout_ms
+        } else {
+            model.request_timeout_ms
+        };
+        let started = Instant::now();
         let http = ReqwestClient::builder()
-            .timeout(Duration::from_millis(model.request_timeout_ms))
+            .timeout(Duration::from_millis(timeout_ms))
             .build()
             .map_err(|_| unavailable("Could not construct HTTP client."))?;
 
+        let mut budget = self.config.context.for_model(model);
+        if let AttemptTools::Compact { max_tokens } = &tools {
+            budget.response_tokens = *max_tokens;
+        }
+        let budget = budget.enabled.then_some(budget);
         let result = match model.provider {
             AuthMode::ApiKey => {
                 let key = match &model.api_key_env {
@@ -214,7 +244,16 @@ impl AlbertCogitator {
                     .build()
                     .map_err(|_| unavailable("Could not construct API client."))?;
                 self.drive_attempt(
-                    client.agent(&model.model).preamble(preamble),
+                    AgentBuilder::new(
+                        BudgetedModel::new(client.completion_model(&model.model), budget, true)
+                            .with_turn_budget(turn_budget)
+                            .with_recovery(
+                                self.config.context.continuation_retries,
+                                self.config.context.continuation_retry_delay_ms,
+                                feed.clone(),
+                            ),
+                    )
+                    .preamble(preamble),
                     tools,
                     channel,
                     prompt,
@@ -244,7 +283,16 @@ impl AlbertCogitator {
                     .map_err(|_| unavailable("Could not construct subscription client."))?;
                 let model = CodexResponsesModel::make(&client, &model.model);
                 self.drive_attempt(
-                    AgentBuilder::new(model).preamble(preamble),
+                    AgentBuilder::new(
+                        BudgetedModel::new(model, budget, false)
+                            .with_turn_budget(turn_budget)
+                            .with_recovery(
+                                self.config.context.continuation_retries,
+                                self.config.context.continuation_retry_delay_ms,
+                                feed.clone(),
+                            ),
+                    )
+                    .preamble(preamble),
                     tools,
                     channel,
                     prompt,
@@ -254,7 +302,12 @@ impl AlbertCogitator {
                 .await
             }
         }
-        .map_err(model_failure)?;
+        .map_err(|error| {
+            let failure = model_failure(error);
+            warn!(model_id=%model.id, compact, timeout_ms, elapsed_ms=started.elapsed().as_millis(),
+                kind=?failure.kind, reason=%failure.message, "model attempt failed");
+            failure
+        })?;
         if result.trim().is_empty() {
             return Err(Failure {
                 kind: FailureKind::Incompatible,
@@ -281,7 +334,17 @@ impl AlbertCogitator {
                 )
                 .await
             }
-            AttemptTools::Child { tools, max_turns } => {
+            AttemptTools::Compact { max_tokens } => {
+                base.max_tokens(max_tokens as u64)
+                    .build()
+                    .prompt(prompt)
+                    .with_history(history)
+                    .max_turns(1)
+                    .await
+            }
+            AttemptTools::Child {
+                tools, max_turns, ..
+            } => {
                 base.tools(tools)
                     .build()
                     .prompt(prompt)
@@ -414,9 +477,13 @@ type TurnTools = (
 );
 
 pub(super) enum AttemptTools {
+    Compact {
+        max_tokens: usize,
+    },
     Root(TurnTools),
     Child {
         tools: Vec<Box<dyn ToolDyn>>,
         max_turns: usize,
+        budget: Arc<Budget>,
     },
 }

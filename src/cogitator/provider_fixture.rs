@@ -32,10 +32,21 @@ async fn completion(
         requests.push(body.clone());
         requests.iter().filter(|r| r["model"] == model).count()
     };
+    if model.starts_with("never") {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    if model == "compact-delayed"
+        && body["tools"]
+            .as_array()
+            .is_none_or(|tools| tools.is_empty())
+    {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
     if model == "hanging" {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    if model == "failing" || (model == "writes" && count > 1) {
+    if model == "failing" || (model == "writes" && count > 1) || (model == "recovers" && count == 2)
+    {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error":{"code":503,"message":"overloaded"}})),
@@ -47,7 +58,32 @@ async fn completion(
             Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
         );
     }
-    let (message, finish) = if model == "delegates" && count == 1 {
+    let (message, finish) = if model == "waiting-parent" && count == 1 {
+        let wire = body["messages"].to_string();
+        let rest = wire.split_once("WAIT_RUN:").unwrap().1.trim_start();
+        let run_id: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || "/-_".contains(*c))
+            .collect();
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"wait-child","type":"function","function":{
+                "name":"subagent","arguments":json!({"action":"wait","run_id":run_id,"seconds":60}).to_string()
+            }}]}),
+            "tool_calls",
+        )
+    } else if matches!(model, "budget-aware" | "budget-defiant")
+        && (model == "budget-defiant"
+            || body["tools"]
+                .as_array()
+                .is_some_and(|tools| !tools.is_empty()))
+    {
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":format!("budget-{count}"),"type":"function","function":{
+                "name":"scratchpad_note","arguments":json!({"text":format!("evidence-{count}")}).to_string()
+            }}]}),
+            "tool_calls",
+        )
+    } else if model == "delegates" && count == 1 {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"spawn-child","type":"function","function":{
                 "name":"subagent","arguments":json!({"action":"spawn","task":{"task":"Write a short answer","context":"Only this explicit context","models":["healthy"],"connectors":[],"tools":[]}}).to_string()
@@ -84,7 +120,7 @@ async fn completion(
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_select","type":"function","function":{"name":"model_select","arguments":"{\"model_id\":\"healthy\"}"}}]}),
             "tool_calls",
         )
-    } else if model == "writes" {
+    } else if model == "writes" || (model == "recovers" && count == 1) {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"call_note","type":"function","function":{"name":"scratchpad_note","arguments":"{\"text\":\"recorded once\"}"}}]}),
             "tool_calls",
@@ -133,6 +169,7 @@ pub(super) async fn setup(first: &str) -> (Arc<AlbertCogitator>, CogitatorContex
             .map(|id| ModelSpec {
                 id: id.into(),
                 model: id.into(),
+                context_window: None,
                 provider: AuthMode::ApiKey,
                 base_url: Some(server.url.clone()),
                 api_key_env: None,

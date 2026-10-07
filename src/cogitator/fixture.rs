@@ -20,6 +20,10 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
     let dir = tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let config = Config {
+        context: crate::context::Settings {
+            enabled: false,
+            ..Default::default()
+        },
         subagents: Default::default(),
         model_pool: None,
         models: None,

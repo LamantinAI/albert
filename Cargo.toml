@@ -16,7 +16,7 @@ octo-rig = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a04
 # refresh + the shared, refresh-serialised SubscriptionAuth handle). Moved out of Albert
 # so the voice connectors (synth + transcribe) and other assemblies share one token owner.
 octo-openai-auth = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a0460264d039f6cad064ba1b7d8" }
-octo-history = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a0460264d039f6cad064ba1b7d8", features = ["sqlite"] }
+octo-history = { git = "https://github.com/LamantinAI/octo", rev = "9245ca39687c12db2bab0df5931df69719404e31", features = ["sqlite"] }
 octo-connector-telegram = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a0460264d039f6cad064ba1b7d8" }
 octo-connector-scheduler = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a0460264d039f6cad064ba1b7d8" }
 octo-connector-caldav = { git = "https://github.com/LamantinAI/octo", rev = "0f53e90f3ffb8a0460264d039f6cad064ba1b7d8" }
@@ -102,6 +102,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
 toml = "0.8"
 rig-core = "0.35"
+tiktoken-rs = "0.12.0"
 
 [dev-dependencies]
 tempfile = "3"

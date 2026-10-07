@@ -3,7 +3,9 @@
 //! This is the **hot context** tier (the rolling per-channel transcript), distinct
 //! from kaeru (deliberate memory).
 
-pub use octo_history::{FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn};
+pub use octo_history::{
+    ContextWindow, FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn,
+};
 
 use std::borrow::Cow;
 

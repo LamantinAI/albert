@@ -45,6 +45,7 @@ use crate::{
 mod agent;
 mod alarms;
 mod child;
+mod compaction;
 mod context;
 mod errors;
 mod inbound;
@@ -412,7 +413,11 @@ mod model_pool_tests {
         assert_eq!(feed.tool_call_count(), 1);
         assert!(agent.scratchpad.render("room").contains("recorded once"));
         let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests[1], requests[2],
+            "only the failed continuation is retried"
+        );
         assert!(requests.iter().all(|r| r["model"] == "writes"));
         assert!(serde_json::to_string(&feed.snapshot())
             .unwrap()
@@ -553,5 +558,22 @@ mod model_pool_tests {
         assert!(requests[1]["messages"]
             .to_string()
             .contains("inventory.reserve"));
+    }
+    #[tokio::test]
+    async fn temporary_failure_after_tools_recovers_the_exact_request_without_replaying_tools() {
+        let (agent, ctx, server) = setup("recovers").await;
+        let feed = StatusFeed::silent();
+        assert_eq!(
+            ask(&agent, &ctx, feed.clone()).await,
+            "answer from recovers"
+        );
+        assert_eq!(feed.tool_call_count(), 1);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1], requests[2]);
+        assert!(requests[2]["messages"]
+            .to_string()
+            .contains("recorded once"));
+        assert!(requests.iter().all(|r| r["model"] == "recovers"));
     }
 }

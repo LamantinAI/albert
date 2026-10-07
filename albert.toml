@@ -124,7 +124,8 @@ enabled = true
 max_concurrent = 4
 max_retained = 64
 max_runs_per_turn = 8
-max_tool_turns = 16
+max_tool_turns = 17
+default_tool_turns = 11
 timeout_secs = 600
 
 # Compact journal inspection; full records remain in history storage.
@@ -133,3 +134,22 @@ page_size = 20
 preview_chars = 300
 artifact_bytes = 8192
 read_chars = 8192
+
+# Retained SQLite history: compact + fresh messages, never deletion by turn count.
+# Set window_tokens to the model's real limit (pool members can override downward).
+[context]
+enabled = true
+window_tokens = 1000000
+reserve_tokens = 32768
+response_tokens = 4096
+new_messages_percent = 70
+compact_output_tokens = 16384
+# Optional additional instructions, used for automatic and manual compaction:
+# compact_prompt = "Preserve decisions, unresolved tasks, and source links."
+tokenizer = "o200k"
+image_tokens = 4096
+timeout_secs = 300
+request_timeout_ms = 180000
+continuation_retries = 1
+continuation_retry_delay_ms = 1000
+max_compaction_passes = 16

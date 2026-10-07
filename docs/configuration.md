@@ -549,3 +549,10 @@ configuration remains supported.
 
 The `[subagents]` table controls delegation limits and enablement. See
 [subagents.md](subagents.md) for grants, model subpools, lifecycle and examples.
+
+## Conversation context
+
+`[context]` partitions the configured model window into a fixed service/response
+reserve and a configurable fresh-message/compact split. SQLite retains messages
+and separate compacts. See [context.md](context.md) for defaults, `/compact`,
+provider limits, estimation and failure behavior.
