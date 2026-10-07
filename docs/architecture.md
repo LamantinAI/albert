@@ -84,7 +84,12 @@ results, and calls not yet dispatched are marked not executed. Complete call/res
 pairs are stored together, so trimming the rolling history cannot leave a dangling
 tool call. Pending images and skill instructions survive interruptions in memory;
 completed conversations retain the existing text representation of user media.
-Secret-setting arguments are redacted from stored tool traces.
+Secret-setting arguments are redacted from stored tool records. New records use a
+provider-neutral v2 journal, constructed once when checkpointed/persisted. It retains
+text, tool names/arguments, full results and images, but not opaque model reasoning
+or signatures. Legacy v1 traces remain readable without rewriting the database.
+Native provider continuation packets belong only to the active model/tool loop;
+see [model history](model-history.md).
 
 The reply commit and accepting a new input are serialized. Once an interrupt wins,
 the old task cannot publish a stale final reply. `/cancel` stops without launching

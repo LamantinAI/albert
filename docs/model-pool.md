@@ -91,8 +91,9 @@ attempt has produced a tool call, a later failure stops the automatic retry/fall
 chain and reports that external effects may have happened. Complete results and
 unknown-outcome checkpoints remain in the transcript for explicit continuation.
 Already-completed hearing is input context and does not itself block fallback.
-Provider changes normalize both sides of stored tool IDs so Responses and
-OpenRouter continue to match calls with their results.
+The application journal is provider-neutral: model changes read the same text,
+images and recorded tool outcomes, not another provider's continuation protocol.
+See [journal and continuation state](model-history.md).
 
 Model IDs, attempt counts, skipped capabilities and safe failure reasons appear
 in logs only; routine model selection does not clutter the chat status. No raw provider

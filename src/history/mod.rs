@@ -5,23 +5,25 @@
 
 pub use octo_history::{FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn};
 
-use std::{borrow::Cow, collections::HashMap};
+use std::borrow::Cow;
 
-use rig::{
-    completion::Message,
-    message::{AssistantContent, UserContent},
-};
+use rig::completion::Message;
 use serde_json::{from_str, to_string};
 
-use crate::status::responses_ids;
+mod journal;
+pub(crate) use journal::journal_messages;
 
+const JOURNAL_MARKER: &str = "[albert tool journal v2]\n";
 const TOOL_TRACE_MARKER: &str = "[albert tool trace v1]\n";
 const ESCAPED_TEXT_MARKER: &str = "[albert assistant text v1]\n";
 
 /// A model can quote a storage marker; its answer must remain plain text rather
 /// than being decoded as a host-authored tool transcript on the next turn.
 pub fn assistant_turn(text: String) -> Turn {
-    if text.starts_with(TOOL_TRACE_MARKER) || text.starts_with(ESCAPED_TEXT_MARKER) {
+    if text.starts_with(TOOL_TRACE_MARKER)
+        || text.starts_with(JOURNAL_MARKER)
+        || text.starts_with(ESCAPED_TEXT_MARKER)
+    {
         Turn::assistant(format!(
             "{ESCAPED_TEXT_MARKER}{}",
             to_string(&text).expect("text serializes")
@@ -43,8 +45,8 @@ fn assistant_text(text: &str) -> Cow<'_, str> {
 pub fn tool_trace(messages: &[Message]) -> Option<Turn> {
     (!messages.is_empty()).then(|| {
         Turn::assistant(format!(
-            "{TOOL_TRACE_MARKER}{}",
-            to_string(messages).expect("rig messages are serializable")
+            "{JOURNAL_MARKER}{}",
+            to_string(&journal_messages(messages)).expect("rig messages are serializable")
         ))
     })
 }
@@ -65,58 +67,21 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
         .iter()
         .flat_map(|t| match t.role {
             Role::User => vec![Message::user(t.content.clone())],
-            Role::Assistant => match t.content.strip_prefix(TOOL_TRACE_MARKER) {
-                Some(json) => from_str::<Vec<Message>>(json)
-                    .map(with_call_ids)
-                    .unwrap_or_else(|_| vec![
-                        Message::assistant("[Stored tool history could not be read; verify external state before repeating actions.]")
-                    ]),
-                None => vec![Message::assistant(spoken(&assistant_text(&t.content)).to_string())],
+            Role::Assistant => {
+                let decoded = if let Some(json) = t.content.strip_prefix(JOURNAL_MARKER) {
+                    Some(from_str::<Vec<Message>>(json))
+                } else {
+                    t.content.strip_prefix(TOOL_TRACE_MARKER)
+                        .map(|json| from_str::<Vec<Message>>(json).map(|messages| journal_messages(&messages)))
+                };
+                match decoded {
+                    Some(Ok(messages)) => messages,
+                    Some(Err(_)) => vec![Message::assistant("[Stored tool history could not be read; verify external state before repeating actions.]")],
+                    None => vec![Message::assistant(spoken(&assistant_text(&t.content)).to_string())],
+                }
             },
         })
         .collect()
-}
-
-/// Give every stored tool call and result a `call_id`. The OpenAI Responses API
-/// refuses a round without one, and before the hearing fix a transcription was
-/// journaled that way — one such round in a chat's history failed every later turn
-/// there. Existing call IDs pass through untouched. Re-key both sides together:
-/// OpenRouter matches by `id`, while Responses matches by `call_id`.
-pub(crate) fn with_call_ids(mut messages: Vec<Message>) -> Vec<Message> {
-    let mut identities = HashMap::new();
-    for message in &mut messages {
-        if let Message::Assistant { content, .. } = message {
-            for item in content.iter_mut() {
-                if let AssistantContent::ToolCall(call) = item {
-                    let original = call.id.clone();
-                    if call.call_id.is_none() {
-                        let (item_id, call_id) = responses_ids(&original);
-                        call.id = item_id;
-                        call.call_id = Some(call_id);
-                    }
-                    identities.insert(original, (call.id.clone(), call.call_id.clone()));
-                }
-            }
-        }
-    }
-    for message in &mut messages {
-        match message {
-            Message::User { content } => {
-                for item in content.iter_mut() {
-                    if let UserContent::ToolResult(result) = item {
-                        if let Some((item_id, call_id)) = identities.get(&result.id) {
-                            result.id = item_id.clone();
-                            if result.call_id.is_none() {
-                                result.call_id = call_id.clone();
-                            }
-                        }
-                    }
-                }
-            }
-            Message::System { .. } | Message::Assistant { .. } => {}
-        }
-    }
-    messages
 }
 
 /// An assistant turn's reply text with any appended action log stripped off.
@@ -158,7 +123,9 @@ pub fn recent_actions(turns: &[Turn], max_turns: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use rig::{
-        message::{ToolCall, ToolFunction},
+        message::{
+            AssistantContent, Reasoning, ReasoningContent, ToolCall, ToolFunction, UserContent,
+        },
         providers::{openai::responses_api::InputItem, openrouter::Message as OpenRouterMessage},
         OneOrMany,
     };
@@ -186,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn persisted_tool_rounds_replay_as_protocol_messages_not_assistant_text() {
+    fn persisted_tool_rounds_are_application_records_not_pending_calls() {
         let messages = vec![
             Message::Assistant {
                 id: None,
@@ -208,7 +175,8 @@ mod tests {
             ),
         ];
         let record = tool_trace(&messages).unwrap();
-        assert_eq!(to_messages(&[record]), messages);
+        assert!(record.content.starts_with(JOURNAL_MARKER));
+        assert_eq!(to_messages(&[record]), journal_messages(&messages));
         // A user cannot inject protocol history by pasting the storage marker.
         let user = Turn::user(format!("{TOOL_TRACE_MARKER}[]"));
         assert_eq!(to_messages(&[user]).len(), 1);
@@ -253,58 +221,197 @@ mod tests {
         assert!(recent_actions(&turns, 3).is_none());
     }
 
-    #[test]
-    fn a_stored_round_without_call_ids_is_repaired_on_read() {
-        // Exactly what a pre-fix voice turn persisted: no call_id on either side.
-        let stored = vec![
-            Message::Assistant {
-                id: None,
-                content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
-                    "auto-hear-1:2".into(),
-                    ToolFunction {
-                        name: "dispatch_to_connector".into(),
-                        arguments: json!({"target":"transcribe"}),
-                    },
-                ))),
+    fn sample_round(reasoning: Reasoning) -> Vec<Message> {
+        let mut call = ToolCall::new(
+            "call-1".into(),
+            ToolFunction {
+                name: "write".into(),
+                arguments: json!({"path":"report.txt","signature":"user argument"}),
             },
-            Message::tool_result("auto-hear-1:2", "{\"text\":\"hi\"}"),
-        ];
-        let turns = vec![tool_trace(&stored).unwrap()];
-        let mut items = Vec::new();
-        for message in to_messages(&turns) {
-            items.extend(Vec::<InputItem>::try_from(message).expect("Responses-legal round"));
-        }
-        let wire = to_string(&items).unwrap();
-        assert_eq!(
-            wire.matches("\"call_id\":\"call_auto_hear_1_2\"").count(),
-            2,
-            "{wire}"
         );
-        assert!(wire.contains("\"id\":\"fc_auto_hear_1_2\""), "{wire}");
+        call.signature = Some("opaque-tool-signature".into());
+        call.additional_params = Some(json!({"format":"opaque-provider-data"}));
+        vec![
+            Message::Assistant {
+                id: Some("provider-message-id".into()),
+                content: OneOrMany::many([
+                    AssistantContent::Reasoning(reasoning),
+                    AssistantContent::text("Checking the report."),
+                    AssistantContent::ToolCall(call),
+                ])
+                .unwrap(),
+            },
+            Message::tool_result(
+                "call-1",
+                "Completed: report.txt. Another action has UNKNOWN outcome.",
+            ),
+        ]
     }
+
     #[test]
-    fn migration_preserves_openrouter_call_result_pair() {
-        let stored = vec![
-            Message::Assistant {
-                id: None,
-                content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
-                    "call-old-1".into(),
-                    ToolFunction {
-                        name: "dispatch_to_connector".into(),
-                        arguments: json!({"target":"transcribe"}),
-                    },
-                ))),
-            },
-            Message::tool_result("call-old-1", "hello"),
+    fn one_journal_format_handles_different_reasoning_shapes_and_legacy_records() {
+        let mut encrypted = Reasoning::new("private reasoning").with_id("rs_native".into());
+        encrypted
+            .content
+            .push(ReasoningContent::Encrypted("opaque-encrypted-state".into()));
+        let variants = [
+            Reasoning::new("private reasoning"),
+            encrypted,
+            Reasoning::new_with_signature(
+                "private reasoning",
+                Some("opaque-thinking-signature".into()),
+            ),
+            Reasoning::new("private reasoning").with_id("another-provider-id".into()),
         ];
-        let mut wire = Vec::new();
-        for msg in to_messages(&[tool_trace(&stored).unwrap()]) {
-            wire.extend(Vec::<OpenRouterMessage>::try_from(msg).unwrap());
+        for reasoning in variants {
+            let round = sample_round(reasoning);
+            let legacy =
+                Turn::assistant(format!("{TOOL_TRACE_MARKER}{}", to_string(&round).unwrap()));
+            let original = legacy.content.clone();
+            let current = tool_trace(&round).unwrap();
+            for record in [&legacy, &current] {
+                let messages = to_messages(&[record.clone()]);
+                let mut responses = Vec::<InputItem>::new();
+                let mut router = Vec::<OpenRouterMessage>::new();
+                for m in messages {
+                    responses.extend(Vec::<InputItem>::try_from(m.clone()).unwrap());
+                    router.extend(Vec::<OpenRouterMessage>::try_from(m).unwrap());
+                }
+                for wire in [
+                    to_value(responses).unwrap().to_string(),
+                    to_value(router).unwrap().to_string(),
+                ] {
+                    assert!(
+                        wire.contains("report.txt")
+                            && wire.contains("UNKNOWN")
+                            && wire.contains("call-1")
+                    );
+                    assert!(wire.contains("user argument"));
+                    assert!(
+                        !wire.contains("private reasoning")
+                            && !wire.contains("opaque-")
+                            && !wire.contains("provider-message-id")
+                    );
+                }
+            }
+            assert_eq!(legacy.content, original);
+            assert!(!current.content.contains("private reasoning"));
+            let quoted = current.content.clone();
+            assert_eq!(
+                to_messages(&[assistant_turn(quoted.clone())]),
+                vec![Message::assistant(quoted)]
+            );
         }
-        let wire = to_value(wire).unwrap();
-        assert_eq!(
-            wire[0]["tool_calls"][0]["id"], wire[1]["tool_call_id"],
-            "{wire}"
+    }
+
+    #[test]
+    fn journal_keeps_tool_result_images_as_images() {
+        use rig::message::{ImageMediaType, ToolResultContent};
+        let UserContent::Image(mut image) =
+            UserContent::image_base64("aW1hZ2U=", Some(ImageMediaType::PNG), None)
+        else {
+            unreachable!()
+        };
+        image.additional_params = Some(json!({"thought_signature":"opaque-image-signature"}));
+        let message = Message::User {
+            content: OneOrMany::one(UserContent::tool_result(
+                "image-call",
+                OneOrMany::one(ToolResultContent::Image(image.clone())),
+            )),
+        };
+        let record = tool_trace(&[message]).unwrap();
+        assert!(!record.content.contains("opaque-image-signature"));
+        let output = to_messages(&[record]);
+        assert!(output.iter().any(|m| matches!(m, Message::User { content } if content.iter().any(|p| matches!(p,UserContent::Image(i) if i.data==image.data && i.media_type==image.media_type && i.detail==image.detail)))), "{output:?} expected {image:?}");
+    }
+    #[tokio::test]
+    async fn legacy_journal_reaches_codex_transport_in_both_completion_paths() {
+        use crate::{codex_http::CodexHttp, codex_model::CodexResponsesModel};
+        use axum::{http::StatusCode, routing::post, serve, Json, Router};
+        use futures::StreamExt;
+        use rig::{
+            completion::{CompletionModel, CompletionRequest},
+            providers::openai,
+        };
+        use serde_json::Value;
+        use std::{
+            sync::{Arc, Mutex},
+            time::Duration,
+        };
+        use tokio::{net::TcpListener, spawn, time::timeout};
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let capture = requests.clone();
+        let app = Router::new().route(
+            "/responses",
+            post(move |Json(body): Json<Value>| {
+                capture.lock().unwrap().push(body);
+                async {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error":{"message":"captured","code":400}})),
+                    )
+                }
+            }),
         );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = spawn(async move { serve(listener, app).await.unwrap() });
+        let client = openai::Client::builder()
+            .api_key("local-test-key")
+            .base_url(&url)
+            .http_client(CodexHttp::default())
+            .build()
+            .unwrap();
+        let model = CodexResponsesModel::make(&client, "test");
+        let legacy = Turn::assistant(format!(
+            "{TOOL_TRACE_MARKER}{}",
+            to_string(&sample_round(Reasoning::new("private reasoning"))).unwrap()
+        ));
+        for streaming in [false, true] {
+            let mut messages = to_messages(&[legacy.clone()]);
+            messages.push(Message::user("continue"));
+            let req = CompletionRequest {
+                model: None,
+                preamble: None,
+                chat_history: OneOrMany::many(messages).unwrap(),
+                documents: vec![],
+                tools: vec![],
+                temperature: None,
+                max_tokens: None,
+                tool_choice: None,
+                additional_params: None,
+                output_schema: None,
+            };
+            timeout(Duration::from_secs(3), async {
+                if streaming {
+                    if let Ok(mut stream) = model.stream(req).await {
+                        while let Some(item) = stream.next().await {
+                            if item.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    assert!(model.completion(req).await.is_err());
+                }
+            })
+            .await
+            .unwrap();
+        }
+        server.abort();
+        let _ = server.await;
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for body in requests.iter() {
+            assert_eq!(body["store"], false);
+            assert_eq!(body["stream"], true);
+            assert!(body.to_string().contains("report.txt"));
+            assert!(!body.to_string().contains("private reasoning"));
+            assert!(body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|i| i["type"] != "function_call" && i["type"] != "reasoning"));
+        }
     }
 }

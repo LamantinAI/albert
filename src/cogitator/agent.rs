@@ -24,8 +24,8 @@ use crate::{
     cogitator::errors::model_failure,
     config::AuthMode,
     connector_catalog::ConnectorCatalog,
-    history::with_call_ids,
     models::{needs_vision, Failure, FailureKind, ModelSpec},
+    openrouter_http::OpenRouterHttp,
     selfconfig::SelfConfig,
     status::StatusFeed,
 };
@@ -108,7 +108,7 @@ impl AlbertCogitator {
                 vision,
                 |model, force_refresh| {
                     let tools = make_tools();
-                    let history = with_call_ids(history.clone());
+                    let history = history.clone();
                     let prompt = prompt.clone();
                     let feed = feed.clone();
                     async move {
@@ -167,7 +167,7 @@ impl AlbertCogitator {
                 .ok_or_else(|| unavailable("API key is unavailable."))?;
                 let mut builder = OpenRouterClient::builder()
                     .api_key(key.as_str())
-                    .http_client(http);
+                    .http_client(OpenRouterHttp::new(http));
                 let base = model.base_url.as_deref().unwrap_or(&self.config.base_url);
                 if !base.is_empty() {
                     builder = builder.base_url(base);

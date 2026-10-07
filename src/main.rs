@@ -17,6 +17,7 @@ mod manifests;
 mod memory;
 mod models;
 mod openai_login;
+mod openrouter_http;
 mod prompt;
 mod routines;
 mod scratchpad;
