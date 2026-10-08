@@ -11,11 +11,7 @@ use std::{collections::HashMap, env::var, sync::Arc};
 
 use kaeru_core::{KaeruConfig, Store};
 use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
-use rig::{
-    agent::{AgentBuilder, NoToolConfig, WithBuilderTools},
-    completion::CompletionModel,
-    tool::ToolDyn,
-};
+use rig::tool::ToolDyn;
 use thiserror::Error;
 use tokio::task::{spawn_blocking, JoinError};
 use tracing::{info, warn};
@@ -104,23 +100,6 @@ impl Memory {
         match self {
             Self::Mcp(memory) => memory.tools(),
             Self::Embedded { memory, clouds } => embedded_tools(memory, *clouds),
-        }
-    }
-
-    pub fn install<M: CompletionModel + 'static>(
-        &self,
-        base: AgentBuilder<M, (), NoToolConfig>,
-    ) -> AgentBuilder<M, (), WithBuilderTools> {
-        match self {
-            Self::Embedded {
-                memory,
-                clouds: true,
-            } => memory.install_with_cloud(base),
-            Self::Embedded {
-                memory,
-                clouds: false,
-            } => memory.install(base),
-            Self::Mcp(memory) => base.tools(memory.tools()),
         }
     }
 }

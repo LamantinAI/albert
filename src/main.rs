@@ -4,6 +4,7 @@
 //! it remembers and it reminds.
 
 mod acl;
+mod artifacts;
 mod codex_http;
 mod codex_model;
 mod cogitator;

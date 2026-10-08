@@ -30,6 +30,7 @@ pub enum Tokenizer {
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub enabled: bool,
+    pub artifacts: crate::artifacts::Settings,
     pub window_tokens: usize,
     /// A hard partition, including instructions/tools/framing AND generation.
     pub reserve_tokens: usize,
@@ -49,6 +50,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             enabled: true,
+            artifacts: Default::default(),
             window_tokens: 1_000_000,
             reserve_tokens: 32_768,
             response_tokens: 4096,
@@ -67,6 +69,7 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
+        self.artifacts.validate()?;
         if self.request_timeout_ms == 0
             || self.request_timeout_ms >= self.timeout_secs.saturating_mul(1000)
         {

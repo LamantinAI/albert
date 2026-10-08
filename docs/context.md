@@ -147,13 +147,11 @@ reserved, and a returned compact is checked locally before persistence. The
 subscription's generation length is not falsely described as a server-enforced
 host cap.
 
-This implementation compacts persisted channel history at turn boundaries. It
-does not yet automatically compact an in-progress rig tool loop or replace
-general large tool responses with artifacts before
-model ingestion. Those are remaining parts of
-[#37](https://github.com/LamantinAI/albert/issues/37); child runs share request
-budget guards but do not have recursive automatic SQL compaction of their live
-loops. The existing compact subagent inspection remains available.
+This implementation compacts persisted channel history at turn boundaries.
+New large tool results are offloaded before model ingestion as described below.
+Automatic compaction of an in-progress tool loop remains part of
+[#38](https://github.com/LamantinAI/albert/issues/38); child runs share request
+budget guards but do not have automatic SQL compaction of their live loops.
 
 ## Provider deadlines and recovery
 
@@ -190,3 +188,53 @@ is confirmed only after the result reaches the parent's tool-result hook and
 execution trace. The next parent turn can discover and consume an uncollected
 child report. Ordinary interrupts leave children running; explicit cancellation
 retains its existing propagation behavior.
+
+
+## Large tool-result artifacts
+
+Root and child toolsets bound **new tool results before they enter the SDK loop**.
+Results larger than `context.artifacts.threshold_bytes` are stored under the
+workspace's `tool-results/` directory. The model receives a preview, source
+metadata, byte count, artifact ID/path, and explicit truncation. The SQL execution
+journal records that returned reference; the full payload is in the artifact,
+not duplicated into subsequent conversation messages. Small results pass through
+unchanged. Existing historical journals are not rewritten.
+
+The `artifact` tool reads a bounded page or searches for a literal substring.
+Offsets count Unicode characters; `field` selects a nested JSON field such as
+`["result", "text"]`, avoiding raw HTML/JSON escaping when reading page text.
+This infrastructure tool is available with nonempty toolsets, including children;
+it does not grant another connector or access to the parent's artifacts.
+
+Namespaces include connector and channel; stored records retain owner authority.
+Non-owner runs cannot read owner-protected records. A child writes beneath
+its own run prefix and can only read that prefix. A parent with matching authority
+can read references from its children. Broader filesystem grants such as forkd or
+root workspace tools retain their existing authority; artifact scoping is not a
+sandbox against those capabilities.
+
+Defaults (all configurable):
+
+```toml
+[context.artifacts]
+enabled = true
+threshold_bytes = 16384
+preview_chars = 2048
+read_chars = 8192
+max_file_bytes = 67108864
+max_scope_bytes = 536870912
+retention_secs = 604800
+```
+
+The quota applies per conversation namespace, including child payloads.
+Expired managed payloads are cleaned opportunistically when saving new artifacts;
+reads reject expired/missing artifacts explicitly. Unexpired evidence is not
+silently evicted to make room. File size limits, quota exhaustion and filesystem
+errors produce bounded results with `artifact_error`; the tool has already run,
+and its external effects must not be retried blindly. Full evidence is unavailable
+when storage fails or after expiry. Payload reads and previews remain untrusted
+data, with the original source metadata available in the reference.
+
+Artifact read responses are already bounded and are not offloaded recursively.
+This limits each result, not the number of rounds: the model request guard still
+refuses a loop that accumulates more context than its configured window.
