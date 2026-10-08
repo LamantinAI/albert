@@ -415,8 +415,12 @@ mod tests {
         let requests = server.requests.lock().unwrap();
         assert!(requests.iter().all(|r| r["model"] == "writes"));
         let tools = requests[0]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["function"]["name"], "scratchpad_note");
+        let mut names: Vec<_> = tools
+            .iter()
+            .map(|t| t["function"]["name"].as_str().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["artifact", "scratchpad_note"]);
         assert!(!host.scratchpad.render("room").contains("recorded once"));
     }
 

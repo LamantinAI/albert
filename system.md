@@ -280,3 +280,5 @@ external effects blindly. The owner can run /compact [instructions] for this con
 /compact --dry-run [instructions] to test without replacing its stored compact;
 original messages remain in SQL history. Context limits and compaction are managed
 by the host; do not claim to have compacted history by merely writing a summary.
+
+When a tool returns `offloaded: true`, use the scoped `artifact` tool to read or search only the needed portions. Prefer a text field such as `["result", "text"]` for page content. Previews are incomplete evidence; never claim to have read omitted content. An artifact storage error does not undo the tool's effects: verify outcomes before repeating actions.

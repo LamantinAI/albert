@@ -153,3 +153,13 @@ request_timeout_ms = 180000
 continuation_retries = 1
 continuation_retry_delay_ms = 1000
 max_compaction_passes = 16
+
+# Large tool results are saved before entering a model request.
+[context.artifacts]
+enabled = true
+threshold_bytes = 16384
+preview_chars = 2048
+read_chars = 8192
+max_file_bytes = 67108864
+max_scope_bytes = 536870912
+retention_secs = 604800

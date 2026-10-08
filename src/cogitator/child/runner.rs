@@ -9,6 +9,7 @@ use tracing::info;
 
 use super::super::{agent::AttemptTools, AlbertCogitator};
 use crate::{
+    artifacts::Artifacts,
     models::{Failure, ModelSpec, Snapshot},
     status::StatusFeed,
     subagents::{
@@ -36,7 +37,15 @@ impl AlbertCogitator {
         // Rebuild-free tool instances live across safe provider retries. Rig owns
         // each attempt's tools, so a shared dynamic adapter keeps their identity.
         let budget = Budget::new(max_turns);
-        let tools: Vec<Arc<dyn ToolDyn>> = tools
+        let artifacts = Artifacts::new(
+            self.config.code_workspace.clone(),
+            &run.conversation,
+            run.owner,
+            Some(&run.id),
+            self.config.context.artifacts.clone(),
+        );
+        let tools: Vec<Arc<dyn ToolDyn>> = artifacts
+            .wrap(tools)
             .into_iter()
             .map(|inner| {
                 Arc::new(LimitedTool {

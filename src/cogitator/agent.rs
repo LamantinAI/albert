@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use octo_code::code_tools;
+use octo_code::{EditTool, GlobTool, GrepTool, ListTool, ReadTool, WriteTool};
 use octo_core::{ChannelId, CogitatorContext, ConnectorId};
 use octo_openai_auth::Subscription as SubToken;
 use octo_rig::{OctoDispatchTool, RestartTool, SendFileTool};
@@ -20,6 +20,7 @@ use tracing::{debug, info, warn};
 
 use super::{catalog, AlbertCogitator};
 use crate::{
+    artifacts::Artifacts,
     codex_http::CodexHttp,
     codex_model::CodexResponsesModel,
     cogitator::errors::model_failure,
@@ -57,9 +58,10 @@ impl AlbertCogitator {
                 .unwrap_or_default(),
             channel.to_owned(),
         );
+        let observer_conversation = conversation.clone();
         let feed = feed.with_result_observer(move |name, args, result| {
             if let Some(host) = host.upgrade() {
-                host.acknowledge_subagent_result(&conversation, owner, name, args, result);
+                host.acknowledge_subagent_result(&observer_conversation, owner, name, args, result);
             }
         });
         // Owner-only: restarting a connector (to reload its manifest) or the whole
@@ -134,6 +136,13 @@ impl AlbertCogitator {
                 selfconfig,
                 discovery.clone(),
                 child_tool.clone(),
+                Artifacts::new(
+                    self.config.code_workspace.clone(),
+                    &conversation,
+                    owner,
+                    None,
+                    self.config.context.artifacts.clone(),
+                ),
             ))
         };
         let preamble = format!(
@@ -327,10 +336,18 @@ impl AlbertCogitator {
         feed: StatusFeed,
     ) -> Result<String, PromptError> {
         match tools {
-            AttemptTools::Root((dispatch, send_file, restart, selfconfig, discovery, children)) => {
+            AttemptTools::Root((
+                dispatch,
+                send_file,
+                restart,
+                selfconfig,
+                discovery,
+                children,
+                artifacts,
+            )) => {
                 self.drive(
                     base, dispatch, send_file, restart, selfconfig, discovery, children, channel,
-                    prompt, history, feed,
+                    prompt, history, feed, artifacts,
                 )
                 .await
             }
@@ -402,6 +419,7 @@ impl AlbertCogitator {
         prompt: Message,
         history: Vec<Message>,
         feed: StatusFeed,
+        artifacts: Artifacts,
     ) -> Result<String, PromptError>
     where
         M: CompletionModel + 'static,
@@ -413,48 +431,47 @@ impl AlbertCogitator {
             max_turns = self.config.max_tool_turns,
             "building agent + running tool-loop"
         );
-        let installed = self.memory.install(base);
-        let with_tools = installed
-            .tool(dispatch)
-            .tool(discovery)
-            .tool(pad.goal())
-            .tool(pad.step())
-            .tool(pad.mark())
-            .tool(pad.note())
-            .tool(pad.clear())
-            .tool(self.skills.list_tool())
-            .tool(self.skills.search_tool())
-            .tool(self.skills.apply_tool())
-            .tool(self.skills.file_tool());
-        // send_file is present only when there's a user to send to (not silent routines).
-        let with_tools = match send_file {
-            Some(sf) => with_tools.tool(sf),
-            None => with_tools,
-        };
-        // restart is present only for owner turns (apply config / reboot on request).
-        let with_tools = match restart {
-            Some(rt) => with_tools.tool(rt),
-            None => with_tools,
-        };
-        // self-config tools: owner turns only — read/list/write/edit its own deploy files.
-        let with_tools = match selfconfig {
-            Some(sc) => with_tools
-                .tool(self.models.select_tool())
-                .tool(sc.read_tool())
-                .tool(sc.list_tool())
-                .tool(sc.write_tool())
-                .tool(sc.edit_tool())
-                .tool(sc.set_secret_tool())
-                .tool(sc.list_secrets_tool()),
-            None => with_tools,
-        };
-        // octo-code file tools (read/write/edit/list/glob/grep), jailed to
-        // $OCTO_CODE_WORKSPACE — Albert's hands on a scratch working directory.
-        let with_tools = match children {
-            Some(tool) => with_tools.tools(vec![Box::new(tool)]),
-            None => with_tools,
-        };
-        let agent = code_tools!(with_tools).build();
+        let mut tools = self.memory.delegation_tools();
+        tools.extend(vec![
+            Box::new(dispatch) as Box<dyn ToolDyn>,
+            Box::new(discovery),
+            Box::new(pad.goal()),
+            Box::new(pad.step()),
+            Box::new(pad.mark()),
+            Box::new(pad.note()),
+            Box::new(pad.clear()),
+            Box::new(self.skills.list_tool()),
+            Box::new(self.skills.search_tool()),
+            Box::new(self.skills.apply_tool()),
+            Box::new(self.skills.file_tool()),
+            Box::new(ReadTool),
+            Box::new(WriteTool),
+            Box::new(EditTool),
+            Box::new(ListTool),
+            Box::new(GlobTool),
+            Box::new(GrepTool),
+        ]);
+        if let Some(tool) = send_file {
+            tools.push(Box::new(tool));
+        }
+        if let Some(tool) = restart {
+            tools.push(Box::new(tool));
+        }
+        if let Some(sc) = selfconfig {
+            tools.extend(vec![
+                Box::new(self.models.select_tool()) as Box<dyn ToolDyn>,
+                Box::new(sc.read_tool()),
+                Box::new(sc.list_tool()),
+                Box::new(sc.write_tool()),
+                Box::new(sc.edit_tool()),
+                Box::new(sc.set_secret_tool()),
+                Box::new(sc.list_secrets_tool()),
+            ]);
+        }
+        if let Some(tool) = children {
+            tools.push(Box::new(tool));
+        }
+        let agent = base.tools(artifacts.wrap(tools)).build();
         agent
             .prompt(prompt)
             .with_hook(feed)
@@ -474,6 +491,7 @@ type TurnTools = (
     Option<SelfConfig>,
     ConnectorCatalog,
     Option<SubagentTool>,
+    Artifacts,
 );
 
 pub(super) enum AttemptTools {
