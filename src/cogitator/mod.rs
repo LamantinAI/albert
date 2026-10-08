@@ -14,6 +14,8 @@
 //! in [`crate::routines`].
 
 #[cfg(test)]
+mod artifact_tests;
+#[cfg(test)]
 mod fixture;
 mod hearing;
 #[cfg(test)]

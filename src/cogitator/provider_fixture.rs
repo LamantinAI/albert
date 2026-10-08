@@ -90,11 +90,26 @@ async fn completion(
             }}]}),
             "tool_calls",
         )
-    } else if model == "child-dispatch" && count == 1 {
+    } else if matches!(model, "child-dispatch" | "large-output") && count == 1 {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"child-search","type":"function","function":{
                 "name":"dispatch_to_connector","arguments":json!({"target":"search","kind":"search.web","payload":{"query":"test"}}).to_string()
             }}]}),
+            "tool_calls",
+        )
+    } else if model == "large-output" && count == 2 {
+        let result = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|m| m["role"] == "tool")
+            .unwrap();
+        let content: Value = serde_json::from_str(result["content"].as_str().unwrap()).unwrap();
+        assert_eq!(content["offloaded"], true);
+        assert!(result.to_string().len() < 14000);
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"read-evidence","type":"function","function":{"name":"artifact","arguments":json!({"action":"read","id":content["artifact_id"],"field":["result","text"],"offset":20000,"limit":100}).to_string()}}]}),
             "tool_calls",
         )
     } else if model == "discovery" && count == 1 {
