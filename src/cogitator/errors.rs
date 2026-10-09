@@ -1,5 +1,6 @@
 use rig::completion::{CompletionError, PromptError};
 use serde_json::Value;
+use tracing::warn;
 
 use crate::models::{Failure, FailureKind};
 
@@ -141,6 +142,9 @@ pub(super) fn model_failure(error: PromptError) -> Failure {
     } else {
         FailureKind::Fatal
     };
+    // The chat gets a short, safe summary; the operator needs the provider's own
+    // words to tell an overload from a malformed request, so they go to the log.
+    warn!(kind = ?kind, error = %raw, "model attempt failed");
     Failure {
         kind,
         message: format!("{kind:?}: {}", user_facing_llm_error(&error)),
