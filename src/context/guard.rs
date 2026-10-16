@@ -6,7 +6,7 @@ use rig::{
     },
     streaming::StreamingCompletionResponse,
 };
-use serde_json::{json, to_string};
+use serde_json::{json, to_string, Value};
 use tracing::info;
 
 use super::{recovery::Recovery, Settings};
@@ -20,6 +20,7 @@ pub struct BudgetedModel<M> {
     api_output_cap: bool,
     turn_budget: Option<Arc<Budget>>,
     recovery: Option<Recovery>,
+    model_params: Option<Value>,
 }
 impl<M> BudgetedModel<M> {
     pub fn new(inner: M, settings: Option<Settings>, api_output_cap: bool) -> Self {
@@ -29,7 +30,12 @@ impl<M> BudgetedModel<M> {
             api_output_cap,
             turn_budget: None,
             recovery: None,
+            model_params: None,
         }
+    }
+    pub fn with_model_params(mut self, params: Option<Value>) -> Self {
+        self.model_params = params;
+        self
     }
     pub fn with_recovery(mut self, retries: usize, delay_ms: u64, feed: StatusFeed) -> Self {
         self.recovery = Some(Recovery::new(retries, delay_ms, feed));
@@ -40,6 +46,15 @@ impl<M> BudgetedModel<M> {
         self
     }
     fn guard(&self, request: &mut CompletionRequest) -> Result<(), CompletionError> {
+        if let Some(Value::Object(params)) = &self.model_params {
+            let target = request.additional_params.get_or_insert_with(|| json!({}));
+            let target = target.as_object_mut().ok_or_else(|| {
+                CompletionError::ProviderError("Model parameters must be an object".into())
+            })?;
+            for (key, value) in params {
+                target.insert(key.clone(), value.clone());
+            }
+        }
         if let Some(budget) = &self.turn_budget {
             budget.prepare(request)?;
         }

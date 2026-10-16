@@ -61,6 +61,10 @@ impl Snapshot {
         let mut refreshed = false;
         let mut failures = Vec::new();
         for model in self.ordered() {
+            if let Err(error) = model.validate_reasoning() {
+                failures.push(error);
+                continue;
+            }
             if (tools && !model.tools) || (vision && !model.vision) {
                 let why = format!(
                     "{}: incompatible (requires tools{}).",

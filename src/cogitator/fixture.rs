@@ -25,6 +25,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
             ..Default::default()
         },
         subagents: Default::default(),
+        scratchpad: Default::default(),
         model_pool: None,
         models: None,
         memory: Default::default(),

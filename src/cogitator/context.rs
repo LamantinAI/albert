@@ -7,9 +7,21 @@ use rig::{
     OneOrMany,
 };
 
-use serde_json::{Map, Value};
+use serde_json::{to_string, Map, Value};
 
-use crate::history::{recent_actions, Turn, ACTION_MARKER};
+use crate::{
+    history::{recent_actions, Turn, ACTION_MARKER},
+    scratchpad::PadScope,
+    subagents::Conversation,
+};
+
+/// Connector identity and owner authority are supplied by the host, never tools.
+pub(super) fn scratchpad_scope(conversation: &Conversation, owner: bool) -> PadScope {
+    PadScope {
+        conversation: to_string(conversation).expect("conversation tuple serialization"),
+        owner,
+    }
+}
 
 /// One user turn as perceived: text, plus any images the connector downloaded
 /// (a Telegram photo / image document, or every photo of an album; the caption

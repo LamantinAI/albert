@@ -10,7 +10,9 @@ use crate::{
 
 impl AlbertCogitator {
     pub(super) fn child_native_tools(&self, workspace: PathBuf) -> Vec<Box<dyn ToolDyn>> {
-        let pad = ScratchpadStore::new().handle("child");
+        let pad = ScratchpadStore::with_limits(self.config.scratchpad.clone())
+            .expect("validated scratchpad limits")
+            .handle("child");
         let mut tools: Vec<Box<dyn ToolDyn>> = vec![
             Box::new(pad.goal()),
             Box::new(pad.step()),

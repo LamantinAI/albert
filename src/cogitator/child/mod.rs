@@ -1,5 +1,6 @@
 mod launch;
 mod native;
+mod planning;
 mod runner;
 
 // Assembly policy for one-level delegation. The Octo bus remains generic.
@@ -27,9 +28,9 @@ impl AlbertCogitator {
             return Err("Subagents are disabled.".into());
         }
         match args {
-            Args::Capabilities => Ok(json!({
-                "models":self.models.snapshot().config.models.iter().map(|m|
-                    json!({"id":m.id,"tools":m.tools,"vision":m.vision})).collect::<Vec<_>>(),
+            Args::Capabilities => {
+                let mut capabilities = self.models.snapshot().child_capabilities();
+                let grants = json!({
                 "connectors":tool.ctx.connectors().iter().filter(|c| c.capabilities.description.is_some())
                     .map(|c| c.id.as_str()).collect::<Vec<_>>(),
                 "tools":self.child_native_tools(PathBuf::new()).iter().map(|t| t.name()).collect::<Vec<_>>(),
@@ -38,7 +39,13 @@ impl AlbertCogitator {
                 "default_tool_turns":self.config.subagents.default_tool_turns.min(self.config.subagents.max_tool_turns),
                 "timeout_secs":self.config.subagents.timeout_secs,
                 "max_depth":1
-            })),
+                });
+                capabilities
+                    .as_object_mut()
+                    .expect("capabilities object")
+                    .extend(grants.as_object().expect("grants object").clone());
+                Ok(capabilities)
+            }
             Args::Spawn { task } => self.spawn_child(tool, task),
             Args::List => Ok(
                 json!({"runs":self.children.visible(&tool.conversation, tool.owner)

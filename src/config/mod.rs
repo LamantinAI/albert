@@ -25,6 +25,7 @@ use crate::{
     error::{Error, Result},
     memory::config::MemoryConfig,
     models::PoolConfig,
+    scratchpad::Settings as ScratchpadSettings,
     subagents::Limits,
 };
 
@@ -52,6 +53,7 @@ pub struct CloudEndpoint {
 pub struct Config {
     pub context: ContextSettings,
     pub subagents: Limits,
+    pub scratchpad: ScratchpadSettings,
     pub model_pool: Option<PathBuf>,
     pub models: Option<PoolConfig>,
     pub memory: MemoryConfig,
@@ -188,9 +190,11 @@ impl Config {
             .map_err(Error::Config)?;
         raw.context.validate().map_err(Error::Config)?;
         raw.subagents.validate().map_err(Error::Config)?;
+        raw.scratchpad.validate().map_err(Error::Config)?;
         Ok(Config {
             context: raw.context,
             subagents: raw.subagents,
+            scratchpad: raw.scratchpad,
             model_pool,
             models,
             memory: raw.memory,
@@ -294,6 +298,8 @@ struct Raw {
     context: ContextSettings,
     #[serde(default)]
     subagents: Limits,
+    #[serde(default)]
+    scratchpad: ScratchpadSettings,
     #[serde(default)]
     model_pool: Option<String>,
     #[serde(default)]

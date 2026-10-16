@@ -58,7 +58,7 @@ use crate::{
     cogitator::AlbertCogitator,
     config::{AuthMode, Config},
     console::ConsoleConnector,
-    error::Result,
+    error::{Error, Result},
     history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
     manifests::declared_types,
     memory::Memory,
@@ -177,7 +177,8 @@ async fn main() -> Result<()> {
     );
 
     // ── Loop scratchpad: super-operational per-task working object ───────────
-    let scratchpad = ScratchpadStore::new();
+    let scratchpad =
+        ScratchpadStore::with_limits(config.scratchpad.clone()).map_err(Error::Config)?;
 
     // ── Declarative skills: a folder Albert lists + applies (LRU-cached) ─────
     // What this runtime can actually do gates which skills exist: a skill that needs,

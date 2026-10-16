@@ -18,6 +18,8 @@ deeper reference.
   ending in a complete, copyable working config.
 - **[structure.md](structure.md)** — the code map: what each module owns and where
   a given concern lives.
+- **[stage-planning.md](stage-planning.md)** — RAM scratchpad stages, model-role
+  configuration, child links and evidence-based verification.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.

@@ -6,7 +6,8 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use super::super::{
-    action_context, channel_of, incoming_context, now_rfc3339, with_action_log, AlbertCogitator,
+    action_context, channel_of, incoming_context, now_rfc3339, scratchpad_scope, with_action_log,
+    AlbertCogitator,
 };
 use super::ChannelState;
 use crate::{
@@ -63,7 +64,10 @@ impl AlbertCogitator {
             }
         }
         let active = self.active_reminders(ctx).await;
-        let pad = self.scratchpad.render(&channel);
+        let pad = self.scratchpad.render_scoped(&scratchpad_scope(
+            &(incoming.source.to_string(), channel.clone()),
+            owner,
+        ));
         let stored = self.visible_turns(&channel).await.unwrap_or_default();
         let preamble = format!(
             "{}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}{}",

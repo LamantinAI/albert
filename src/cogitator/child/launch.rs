@@ -15,10 +15,14 @@ use serde_json::{json, Value};
 use tokio::{select, spawn, time::sleep};
 use tracing::{info, warn};
 
-use super::super::AlbertCogitator;
+use super::{
+    super::{scratchpad_scope, AlbertCogitator},
+    planning::LinkedStage,
+};
 use crate::{
     connector_catalog::ConnectorCatalog,
     history::{tool_trace, Turn},
+    scratchpad::Reservation,
     subagents::{ScopedDispatch, SubagentTool, Task},
 };
 
@@ -26,7 +30,7 @@ impl AlbertCogitator {
     pub(super) fn spawn_child(
         self: &Arc<Self>,
         tool: &SubagentTool,
-        task: Task,
+        mut task: Task,
     ) -> Result<Value, String> {
         if tool.ctx.shutdown.is_cancelled() {
             return Err("Runtime is shutting down.".into());
@@ -46,7 +50,7 @@ impl AlbertCogitator {
         {
             return Err("Requested child budget exceeds configured limits.".into());
         }
-        let snapshot = self.models.snapshot().scoped(&task.models)?;
+        let (snapshot, assignment) = self.resolve_child_task(tool, &mut task)?;
         let allowed: HashSet<_> = task.connectors.iter().cloned().collect();
         let connectors: Vec<_> = tool
             .ctx
@@ -69,11 +73,35 @@ impl AlbertCogitator {
             .code_workspace
             .join("subagents")
             .join(format!("{:032x}", random::<u128>()));
-        tool.spawned
+        let stage = if let Some(link) = &task.stage {
+            let scope = scratchpad_scope(&tool.conversation, tool.owner);
+            match self.scratchpad.reserve_stage(&scope, link, assignment)? {
+                Reservation::New { attempt_id } => Some(LinkedStage {
+                    scope,
+                    link: link.clone(),
+                    attempt_id,
+                }),
+                Reservation::Existing {
+                    attempt_id,
+                    run_id,
+                    state,
+                } => {
+                    return Ok(self.existing_stage_launch(tool, attempt_id, run_id, state));
+                }
+            }
+        } else {
+            None
+        };
+        if tool
+            .spawned
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                 (n < limits.max_runs_per_turn).then_some(n + 1)
             })
-            .map_err(|_| "Subagent run budget exhausted for this parent turn.".to_string())?;
+            .is_err()
+        {
+            self.release_stage_launch(&stage);
+            return Err("Subagent run budget exhausted for this parent turn.".into());
+        }
         let (run, mut cancelled, done) = match self.children.reserve(
             limits,
             tool.parent.clone(),
@@ -84,14 +112,29 @@ impl AlbertCogitator {
             Ok(value) => value,
             Err(error) => {
                 tool.spawned.fetch_sub(1, Ordering::SeqCst);
+                self.release_stage_launch(&stage);
                 return Err(error);
             }
         };
         if create_dir_all(&workspace).is_err() {
-            done.send_replace(
-                json!({"outcome":{"status":"failed","error":"Cannot create subagent workspace."}}),
-            );
+            self.children.release_unstarted(&run);
+            tool.spawned.fetch_sub(1, Ordering::SeqCst);
+            self.release_stage_launch(&stage);
             return Err("Cannot create subagent workspace.".into());
+        }
+        if let Some(stage) = &stage {
+            if let Err(error) = self.scratchpad.bind_run(
+                &stage.scope,
+                &stage.link.task_id,
+                &stage.link.stage_id,
+                &stage.attempt_id,
+                &run.id,
+            ) {
+                self.children.release_unstarted(&run);
+                tool.spawned.fetch_sub(1, Ordering::SeqCst);
+                self.release_stage_launch(&Some(stage.clone()));
+                return Err(error);
+            }
         }
         let scope = run.id.clone();
         let source = ConnectorId::new(format!("{}/{}", self.self_source, scope));
@@ -138,9 +181,15 @@ impl AlbertCogitator {
             // Poll cancellation before starting the worker. Dropping the selected
             // future stops all its model/tool futures before we snapshot the trace.
             let outcome = {
-                let execution = AssertUnwindSafe(
-                    me.run_child(&owned_run, task, snapshot, tools, max_turns, &workspace),
-                )
+                let execution = AssertUnwindSafe(me.run_child(
+                    &owned_run,
+                    task,
+                    snapshot,
+                    tools,
+                    max_turns,
+                    &workspace,
+                    stage.as_ref(),
+                ))
                 .catch_unwind();
                 select! {
                     biased;
@@ -156,6 +205,9 @@ impl AlbertCogitator {
                     },
                 }
             };
+            if let Some(stage) = &stage {
+                me.finish_stage_launch(stage, &outcome);
+            }
             if let Err(error) = carry_out_cancel(&ctx.bus(), &source, &scope).await {
                 warn!(%error, %scope, "child connector cancellation failed");
             }

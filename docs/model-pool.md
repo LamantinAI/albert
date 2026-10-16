@@ -110,3 +110,55 @@ uses the current chat only as the default for its connector; an explicit `channe
 can target another chat or connector. Telegram file sends return correlated delivery
 results, and the native `send_file` tool awaits those results when advertised. The
 temporary Albert-side ban on dispatching `chat.send_file` has been removed.
+
+## Child roles and reasoning effort
+
+Root turns retain the preferred-model and fallback behavior above. Child work
+uses the selected primary model only by default, including after `/model`
+changes. Adding a pool member does not expose it to children. There are no
+built-in active role profiles; `roles` defaults to an empty list.
+
+Configure optional `[[roles]]` entries in the pool file:
+
+```toml
+[[roles]]
+id = "review"
+description = "Review with the configured model order"
+models = ["primary", "reviewer"]
+reasoning_effort = "high"
+```
+
+A child can request a role, explicit model IDs, and an effort override. A role
+with no explicit models uses its ordered list. Explicit models with a role must
+be a subset of that role. Without a role, explicit models must belong to the
+current primary plus models explicitly listed by configured roles. Omitting
+both role and models always selects only the primary. Unknown IDs, duplicate
+IDs, and unsupported efforts are rejected before provider calls. Profiles grant
+no tools, connectors, filesystem access, or owner privileges.
+
+Resolution and child scoping use one immutable pool snapshot. Switching the
+primary or reloading configuration affects later launches; a launched child
+retains its resolved model order and effort. The child capability response lists
+only permitted model IDs with their declared vision, tools and reasoning
+support, configured profiles, and the current primary default.
+
+Reasoning support must be declared inside each participating `[[models]]`:
+
+```toml
+reasoning = { wire = "reasoning_object", supported_efforts = ["low", "high"] }
+```
+
+`reasoning_object` sends `{"reasoning":{"effort":"high"}}`; the alternative
+`reasoning_effort` sends `{"reasoning_effort":"high"}` for APIs requiring that
+shape. Subscription Responses accepts only `reasoning_object`. Albert does not
+infer the format or supported effort values from vendor names, model names, or
+URLs. Effort values match the declaration exactly, and a role default or task
+override must work on every selected model. Runtime effort is scoped to the
+child snapshot; it does not change root defaults. An omitted effort adds no
+reasoning field, preserving legacy payloads.
+
+The declared effort is applied to every model round, including tool
+continuations, transport recovery and fallback attempts. It is merged before
+context and turn-budget checks, preserving existing output limits and recovery
+behavior. Offline tests capture full API requests for both formats and local
+subscription Responses SSE requests; they make no paid provider calls.

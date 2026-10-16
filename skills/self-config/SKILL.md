@@ -3,7 +3,7 @@ name: self-config
 command: settings
 command_about: Change my setup
 command_owner: true
-description: when the owner asks you to change your own setup — edit a setting, add/remove or reconfigure a connector, tweak your persona or operating instructions, add a skill, or adjust a config value. Triggers "change your config", "add a connector", "fix the prompt", "turn on/off …", "change a setting".
+description: when the owner asks you to change your own setup — edit a setting, configure model-pool members or subagent role/model/effort assignments, add/remove or reconfigure a connector, tweak your persona or operating instructions, or add a skill. Triggers "change your config", "configure subagents", "assign models", "add a connector", "fix the prompt", "turn on/off …", "change a setting".
 ---
 
 You can read and edit your own configuration with the owner-only tools `config_read`,
@@ -21,7 +21,11 @@ path you haven't confirmed exists.
 ## The real layout
 
 - `albert.toml` — main settings: `model`, `auth`, `timezone`, `[history]`,
-  `[scheduler]`, `[agent] max_tool_turns`, `[skills]`, `[code] workspace`, `[clouds]`.
+  `[scheduler]`, `[agent] max_tool_turns`, `[skills]`, `[code] workspace`, `[clouds]`,
+  `[scratchpad]` limits, and the top-level `model_pool` path.
+- The file named by `albert.toml`'s `model_pool` (commonly `config/models.toml`) —
+  runtime `[[models]]` members, `[[roles]]` delegation profiles, reasoning support
+  and fallback limits. Discover the configured path; do not assume the example.
 - `soul.md` — your persona. `system.md` — your operating instructions.
 - `config/octo.toml` — points at the connectors directory (rarely touched).
 - `config/connectors/<id>/<id>.toml` — **one manifest per connector, named by its id**
@@ -46,6 +50,58 @@ never the value. To supply the value yourself:
 
 This lets you wire a new connector end to end: write its manifest, set its token, restart.
 
+## Model pool and subagent assignments
+
+Model routing is **runtime configuration**, not an instruction in `system.md`.
+Writing "use model X for research" in a prompt does not register a role or make
+that model available to children. Do not report routing as configured after only
+editing the prompt or writing a plan assignment.
+
+1. Read `albert.toml` and locate `model_pool`. Discover and read that TOML file
+   with `config_list` / `config_read`. Without `model_pool`, Albert has a single
+   legacy member named `default`; introducing a pool also requires setting that
+   top-level path and applying the `albert.toml` change with a process restart.
+2. Inspect `model_select` without `model_id` for root pool IDs, and
+   `subagent { action: "capabilities" }` for currently loaded child defaults,
+   allowed models and roles. These are different views: a root pool member is
+   not automatically available for delegation.
+3. Add or edit `[[roles]]` in the pool TOML using the owner's requested mapping.
+   Each profile requires `id`, `description` and a nonempty ordered `models` list
+   of existing `[[models]].id` values. For example, using an actual configured ID:
+
+   ```toml
+   [[roles]]
+   id = "research"
+   description = "Research using the owner's selected models"
+   models = ["existing-model-id"]
+   ```
+
+   `reasoning_effort` is optional. Set it only when requested and supported by
+   every selected model. Support is declared inside each relevant `[[models]]`
+   entry as `reasoning = { wire = "reasoning_object", supported_efforts = [...] }`
+   or the API's `reasoning_effort` wire format. Subscription Responses requires
+   `reasoning_object`. Do not invent supported values or infer them from names.
+   Leave effort unset when it is not needed; do not silently change providers,
+   secrets, root defaults or unrelated model settings to configure a role.
+4. Read the edited file back. A saved file is not yet a loaded configuration.
+   For an existing pool, tell the owner to run **`/model reload`**; it validates
+   and atomically loads the pool without a process restart. An invalid reload
+   leaves the old pool active. A separately owner-authorized process restart
+   also loads it, but discards the RAM scratchpad and running child handles.
+   `model_select` only selects a root preference: it cannot edit or reload a
+   pool. Do not pass `reload` as a model ID or pretend writing a chat command
+   executes it.
+5. After application, inspect `subagent` capabilities again and compare its
+   loaded roles/model IDs/efforts with the requested mapping. Only then report
+   routing as active. Until then say "saved; awaiting /model reload". Capability
+   inspection does not need a paid trial child run.
+
+With no configured roles, new children can use only the current selected primary
+model. With roles, omitting both role and models still uses only that primary;
+explicit role selection uses its ordered subpool. Roles grant **no connectors or
+native tools**. A role's explicit model override must stay within that role.
+Each running child retains its model/effort snapshot after a reload.
+
 ## Making a change
 
 1. `config_list` / `config_read` to see the current, real content.
@@ -59,6 +115,10 @@ This lets you wire a new connector end to end: write its manifest, set its token
    - `albert.toml` and any `config/connectors/**` manifest are read at startup — apply
      with `restart`: `restart { target: "<connector id>" }` reloads one connector's
      manifest; `restart { target: "process" }` for an `albert.toml` change.
+   - The existing model-pool TOML needs the owner's `/model reload`, then a fresh
+     `subagent` capability check; follow the model-pool procedure above.
+   - Skill metadata and applied bodies are cached. A process restart reliably
+     loads an edited `SKILL.md` and refreshes its catalog entry.
 4. Tell the owner what you changed **before** you restart, then confirm it took.
 
 ## Guardrails

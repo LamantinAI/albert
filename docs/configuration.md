@@ -556,3 +556,12 @@ The `[subagents]` table controls delegation limits and enablement. See
 reserve and a configurable fresh-message/compact split. SQLite retains messages
 and separate compacts. See [context.md](context.md) for defaults, `/compact`,
 provider limits, estimation and failure behavior.
+
+## Working scratchpad
+
+The optional `[scratchpad]` table bounds the existing RAM task state, including
+stages, child attempts and model-facing summaries. It introduces no SQL storage
+or TTL. See [stage planning](stage-planning.md#bounds) for fields and defaults.
+Child model routing is configured separately with opt-in `[[roles]]` in the
+[model pool](model-pool.md#child-roles-and-reasoning-effort). Without these
+profiles, children use only the current primary model.

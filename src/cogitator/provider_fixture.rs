@@ -1,7 +1,7 @@
 use super::{fixture::fixture, AlbertCogitator};
 use crate::{
     config::AuthMode,
-    models::{ModelPool, ModelSpec, PoolConfig},
+    models::{ModelPool, ModelSpec, PoolConfig, RoleProfile},
 };
 use axum::{extract::State, http::StatusCode, routing::post, serve, Json, Router};
 use octo_core::CogitatorContext;
@@ -176,23 +176,39 @@ pub(super) async fn setup(first: &str) -> (Arc<AlbertCogitator>, CogitatorContex
     me.config.api_key = Some("local-test-key".into());
     me.config.models = Some(PoolConfig {
         default: first.into(),
+        roles: vec![RoleProfile {
+            id: "test_models".into(),
+            description: "Explicit test routing".into(),
+            models: if first == "healthy" {
+                vec![first.into()]
+            } else {
+                vec![first.into(), "healthy".into()]
+            },
+            reasoning_effort: None,
+        }],
         max_attempts: 3,
         retries_per_model: 0,
         retry_delay_ms: 0,
-        models: [first, "healthy"]
-            .into_iter()
-            .map(|id| ModelSpec {
-                id: id.into(),
-                model: id.into(),
-                context_window: None,
-                provider: AuthMode::ApiKey,
-                base_url: Some(server.url.clone()),
-                api_key_env: None,
-                vision: true,
-                tools: true,
-                request_timeout_ms: if id == "hanging" { 20 } else { 2000 },
-            })
-            .collect(),
+        models: (if first == "healthy" {
+            vec![first]
+        } else {
+            vec![first, "healthy"]
+        })
+        .into_iter()
+        .map(|id| ModelSpec {
+            id: id.into(),
+            model: id.into(),
+            context_window: None,
+            provider: AuthMode::ApiKey,
+            base_url: Some(server.url.clone()),
+            api_key_env: None,
+            vision: true,
+            tools: true,
+            reasoning: None,
+            reasoning_effort: None,
+            request_timeout_ms: if id == "hanging" { 20 } else { 2000 },
+        })
+        .collect(),
     });
     me.models = ModelPool::new(&me.config);
     (agent, ctx, server)
