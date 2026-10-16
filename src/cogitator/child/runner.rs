@@ -8,6 +8,7 @@ use rig::{
 use tracing::info;
 
 use super::super::{agent::AttemptTools, AlbertCogitator};
+use super::planning::LinkedStage;
 use crate::{
     artifacts::Artifacts,
     models::{Failure, ModelSpec, Snapshot},
@@ -33,6 +34,7 @@ impl AlbertCogitator {
         tools: Vec<Box<dyn ToolDyn>>,
         max_turns: usize,
         workspace: &Path,
+        stage: Option<&LinkedStage>,
     ) -> Result<ChildAnswer, String> {
         // Rebuild-free tool instances live across safe provider retries. Rig owns
         // each attempt's tools, so a shared dynamic adapter keeps their identity.
@@ -64,6 +66,9 @@ impl AlbertCogitator {
                 false,
                 !tools.is_empty(),
                 |model, refresh| {
+                    if let Some(stage) = stage {
+                        self.record_stage_model(stage, model.id.clone());
+                    }
                     let tools = tools
                         .iter()
                         .cloned()

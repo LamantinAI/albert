@@ -10,11 +10,13 @@ cancellation scopes. No Octo runtime policy or dependency revision changes.
 
 ## Using the tool
 
-Call `{"action":"capabilities"}` to discover configured model IDs, advertised
+Call `{"action":"capabilities"}` to discover allowed child model IDs, configured roles, advertised
 connector IDs, and native tool names that can be delegated. No keys or token
 values are returned. Use `connector_search` for the connector contracts.
 
-For example, using IDs returned by discovery:
+Without role configuration, omit `models`: the child uses only the current
+primary model, with no fallback to other root pool members. For example, after
+the operator configures the role/model IDs returned by discovery:
 
 ```json
 {
@@ -81,13 +83,23 @@ Children receive neither self-configuration, restart, global `model_select`,
 results cannot be inspected or controlled from a non-owner parent turn. Runs in
 another source connector/conversation are not addressable by guessing their IDs.
 
-The ordered `models` list is copied from the host pool at spawn. Its first ID is
+The ordered `models` list is copied from the host pool at spawn. A configured
+`role` supplies defaults; optional `reasoning_effort` must be supported by every
+selected model. With neither models nor role, the list is only the current
+selected primary. Explicit IDs must belong to that primary or user-configured
+roles; a role's explicit override must stay within its own model list. Its first ID is
 preferred; fallback and retries never leave that list. A single ID prevents
 fallback to other models. Child selection does not change the root preference;
 root selection/reload does not change a running child. API-key and subscription
 models use the same existing host authentication path, including serialized OAuth
 refresh. Tool-less workers can use models declaring `tools = false`. Automatic
 fallback stops once a child has attempted a tool, avoiding replay of effects.
+
+For a planned assignment, `task.stage` links a launch to the current scratchpad
+stage using `task_id`, `stage_id`, `expected_revision` and `launch_key`. Its model
+assignment is canonical; conflicting task overrides fail before launch. Repeating
+the same key recovers the existing attempt, and completing/collecting a child
+does not automatically verify its stage. See [stage planning](stage-planning.md).
 
 ## Interrupt, cancellation and records
 

@@ -33,3 +33,18 @@ request_timeout_ms = 120000
 # model = "your-codex-model"
 # vision = true
 # tools = true
+
+# Optional effort support is explicit per model, with exact accepted values.
+# Put this field inside the corresponding [[models]] entry:
+# reasoning = { wire = "reasoning_object", supported_efforts = ["low", "high"] }
+# OpenRouter-compatible APIs may declare reasoning_object or reasoning_effort.
+# Subscription Responses must declare reasoning_object. Omit for legacy behavior.
+
+# Child work defaults to the CURRENT selected primary model only. Merely adding
+# another [[models]] member does not permit children to select it. Role profiles
+# explicitly opt models into child routing; examples below are inactive.
+# [[roles]]
+# id = "review"
+# description = "Review with a deliberately configured model order"
+# models = ["primary", "vision"]
+# reasoning_effort = "high" # every listed model must declare this exact effort

@@ -57,7 +57,7 @@ mod turns;
 use self::{
     context::{
         action_context, catalog, channel_of, command_reply, incoming_context, now_rfc3339,
-        with_action_log, UserInput,
+        scratchpad_scope, with_action_log, UserInput,
     },
     turns::{turn_key, ChannelState},
 };
@@ -349,7 +349,7 @@ mod model_pool_tests {
     use serde_json::json;
     use tokio::{spawn, time::timeout};
 
-    use super::{provider_fixture::setup, AlbertCogitator};
+    use super::{provider_fixture::setup, scratchpad_scope, AlbertCogitator};
     use crate::status::StatusFeed;
 
     async fn ask(agent: &Arc<AlbertCogitator>, ctx: &CogitatorContext, feed: StatusFeed) -> String {
@@ -413,7 +413,10 @@ mod model_pool_tests {
         let answer = ask(&agent, &ctx, feed.clone()).await;
         assert!(answer.contains("fallback stopped"), "{answer}");
         assert_eq!(feed.tool_call_count(), 1);
-        assert!(agent.scratchpad.render("room").contains("recorded once"));
+        assert!(agent
+            .scratchpad
+            .render_scoped(&scratchpad_scope(&(String::new(), "room".into()), false))
+            .contains("recorded once"));
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 3);
         assert_eq!(
@@ -424,6 +427,19 @@ mod model_pool_tests {
         assert!(serde_json::to_string(&feed.snapshot())
             .unwrap()
             .contains("recorded once"));
+    }
+
+    #[tokio::test]
+    async fn ordinary_chat_has_no_extra_planner_call_or_created_scratchpad() {
+        let (agent, ctx, server) = setup("healthy").await;
+        let feed = StatusFeed::silent();
+        assert_eq!(ask(&agent, &ctx, feed.clone()).await, "answer from healthy");
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert_eq!(feed.tool_call_count(), 0);
+        assert!(agent
+            .scratchpad
+            .render_scoped(&scratchpad_scope(&(String::new(), "room".into()), false,))
+            .contains("empty"));
     }
     #[tokio::test]
     async fn only_owner_turns_can_switch_and_current_loop_keeps_its_model() {

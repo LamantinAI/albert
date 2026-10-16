@@ -18,7 +18,7 @@ use rig::{
 };
 use tracing::{debug, info, warn};
 
-use super::{catalog, AlbertCogitator};
+use super::{catalog, scratchpad_scope, AlbertCogitator};
 use crate::{
     artifacts::Artifacts,
     codex_http::CodexHttp,
@@ -29,6 +29,7 @@ use crate::{
     context::BudgetedModel,
     models::{needs_vision, Failure, FailureKind, ModelSpec},
     openrouter_http::OpenRouterHttp,
+    scratchpad::PadScope,
     selfconfig::SelfConfig,
     status::StatusFeed,
     subagents::{budget::Budget, SubagentTool},
@@ -143,6 +144,7 @@ impl AlbertCogitator {
                     None,
                     self.config.context.artifacts.clone(),
                 ),
+                scratchpad_scope(&conversation, owner),
             ))
         };
         let preamble = format!(
@@ -213,6 +215,10 @@ impl AlbertCogitator {
             kind: FailureKind::Unavailable,
             message: message.into(),
         };
+        let reasoning_params = model.reasoning_params().map_err(|message| Failure {
+            kind: FailureKind::Incompatible,
+            message,
+        })?;
         let turn_budget = match &tools {
             AttemptTools::Child { budget, .. } => Some(budget.clone()),
             _ => None,
@@ -255,6 +261,7 @@ impl AlbertCogitator {
                 self.drive_attempt(
                     AgentBuilder::new(
                         BudgetedModel::new(client.completion_model(&model.model), budget, true)
+                            .with_model_params(reasoning_params)
                             .with_turn_budget(turn_budget)
                             .with_recovery(
                                 self.config.context.continuation_retries,
@@ -294,6 +301,7 @@ impl AlbertCogitator {
                 self.drive_attempt(
                     AgentBuilder::new(
                         BudgetedModel::new(model, budget, false)
+                            .with_model_params(reasoning_params)
                             .with_turn_budget(turn_budget)
                             .with_recovery(
                                 self.config.context.continuation_retries,
@@ -344,10 +352,11 @@ impl AlbertCogitator {
                 discovery,
                 children,
                 artifacts,
+                pad_scope,
             )) => {
                 self.drive(
                     base, dispatch, send_file, restart, selfconfig, discovery, children, channel,
-                    prompt, history, feed, artifacts,
+                    prompt, history, feed, artifacts, pad_scope,
                 )
                 .await
             }
@@ -420,11 +429,12 @@ impl AlbertCogitator {
         history: Vec<Message>,
         feed: StatusFeed,
         artifacts: Artifacts,
+        pad_scope: PadScope,
     ) -> Result<String, PromptError>
     where
         M: CompletionModel + 'static,
     {
-        let pad = self.scratchpad.handle(channel);
+        let pad = self.scratchpad.scoped_handle(pad_scope);
         debug!(
             channel,
             clouds = !self.config.clouds.is_empty(),
@@ -440,6 +450,7 @@ impl AlbertCogitator {
             Box::new(pad.mark()),
             Box::new(pad.note()),
             Box::new(pad.clear()),
+            Box::new(pad.plan()),
             Box::new(self.skills.list_tool()),
             Box::new(self.skills.search_tool()),
             Box::new(self.skills.apply_tool()),
@@ -492,6 +503,7 @@ type TurnTools = (
     ConnectorCatalog,
     Option<SubagentTool>,
     Artifacts,
+    PadScope,
 );
 
 pub(super) enum AttemptTools {

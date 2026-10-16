@@ -1,6 +1,8 @@
 //! Cogitator model selection. A live change affects new turns; each running loop
 //! holds an immutable snapshot, including fallback order and retry limits.
+mod child;
 mod config;
+pub mod reasoning;
 mod run;
 mod tool;
 
@@ -15,7 +17,11 @@ use rig::{
 };
 
 use crate::config::Config;
+#[cfg(test)]
+pub use config::RoleProfile;
 pub use config::{ModelSpec, PoolConfig};
+#[cfg(test)]
+pub use reasoning::{ReasoningSupport, ReasoningWire};
 pub use run::{Failure, FailureKind};
 
 #[derive(Clone)]
@@ -197,6 +203,8 @@ mod tests {
             api_key_env: None,
             vision,
             tools,
+            reasoning: None,
+            reasoning_effort: None,
             request_timeout_ms: 120_000,
         }
     }
@@ -208,6 +216,7 @@ mod tests {
                 max_attempts: 3,
                 retries_per_model: 0,
                 retry_delay_ms: 0,
+                roles: Vec::new(),
                 models: vec![spec("first", false, true), spec("second", true, true)],
             },
         }

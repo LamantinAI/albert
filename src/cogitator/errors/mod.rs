@@ -129,6 +129,7 @@ mod tests {
             selected: first.into(),
             config: PoolConfig {
                 default: first.into(),
+                roles: Vec::new(),
                 max_attempts: 2,
                 retries_per_model: 0,
                 retry_delay_ms: 0,
@@ -143,6 +144,8 @@ mod tests {
                         api_key_env: None,
                         vision: false,
                         tools: false,
+                        reasoning: None,
+                        reasoning_effort: None,
                         request_timeout_ms: 100,
                     })
                     .collect(),

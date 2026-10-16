@@ -4,6 +4,7 @@ use mcp_http::Url;
 use serde::Deserialize;
 use toml::from_str;
 
+use super::reasoning::ReasoningSupport;
 use crate::config::{AuthMode, Config};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -22,6 +23,11 @@ pub struct ModelSpec {
     /// Explicit capabilities: never infer a configured pool member's abilities by name.
     pub vision: bool,
     pub tools: bool,
+    #[serde(default)]
+    pub reasoning: Option<ReasoningSupport>,
+    /// Resolved per child snapshot; never a global configured default.
+    #[serde(skip)]
+    pub reasoning_effort: Option<String>,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_ms: u64,
 }
@@ -37,6 +43,18 @@ pub struct PoolConfig {
     #[serde(default = "default_delay")]
     pub retry_delay_ms: u64,
     pub models: Vec<ModelSpec>,
+    #[serde(default)]
+    pub roles: Vec<RoleProfile>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleProfile {
+    pub id: String,
+    pub description: String,
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 fn default_request_timeout() -> u64 {
@@ -75,6 +93,7 @@ impl PoolConfig {
         }
         let mut ids = HashSet::new();
         for model in &self.models {
+            model.validate_reasoning()?;
             if model.context_window == Some(0) {
                 return Err("context_window must be positive".into());
             }
@@ -128,6 +147,24 @@ impl PoolConfig {
         if !ids.contains(self.default.as_str()) {
             return Err("The default model must name a configured pool member.".into());
         }
+        let mut role_ids = HashSet::new();
+        for role in &self.roles {
+            if role.id.trim().is_empty() || !role_ids.insert(&role.id) || role.models.is_empty() {
+                return Err("Role profiles need unique nonempty IDs and at least one model".into());
+            }
+            let mut members = HashSet::new();
+            for id in &role.models {
+                if !members.insert(id) {
+                    return Err(format!("Duplicate role model: {id}"));
+                }
+                let model = self
+                    .models
+                    .iter()
+                    .find(|m| &m.id == id)
+                    .ok_or_else(|| format!("Unknown role model: {id}"))?;
+                model.validate_effort(role.reasoning_effort.as_deref())?;
+            }
+        }
         Ok(())
     }
 
@@ -137,6 +174,7 @@ impl PoolConfig {
             max_attempts: 4,
             retries_per_model: 2,
             retry_delay_ms: 2000,
+            roles: Vec::new(),
             models: vec![ModelSpec {
                 id: "default".into(),
                 model: config.model.clone(),
@@ -146,6 +184,8 @@ impl PoolConfig {
                 api_key_env: None,
                 vision: config.multimodal,
                 tools: true,
+                reasoning: None,
+                reasoning_effort: None,
                 request_timeout_ms: default_request_timeout(),
             }],
         }

@@ -163,3 +163,15 @@ read_chars = 8192
 max_file_bytes = 67108864
 max_scope_bytes = 536870912
 retention_secs = 604800
+
+# Optional bounds for the RAM working scratchpad (no SQL persistence or TTL).
+# [scratchpad]
+# pads = 128
+# stages = 128
+# notes = 128
+# attempts = 32
+# text_bytes = 16384
+# pad_bytes = 1048576
+# render_bytes = 16384
+# page_bytes = 65536
+# page_size = 32

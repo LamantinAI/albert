@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::{sync::watch, time::timeout};
 
-use crate::status::StatusFeed;
+use crate::{scratchpad::StageLink, status::StatusFeed};
 pub use dispatch::ScopedDispatch;
 use inspection::Settings as InspectionSettings;
 pub use tool::{Args, SubagentTool};
@@ -78,7 +78,14 @@ pub struct Task {
     pub task: String,
     #[serde(default)]
     pub context: String,
+    #[serde(default)]
     pub models: Vec<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub stage: Option<StageLink>,
     #[serde(default)]
     pub connectors: Vec<String>,
     #[serde(default)]
@@ -208,6 +215,14 @@ impl Registry {
             .filter(|r| &r.conversation == conversation && (!r.owner || owner))
             .cloned()
             .collect()
+    }
+    /// Roll back only a handle owned by a launch that has not installed a worker.
+    pub(crate) fn release_unstarted(&self, run: &Arc<Run>) {
+        self.0
+            .lock()
+            .unwrap()
+            .runs
+            .retain(|_, candidate| !Arc::ptr_eq(candidate, run));
     }
     pub fn get(
         &self,

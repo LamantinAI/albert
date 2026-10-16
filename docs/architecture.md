@@ -117,7 +117,7 @@ Kept deliberately distinct (they are different things, with different owners):
 | Tier | What it is | Owner |
 |------|-----------|-------|
 | **Chat transcript** | the dialogue + actions, a linear log | Octo history (`src/history/mod.rs`) |
-| **Scratchpad** | super-operational task state (goal + steps + status) | the loop (`src/scratchpad/mod.rs`) |
+| **Scratchpad** | RAM task state: goal, stages, assignments, child attempts and verification evidence | the loop (`src/scratchpad/mod.rs`) |
 | **Memory** | durable, on-demand recall/write | kaeru, reached as a tool |
 
 kaeru is **operational + persistent** memory the agent queries; the scratchpad is
@@ -126,6 +126,13 @@ multi-step work verifiable (a task is done only when every step is `verified`), 
 cleared on completion (consolidate anything durable to kaeru first). Neither is the
 system prompt: persona + instructions live in `soul.md` / `system.md`, held in RAM and
 hot-reloaded by mtime.
+
+For substantive assignments, [stage planning](stage-planning.md) extends this same
+scratchpad with dependencies and optional configured role/model routing. Its
+stages and child links survive parent interruption and compaction in the running
+process, but not a restart. Casual chat needs no planner call. Children use only
+the current primary model unless the operator configures additional role routes;
+model profiles do not grant connector or native-tool authority.
 
 ## Files: the workspace, storage, and file exchange
 
