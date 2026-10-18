@@ -1,5 +1,6 @@
 use std::sync::{atomic::AtomicUsize, Arc, Weak};
 
+use octo_approval::Ingress;
 use octo_core::CogitatorContext;
 use rig::{
     completion::ToolDefinition,
@@ -20,6 +21,7 @@ pub struct SubagentTool {
     pub parent: String,
     pub owner: bool,
     pub spawned: Arc<AtomicUsize>,
+    pub ingress: Option<Ingress>,
 }
 impl SubagentTool {
     pub fn new(
@@ -36,7 +38,12 @@ impl SubagentTool {
             parent,
             owner,
             spawned: Arc::new(AtomicUsize::new(0)),
+            ingress: None,
         }
+    }
+    pub fn with_ingress(mut self, ingress: Option<Ingress>) -> Self {
+        self.ingress = ingress;
+        self
     }
 }
 #[derive(Deserialize)]
@@ -110,6 +117,9 @@ impl ToolDyn for SubagentTool {
                         },"required":["task_id","stage_id","expected_revision","launch_key"],"additionalProperties":false},
                         "connectors":{"type":"array","items":{"type":"string"}},
                         "tools":{"type":"array","items":{"type":"string"}},
+                        "sql_stores":{"type":"array","items":{"type":"string"},"description":"Explicit SQL store IDs granted to this child; empty by default. Connector grant alone gives no SQL data access."},
+                        "sql_write":{"type":"boolean","description":"Allow writes to those SQL stores, false by default; cannot exceed parent rights."},
+                        "sql_schema":{"type":"boolean","description":"Allow schema changes to those SQL stores, false by default; cannot exceed parent rights."},
                         "max_tool_turns":{"type":"integer","minimum":1,"description":"Tool-enabled model rounds, not individual tool calls. Omit for the configured default. One tool-free final reporting response is reserved separately."},
                         "timeout_secs":{"type":"integer","minimum":1}
                     },"required":["task"],"additionalProperties":false}

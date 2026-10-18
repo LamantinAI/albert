@@ -201,3 +201,11 @@ This avoids turning useful research into a generic step-budget failure. It does
 not make blocked search providers or unavailable pages accessible: partial
 results must disclose those limitations. The parent should reuse collected
 findings and delegate only concrete gaps if more work is needed.
+
+## SQL store grants
+
+When a SQL connector is granted, also supply `sql_stores` with the exact store IDs.
+The default is an empty list. `sql_write` and `sql_schema` are false by default;
+they may only narrow the authenticated parent's rights. Children cannot create
+stores or mint human approval. SQL output remains subject to the store's own
+authorization and bounded result policy. See [SQL connector](sql-connector.md).

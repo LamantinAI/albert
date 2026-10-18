@@ -51,6 +51,20 @@ impl AlbertCogitator {
             return Err("Requested child budget exceeds configured limits.".into());
         }
         let (snapshot, assignment) = self.resolve_child_task(tool, &mut task)?;
+        if tool.ingress.is_none()
+            && (!task.sql_stores.is_empty() || task.sql_write || task.sql_schema)
+        {
+            return Err("SQL delegation requires authenticated parent grants.".into());
+        }
+        let child_ingress = tool
+            .ingress
+            .as_ref()
+            .map(|ingress| {
+                ingress
+                    .attenuate(task.sql_stores.clone(), task.sql_write, task.sql_schema)
+                    .map(|child| child.limit_lifetime(Duration::from_secs(seconds)))
+            })
+            .transpose()?;
         let allowed: HashSet<_> = task.connectors.iter().cloned().collect();
         let connectors: Vec<_> = tool
             .ctx
@@ -155,13 +169,26 @@ impl AlbertCogitator {
             .filter(|t| task.tools.contains(&t.name()))
             .collect();
         if !connectors.is_empty() {
-            let dispatch = OctoDispatchTool::new(tool.ctx.bus(), source.clone(), catalog)
+            let mut dispatch = OctoDispatchTool::new(tool.ctx.bus(), source.clone(), catalog)
                 .with_scope(scope.clone())
                 .with_timeout(Duration::from_secs(360))
                 .with_origin(
                     ConnectorId::new(&tool.conversation.0),
                     ChannelId::new(&tool.conversation.1),
                 );
+            if let Some(child) = child_ingress {
+                let targets = connectors
+                    .iter()
+                    .filter(|c| {
+                        c.capabilities
+                            .event_kinds_accept
+                            .iter()
+                            .any(|kind| kind.as_str().starts_with("sql."))
+                    })
+                    .map(|c| c.id.clone())
+                    .collect();
+                dispatch = dispatch.with_authority(self.authority.clone(), child, targets);
+            }
             tools.push(Box::new(ScopedDispatch {
                 inner: dispatch,
                 allowed: connectors

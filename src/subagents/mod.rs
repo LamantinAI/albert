@@ -91,6 +91,12 @@ pub struct Task {
     #[serde(default)]
     pub tools: Vec<String>,
     #[serde(default)]
+    pub sql_stores: Vec<String>,
+    #[serde(default)]
+    pub sql_write: bool,
+    #[serde(default)]
+    pub sql_schema: bool,
+    #[serde(default)]
     pub max_tool_turns: Option<usize>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,

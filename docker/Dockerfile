@@ -116,7 +116,11 @@ COPY --from=build /albert /usr/local/bin/albert
 COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
-RUN chown -R albert:albert /opt/albert
+# Relative connector state (including the default SQL file) belongs on the volume.
+RUN mkdir -p /data/state \
+    && chown albert:albert /data/state \
+    && ln -s /data/state /opt/albert/state \
+    && chown -R albert:albert /opt/albert
 
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \

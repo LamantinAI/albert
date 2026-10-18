@@ -5,7 +5,7 @@
 use std::{
     collections::HashSet,
     fs::{read_dir, read_to_string},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use toml::Value;
@@ -13,35 +13,52 @@ use toml::Value;
 /// The `type`s declared under the `[connectors] dir` of the octo manifest at `octo_toml`:
 /// folder-style `<dir>/<name>/<name>.toml` and flat `<dir>/*.toml`. Unreadable files are
 /// skipped (the loader reports them properly).
-pub fn declared_types(octo_toml: &Path) -> HashSet<String> {
+pub fn connector_files(octo_toml: &Path) -> Vec<PathBuf> {
     let base = octo_toml.parent().unwrap_or(Path::new("."));
-    let dir = read_to_string(octo_toml)
+    let value = read_to_string(octo_toml)
         .ok()
-        .and_then(|t| t.parse::<Value>().ok())
-        .and_then(|v| {
-            v.get("connectors")?
-                .get("dir")?
-                .as_str()
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "connectors".into());
-    let Ok(entries) = read_dir(base.join(dir)) else {
-        return HashSet::new();
-    };
-    entries
+        .and_then(|s| s.parse::<Value>().ok());
+    let dir = value
+        .as_ref()
+        .and_then(|v| v.get("connectors")?.get("dir")?.as_str())
+        .unwrap_or("connectors");
+    let mut files: Vec<_> = read_dir(base.join(dir))
+        .into_iter()
         .flatten()
-        .map(|e| e.path())
-        .filter_map(|p| {
-            if p.is_dir() {
-                let name = p.file_name()?.to_str()?.to_string();
-                Some(p.join(format!("{name}.toml")))
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            if path.is_dir() {
+                let name = path.file_name()?.to_str()?;
+                Some(path.join(format!("{name}.toml")))
             } else {
-                (p.extension()? == "toml").then_some(p)
+                (path.extension()?.to_str()? == "toml").then_some(path)
             }
         })
+        .collect();
+    if let Some(explicit) = value
+        .as_ref()
+        .and_then(|v| v.get("connectors")?.get("explicit")?.as_array())
+    {
+        files.extend(
+            explicit
+                .iter()
+                .filter_map(|v| v.get("path")?.as_str())
+                .map(|p| base.join(p)),
+        );
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
+pub fn declared_types(octo_toml: &Path) -> HashSet<String> {
+    connector_files(octo_toml)
+        .into_iter()
         .filter_map(|file| {
-            let v: Value = read_to_string(file).ok()?.parse().ok()?;
-            v.get("connector")?
+            let value: Value = read_to_string(file).ok()?.parse().ok()?;
+            value
+                .get("connector")?
                 .get("type")?
                 .as_str()
                 .map(str::to_string)

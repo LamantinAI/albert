@@ -91,6 +91,7 @@ dependencies = [
  "futures",
  "kaeru-core",
  "kaeru-rig",
+ "octo-approval",
  "octo-code",
  "octo-connector-browser",
  "octo-connector-caldav",
@@ -101,6 +102,7 @@ dependencies = [
  "octo-connector-scheduler",
  "octo-connector-search",
  "octo-connector-speak",
+ "octo-connector-sql",
  "octo-connector-storage",
  "octo-connector-telegram",
  "octo-connector-transcribe",
@@ -519,6 +521,26 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
+version = "0.69.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "271383c67ccabffb7381723dea0672a673f292304fcb45c01cc648c7a8d58088"
+dependencies = [
+ "bitflags",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.12.1",
+ "lazy_static",
+ "lazycell",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash 1.1.0",
+ "shlex 1.3.0",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
@@ -850,7 +872,7 @@ checksum = "af491d569909a7e4dee0ad7db7f5341fef5c614d5b8ec8cf765732aba3cff681"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.2.2",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
@@ -2854,6 +2876,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazycell"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
+
+[[package]]
 name = "lettre"
 version = "0.11.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2920,6 +2948,7 @@ version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
 dependencies = [
+ "bindgen 0.69.5",
  "cc",
  "pkg-config",
  "vcpkg",
@@ -3422,9 +3451,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-approval"
+version = "0.3.0"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
+dependencies = [
+ "octo-core",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "octo-code"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "glob",
  "octo-workspace",
@@ -3439,7 +3481,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-browser"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "fs2",
@@ -3457,7 +3499,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-caldav"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3479,7 +3521,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-forkd"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "libc",
@@ -3496,7 +3538,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-http"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "octo-core",
@@ -3512,7 +3554,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-imagegen"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3531,7 +3573,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-mail"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-imap",
  "async-trait",
@@ -3554,7 +3596,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-scheduler"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3571,7 +3613,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-search"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "curl",
@@ -3588,7 +3630,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-speak"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3606,9 +3648,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "octo-connector-sql"
+version = "0.3.0"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "libsqlite3-sys",
+ "octo-approval",
+ "octo-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlparser",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "octo-connector-storage"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3625,13 +3689,16 @@ dependencies = [
 [[package]]
 name = "octo-connector-telegram"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
+ "chrono",
  "futures",
+ "octo-approval",
  "octo-core",
  "octo-workspace",
  "pulldown-cmark",
+ "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3644,7 +3711,7 @@ dependencies = [
 [[package]]
 name = "octo-connector-transcribe"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3662,7 +3729,7 @@ dependencies = [
 [[package]]
 name = "octo-core"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3682,7 +3749,7 @@ dependencies = [
 [[package]]
 name = "octo-history"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "async-trait",
  "serde",
@@ -3695,7 +3762,7 @@ dependencies = [
 [[package]]
 name = "octo-http-auth"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "base64 0.22.1",
  "reqwest 0.12.28",
@@ -3708,7 +3775,7 @@ dependencies = [
 [[package]]
 name = "octo-openai-auth"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3723,8 +3790,9 @@ dependencies = [
 [[package]]
 name = "octo-rig"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
+ "octo-approval",
  "octo-core",
  "rig-core",
  "serde",
@@ -3735,7 +3803,7 @@ dependencies = [
 [[package]]
 name = "octo-workspace"
 version = "0.3.0"
-source = "git+https://github.com/LamantinAI/octo?tag=v0.3.0#7f9f87d1749db4cb9e8335c19b86509e85a2c163"
+source = "git+https://github.com/LamantinAI/octo?rev=c2af41b1156121e281cb45ddfd57643ae326177b#c2af41b1156121e281cb45ddfd57643ae326177b"
 dependencies = [
  "libc",
  "thiserror 2.0.18",
@@ -4479,6 +4547,26 @@ dependencies = [
  "time",
  "x509-parser",
  "yasna",
+]
+
+[[package]]
+name = "recursive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0786a43debb760f491b1bc0269fe5e84155353c67482b9e60d0cfb596054b43e"
+dependencies = [
+ "recursive-proc-macro-impl",
+ "stacker",
+]
+
+[[package]]
+name = "recursive-proc-macro-impl"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76009fbe0614077fc1a2ce255e3a1881a2e3a3527097d5dc6d8212c585e7e38b"
+dependencies = [
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -5460,6 +5548,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser"
+version = "0.63.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3679862809bd1f92e563cf6fd820e28f39135303668001c10331d5027183e8b4"
+dependencies = [
+ "log",
+ "recursive",
+ "sqlparser_derive",
+]
+
+[[package]]
+name = "sqlparser_derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2905ae8e8148d8f7f5748ea95d1e949fa4fc1d7f5161547b758ad118b2e4b0aa"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "sqlx"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5867,6 +5977,17 @@ name = "syn"
 version = "2.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b9ae57f904213ebb649ce6895b8a66c66f0203b9319718f69a5612a065b1422"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
+version = "3.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7584,7 +7705,7 @@ version = "2.0.16+zstd.1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
 dependencies = [
- "bindgen",
+ "bindgen 0.72.1",
  "cc",
  "pkg-config",
 ]
