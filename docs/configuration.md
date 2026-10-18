@@ -565,3 +565,15 @@ or TTL. See [stage planning](stage-planning.md#bounds) for fields and defaults.
 Child model routing is configured separately with opt-in `[[roles]]` in the
 [model pool](model-pool.md#child-roles-and-reasoning-effort). Without these
 profiles, children use only the current primary model.
+
+## Authenticated tool context
+
+`[authorization]` optionally configures `ingress_ttl_seconds` (default 3600),
+`max_pending_invocations` (default 4096), and `decision_timeout_seconds` (default
+30 for console human decisions). Telegram's manifest has its own optional
+`approval_timeout_ms` (default 30000), `approval_max_cards` (128),
+`approval_retention_seconds` (3600), and `approval_max_detail_bytes` (262144).
+Card retention bounds the temporary button registry; it does not extend an
+operation's approval deadline. These bound native host proofs and waiting;
+they do not grant access or make model-authored provenance authoritative.
+See [SQL connector](sql-connector.md) for its shipped manifest and data limits.

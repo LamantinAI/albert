@@ -1,6 +1,9 @@
 # Keep the Docker build context small: source + config only.
 target/
 .git/
+# Local operator state and source overrides are not image inputs.
+.agent/
+.cargo/config.toml
 state/
 kaeru/
 **/telegram_acl.json

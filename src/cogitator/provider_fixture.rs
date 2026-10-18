@@ -58,7 +58,22 @@ async fn completion(
             Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
         );
     }
-    let (message, finish) = if model == "waiting-parent" && count == 1 {
+    let (message, finish) = if matches!(model, "sql-create" | "sql-list") && count == 1 {
+        let (kind, payload) = if model == "sql-create" {
+            (
+                "sql.store.create",
+                json!({"name":"root entry","purpose":"integration test","idempotency_key":"root-create"}),
+            )
+        } else {
+            ("sql.store.list", json!({}))
+        };
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"sql-dispatch","type":"function","function":{
+                "name":"dispatch_to_connector","arguments":json!({"target":"sql","kind":kind,"payload":payload}).to_string()
+            }}]}),
+            "tool_calls",
+        )
+    } else if model == "waiting-parent" && count == 1 {
         let wire = body["messages"].to_string();
         let rest = wire.split_once("WAIT_RUN:").unwrap().1.trim_start();
         let run_id: String = rest

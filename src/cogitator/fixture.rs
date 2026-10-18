@@ -20,6 +20,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
     let dir = tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let config = Config {
+        authorization: Default::default(),
         context: crate::context::Settings {
             enabled: false,
             ..Default::default()
@@ -58,6 +59,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         memory: KaeruMemory::with_initiative(Arc::new(Store::open_in_memory().unwrap()), "albert"),
         clouds: false,
     };
+    let authority = config.authorization.build();
     let agent = AlbertCogitator::new(
         "test",
         config,
@@ -67,6 +69,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         SkillStore::load(path.join("skills"), 5, 10, &[]),
         PromptFiles::new(path.join("soul"), path.join("system")),
         Arc::new(SubscriptionAuth::new(path.join("auth"))),
+        authority,
     );
     // No scheduler: attempts block in the preflight request, never call an LLM.
     let ctx = CogitatorContext::new(Default::default(), Arc::new(InProcessBus::new(64)), vec![]);

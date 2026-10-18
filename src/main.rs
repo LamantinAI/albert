@@ -25,6 +25,7 @@ mod routines;
 mod scratchpad;
 mod selfconfig;
 mod skills;
+mod sql;
 mod status;
 mod subagents;
 mod transport;
@@ -46,8 +47,9 @@ use octo_connector_mail::{ensure_crypto_provider, factory as mail_factory};
 use octo_connector_scheduler::Scheduler;
 use octo_connector_search::factory as search_factory;
 use octo_connector_speak::factory as speak_factory;
+use octo_connector_sql::factory as sql_factory;
 use octo_connector_storage::factory as storage_factory;
-use octo_connector_telegram::factory as telegram_factory;
+use octo_connector_telegram::factory_with_authority as telegram_factory;
 use octo_connector_transcribe::factory as transcribe_factory;
 use octo_core::Octo;
 use octo_openai_auth::SubscriptionAuth;
@@ -65,6 +67,7 @@ use crate::{
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     skills::SkillStore,
+    sql::{console_sql_connectors, protected_paths as sql_protected_paths},
 };
 
 /// Repo-root `.env`, anchored on the manifest so cwd doesn't matter (the crate
@@ -102,6 +105,7 @@ async fn main() -> Result<()> {
     ensure_crypto_provider();
 
     let config = Config::load()?;
+    let authority = config.authorization.build();
     if let Some(pool) = &config.models {
         info!(preferred = %pool.default, members = pool.models.len(), max_attempts = pool.max_attempts, "llm model pool loaded");
     } else {
@@ -228,6 +232,7 @@ async fn main() -> Result<()> {
             skills,
             prompt,
             auth.clone(),
+            authority.clone(),
         ))
         .add_connector(scheduler);
 
@@ -242,7 +247,11 @@ async fn main() -> Result<()> {
         // config/connectors/mail manifest ships by default (only mail.toml.example),
         // so from_config_file instantiates it only once a real manifest is dropped in.
         builder = builder
-            .register_connector_type("telegram", telegram_factory())
+            .register_connector_type("telegram", telegram_factory(authority.clone()))
+            .register_connector_type(
+                "sql",
+                sql_factory(authority.clone(), sql_protected_paths(&config)?),
+            )
             .register_connector_type("caldav", caldav_factory())
             .register_connector_type("storage", storage_factory())
             .register_connector_type("forkd", forkd_factory())
@@ -272,7 +281,13 @@ async fn main() -> Result<()> {
         }
     } else {
         info!("channel: console (set OCTO_TELEGRAM_TOKEN for telegram + calendar)");
-        builder = builder.add_connector(ConsoleConnector::new("console"));
+        for connector in console_sql_connectors(&config, authority.clone())? {
+            builder = builder.add_connector(connector);
+        }
+        builder = builder.add_connector(
+            ConsoleConnector::new("console")
+                .with_authority(authority, config.authorization.decision_timeout()),
+        );
     }
 
     builder.build().run().await?;

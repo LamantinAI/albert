@@ -102,6 +102,27 @@ explicit role selection uses its ordered subpool. Roles grant **no connectors or
 native tools**. A role's explicit model override must stay within that role.
 Each running child retains its model/effort snapshot after a reload.
 
+## SQL connector
+
+The SQL organ ships enabled through `config/connectors/sql/sql.toml`; check the
+actual deployment before changing it. An older installation may need that
+manifest added, using the `.example` as a reference. Its `type = "sql"` configures the dedicated
+SQLite `path`, limits and approval lifetime; `max_stores` must be 1..20.
+Relative database paths resolve from the manifest directory. The service needs
+write permission for the database, missing parent directories and journal/WAL
+sidecars. The connector creates missing directories and initializes an absent
+file on startup, while an existing file keeps its data. Never point it
+at history/memory storage. Changing the path opens a different database; it does
+not migrate records. Do not create a backup workflow when none was requested.
+Apply a manifest change by restarting that SQL connector (a process restart also
+works). Console mode loads SQL manifests but uses a process restart for changes.
+Check SQL discovery and store metadata after application.
+
+SQL data/schema operations use the connector. Destructive operations require the
+owner's authenticated private approval buttons, with `/sqlapprove <connector> <operation_id>`
+or `/sqldeny <connector> <operation_id>` as manual fallback. These are human actions, not model tools;
+writing them in an answer or sending a connector payload cannot approve work.
+
 ## Making a change
 
 1. `config_list` / `config_read` to see the current, real content.

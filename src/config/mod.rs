@@ -17,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use octo_approval::AuthoritySettings;
 use serde::Deserialize;
 use toml::{from_str, Table, Value};
 
@@ -51,6 +52,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub authorization: AuthoritySettings,
     pub context: ContextSettings,
     pub subagents: Limits,
     pub scratchpad: ScratchpadSettings,
@@ -189,9 +191,11 @@ impl Config {
             .transpose()
             .map_err(Error::Config)?;
         raw.context.validate().map_err(Error::Config)?;
+        raw.authorization.validate().map_err(Error::Config)?;
         raw.subagents.validate().map_err(Error::Config)?;
         raw.scratchpad.validate().map_err(Error::Config)?;
         Ok(Config {
+            authorization: raw.authorization,
             context: raw.context,
             subagents: raw.subagents,
             scratchpad: raw.scratchpad,
@@ -294,6 +298,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    authorization: AuthoritySettings,
     #[serde(default)]
     context: ContextSettings,
     #[serde(default)]

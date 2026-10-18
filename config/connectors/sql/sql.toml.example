@@ -1,0 +1,13 @@
+# Reference for the shipped sql.toml. Relative paths resolve from this directory.
+[connector]
+id = "sql"
+type = "sql"
+path = "../../../state/sql/sql-data.sqlite"
+max_stores = 20
+max_rows = 200
+max_bytes = 262144
+max_cell_bytes = 65536
+max_affected_rows = 1000
+timeout_ms = 5000
+max_pending = 32
+approval_ttl_seconds = 300

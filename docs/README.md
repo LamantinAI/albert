@@ -20,6 +20,7 @@ deeper reference.
   a given concern lives.
 - **[stage-planning.md](stage-planning.md)** — RAM scratchpad stages, model-role
   configuration, child links and evidence-based verification.
+- **[sql-connector.md](sql-connector.md)** — dedicated SQLite purpose stores, schema metadata, native SQL and authenticated human approval.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.

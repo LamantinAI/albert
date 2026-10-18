@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use octo_approval::Ingress;
 use octo_code::{EditTool, GlobTool, GrepTool, ListTool, ReadTool, WriteTool};
 use octo_core::{ChannelId, CogitatorContext, ConnectorId};
 use octo_openai_auth::Subscription as SubToken;
@@ -51,6 +52,34 @@ impl AlbertCogitator {
         feed: StatusFeed,
         scope: Option<&str>,
     ) -> (String, Option<String>) {
+        self.run_agent_with_ingress(
+            ctx,
+            channel,
+            preamble,
+            prompt,
+            history,
+            reply_target,
+            owner,
+            feed,
+            scope,
+            None,
+        )
+        .await
+    }
+
+    pub(super) async fn run_agent_with_ingress(
+        self: &Arc<Self>,
+        ctx: &CogitatorContext,
+        channel: &str,
+        preamble: &str,
+        prompt: Message,
+        history: Vec<Message>,
+        reply_target: Option<ConnectorId>,
+        owner: bool,
+        feed: StatusFeed,
+        scope: Option<&str>,
+        ingress: Option<Ingress>,
+    ) -> (String, Option<String>) {
         let host = Arc::downgrade(self);
         let conversation = (
             reply_target
@@ -86,6 +115,7 @@ impl AlbertCogitator {
                 scope.unwrap_or("routine").into(),
                 owner,
             )
+            .with_ingress(ingress.clone())
         });
         let make_tools = || {
             // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
@@ -108,6 +138,21 @@ impl AlbertCogitator {
             // reach the connector work (forkd scripts) the model starts this turn.
             if let Some(s) = scope {
                 dispatch = dispatch.with_scope(s);
+            }
+            if let Some(ingress) = ingress.as_ref().filter(|p| self.authority.recognizes(p)) {
+                let targets = ctx
+                    .connectors()
+                    .iter()
+                    .filter(|c| {
+                        c.capabilities
+                            .event_kinds_accept
+                            .iter()
+                            .any(|kind| kind.as_str().starts_with("sql."))
+                    })
+                    .map(|c| c.id.clone())
+                    .collect();
+                dispatch =
+                    dispatch.with_authority(self.authority.clone(), ingress.clone(), targets);
             }
             let send_file = reply_target.clone().map(|t| {
                 let confirmed = ctx.connectors().iter().any(|c| {

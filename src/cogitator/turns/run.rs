@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use octo_approval::Ingress;
 use octo_core::{CogitatorContext, Envelope};
 use rig::completion::Message;
 use tokio::sync::Mutex;
@@ -95,7 +96,7 @@ impl AlbertCogitator {
         let (answer, restart) = if let Some(error) = hearing_error {
             (error, None)
         } else {
-            self.run_agent(
+            self.run_agent_with_ingress(
                 ctx,
                 &channel,
                 &preamble,
@@ -105,6 +106,7 @@ impl AlbertCogitator {
                 owner,
                 feed.clone(),
                 Some(scope),
+                incoming.context.get::<Ingress>().cloned(),
             )
             .await
         };

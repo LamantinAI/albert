@@ -1,17 +1,10 @@
-//! `AlbertCogitator` — an Octo cogitator with **kaeru memory** + the **scheduler**
-//! connector, wired into a reminder loop.
+//! Albert's cognition layer: memory, tools, reminders and scoped conversation turns.
 //!
-//! It's the octolab `ReactCogitator` grown up: still a rig native tool-loop (the
-//! task structure is agent-authored), but now it perceives two event kinds and carries persistent
-//! memory:
+//! `chat.message` starts a rig tool loop with kaeru, scratchpad and connector tools.
+//! `alarm.fired` handles user reminders or silent system routines.
+//! SQL access carries native host authority independently of conversation tags.
 //!
-//! - `chat.message` → a normal turn. Tools: `dispatch_to_connector` (reaches the
-//!   scheduler) + the kaeru memory verbs + the scratchpad.
-//! - `alarm.fired`  → a user reminder is due (recall + remind) OR a system routine
-//!   fired (silent self-care, e.g. memory reflection — see [`crate::routines`]).
-//!
-//! Owner-only ACL admin (`/allow` etc.) lives in [`crate::acl`]; the base routines
-//! in [`crate::routines`].
+//! Owner-only ACL commands live in [`crate::acl`]; base routines in [`crate::routines`].
 
 #[cfg(test)]
 mod artifact_tests;
@@ -20,6 +13,8 @@ mod fixture;
 mod hearing;
 #[cfg(test)]
 mod provider_fixture;
+#[cfg(test)]
+mod sql;
 
 use std::{
     collections::HashMap,
@@ -27,6 +22,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use octo_approval::Authority;
 use octo_core::{Cogitator, CogitatorContext, ConnectorId, Filter, OctoResult, Subscription};
 use octo_openai_auth::SubscriptionAuth;
 use tokio::{select, spawn, sync::Mutex as AsyncMutex, task::JoinSet};
@@ -67,6 +63,7 @@ pub(crate) const SCHEDULER_ID: &str = "scheduler";
 pub(crate) const ROUTINE_MEMORY_REFLECTION: &str = "memory_reflection";
 
 pub struct AlbertCogitator {
+    authority: Authority,
     children: Registry,
     id: String,
     self_source: ConnectorId,
@@ -96,10 +93,12 @@ impl AlbertCogitator {
         skills: Arc<SkillStore>,
         prompt: Arc<PromptFiles>,
         auth: Arc<SubscriptionAuth>,
+        authority: Authority,
     ) -> Arc<Self> {
         let id = id.into();
         let models = ModelPool::new(&config);
         Arc::new(Self {
+            authority,
             children: Default::default(),
             models,
             self_source: ConnectorId::new(format!("cogitator/{id}")),
