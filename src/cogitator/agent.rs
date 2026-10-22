@@ -365,9 +365,12 @@ impl AlbertCogitator {
             }
         }
         .map_err(|error| {
+            // The chat gets the safe summary; the operator needs the provider's own words
+            // (an overload reads very differently from a malformed request), capped.
+            let provider: String = error.to_string().chars().take(300).collect();
             let failure = model_failure(error);
             warn!(model_id=%model.id, compact, timeout_ms, elapsed_ms=started.elapsed().as_millis(),
-                kind=?failure.kind, reason=%failure.message, "model attempt failed");
+                kind=?failure.kind, reason=%failure.message, %provider, "model attempt failed");
             failure
         })?;
         if result.trim().is_empty() {
