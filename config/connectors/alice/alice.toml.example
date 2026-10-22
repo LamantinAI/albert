@@ -1,0 +1,52 @@
+# Yandex Alice skill (Yandex Station) as a voice channel — octo-connector-alice.
+# Enable: copy to alice.toml, set ALICE_WEBHOOK_SECRET in contrib/deploy/.env
+# (≥16 chars of [A-Za-z0-9_-]), and put an HTTPS reverse proxy in front of `listen`:
+# the skill's webhook URL is https://<host>/alice/<secret>.
+
+[connector]
+id = "alice"
+type = "alice"
+listen = "0.0.0.0:8790"
+secret_env = "ALICE_WEBHOOK_SECRET"
+
+# The skill id from the Yandex Dialogs console (requests for other skills → 403).
+# skill_id = ""
+
+# Who may talk. Empty → everyone is refused and their ids are logged
+# ("alice: speaker not on the allow-list") — copy yours from `docker compose logs`.
+allowed_users = []
+allowed_applications = []
+
+# A speaker hears whoever is in the room: not the owner's authority (no restart,
+# self-config or model switching by voice).
+role = "trusted"
+sender_name = "голос через Яндекс Станцию"
+
+reply_wait_ms = 2500
+max_chars = 900
+
+# What the speaker says while Albert thinks: a random line of fillers.txt (next to
+# this manifest, ~200 of them), never the same twice in a row.
+fillers_file = "fillers.txt"
+
+# The speaker's own voice: a reply that misses Alice's ~3 s window is said by the
+# speaker by itself (and so are reminders). Needs the Yandex account's x-token —
+# one-time QR login, run on your machine and scan with the Yandex app:
+#   uv run <octo>/connectors/alice/tools/yandex_qr_login.py --ssh root@<server>:/opt/albert-src/contrib/deploy/.env
+# Without it, the reply waits until you say «дальше».
+[connector.push]
+x_token_env = "YANDEX_X_TOKEN"
+# device = "Яндекс Станция"   # name or id; omit if the account has one speaker (logged at startup)
+# Deliver the finished reply whole: the speaker reopens this skill by itself and
+# says the reply as the skill's answer, conversation still open. Phrase it as
+# "попроси <YOUR skill's name> дальше" — NOT "запусти навык …", which makes Alice
+# announce «Запускаю навык…» out loud first. Without it the reply is read out by
+# the cloud voice in 100-character pieces.
+# relaunch = "попроси Помощника Альберта дальше"
+filler_every_secs = 4
+max_fillers = 20
+
+[connector.phrases]
+greeting = "Альберт слушает."
+greeting_pending = "Альберт слушает. У меня есть для вас неуслышанный ответ, скажите «дальше»."
+pong = "Альберт на связи."

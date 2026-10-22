@@ -288,7 +288,8 @@ config/
     ├── forkd/forkd.toml               # sandboxed script runner
     ├── search/search.toml             # web search (DuckDuckGo; links the system libcurl)
     ├── jira/jira.toml                 # Jira via the generic http connector (placeholder base_url)
-    └── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
+    ├── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
+    └── alice/alice.toml.example       # Yandex Alice skill (smart speaker) — off by default
 ```
 
 This path runs when a Telegram token is present; without one Albert uses a console
@@ -517,6 +518,29 @@ real side effect — the decision to send is the cogitator's; confirm with the u
 > Linking the mail crate pulls a second rustls provider (ring) alongside reqwest's
 > aws-lc-rs, so `main()` installs one process-wide (`ensure_crypto_provider()`) — this
 > runs even when mail is disabled, because the crate is compiled into the binary.
+
+### `connectors/alice/alice.toml` — off by default
+
+A second chat channel: a private **Yandex Alice skill**, so a Yandex Station speaker
+talks to Albert (Yandex does the speech recognition and synthesis; the connector moves
+text). Shipped as `alice.toml.example`; to enable:
+
+1. `cp config/connectors/alice/alice.toml.example config/connectors/alice/alice.toml`.
+2. Put `ALICE_WEBHOOK_SECRET` in `.env` (`openssl rand -hex 24`).
+3. Expose the connector's `listen` port (default 8790) through an HTTPS reverse proxy
+   with a valid certificate; the webhook URL is `https://<host>/alice/<secret>`.
+4. In the [Yandex Dialogs console](https://dialogs.yandex.ru/developer) create a skill,
+   set that URL, make it private, and say something to it. The connector refuses
+   unknown speakers and logs their ids — copy yours into `allowed_users`, set
+   `skill_id`, restart.
+
+Messages arrive on channel `alice:<user_id>` tagged `chat_type = "voice"`;
+`system.md` (SPEAKER) tells the model to answer briefly, for the ear. Alice waits only
+~3 s per request, so a slower turn answers with one of the `fillers` and the speaker
+then says the reply by itself (`[connector.push]`: the Yandex cloud "say text" action,
+x-token from a one-time QR login with octo's `connectors/alice/tools/yandex_qr_login.py`;
+reminders are spoken the same way). Without push, the reply waits for «дальше». The default `role = "trusted"` keeps owner-only tools (restart,
+self-config, model switching) off the speaker, which hears anyone in the room.
 
 ## What is runtime state (gitignored)
 
