@@ -2,7 +2,12 @@
 mod store;
 mod tool;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs::remove_dir_all,
+    io::Error as IoError,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use rig::{
     completion::ToolDefinition,
@@ -63,6 +68,28 @@ pub struct Artifacts {
     settings: Settings,
 }
 impl Artifacts {
+    pub(crate) fn discard_conversation(
+        workspace: &Path,
+        conversation: &(String, String),
+    ) -> Result<(), IoError> {
+        let key = serde_json::to_vec(conversation).expect("conversation strings serialize");
+        let parent = workspace.join("tool-results");
+        let root = parent.join(format!("{:x}", Sha256::digest(key)));
+        if parent.is_symlink() || root.is_symlink() {
+            return Err(IoError::other("artifact scope is a symlink"));
+        }
+        if root.exists() {
+            remove_dir_all(root)?;
+        }
+        Ok(())
+    }
+    /// Temporary sessions keep original tool output in their volatile journal.
+    /// Automatic disk offloading is unavailable until explicit Save authorizes
+    /// durable retention; do not create references to files that do not exist.
+    pub(crate) fn without_disk(mut self) -> Self {
+        self.settings.enabled = false;
+        self
+    }
     pub fn new(
         workspace: PathBuf,
         conversation: &(String, String),
@@ -101,7 +128,7 @@ impl Artifacts {
         tools
     }
     pub async fn bound(&self, name: String, args: String, output: String) -> String {
-        if output.len() <= self.settings.threshold_bytes {
+        if !self.settings.enabled || output.len() <= self.settings.threshold_bytes {
             return output;
         }
         let store = self.clone();
@@ -324,5 +351,115 @@ mod tests {
             failed["result"].is_null(),
             "unreadable report must remain discoverable by its parent"
         );
+    }
+}
+
+#[cfg(test)]
+mod volatile_tests {
+    use std::{
+        convert::Infallible,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
+
+    use octo_history::{
+        AppendRequest, CreateSession, MemoryLimits, RetainedMemoryHistory, SessionJournal,
+        SessionKind, SessionStore,
+    };
+    use rig::{
+        completion::ToolDefinition,
+        tool::{Tool, ToolDyn},
+    };
+    use serde_json::{json, Value};
+    use tempfile::tempdir;
+
+    use super::{Artifacts, Settings};
+    use crate::{
+        history::{journal_messages, tool_trace},
+        status::StatusFeed,
+        subagents::inspection::{inspect_volatile, read_entry, Settings as InspectionSettings},
+    };
+
+    struct Payload(Arc<AtomicUsize>);
+    impl Tool for Payload {
+        const NAME: &'static str = "payload";
+        type Args = Value;
+        type Error = Infallible;
+        type Output = String;
+        async fn definition(&self, _: String) -> ToolDefinition {
+            ToolDefinition {
+                name: Self::NAME.into(),
+                description: "payload".into(),
+                parameters: json!({"type":"object"}),
+            }
+        }
+        async fn call(&self, _: Value) -> Result<String, Infallible> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok("TEMPORARY_PAYLOAD".repeat(10_000))
+        }
+    }
+
+    #[tokio::test]
+    async fn disabled_offload_keeps_full_result_in_ram_without_creating_artifact_files() {
+        let directory = tempdir().unwrap();
+        let artifacts = Artifacts::new(
+            directory.path().into(),
+            &("session".into(), "private".into()),
+            true,
+            None,
+            Settings::default(),
+        )
+        .without_disk();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let tools = artifacts.wrap(vec![Box::new(Payload(calls.clone()))]);
+        assert_eq!(tools.len(), 1);
+        let output = ToolDyn::call(tools[0].as_ref(), "{}".into()).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!directory.path().join("tool-results").exists());
+        assert!(output.len() > 100_000);
+        let feed = StatusFeed::silent();
+        feed.start_external("native", "payload", json!({}));
+        feed.finish_external("native", &output);
+        let messages = feed.snapshot();
+        let journal = tool_trace(&messages).unwrap();
+        let memory = RetainedMemoryHistory::new(MemoryLimits::default()).unwrap();
+        let mut request = CreateSession::private("owner");
+        request.kind = SessionKind::Temporary;
+        let session = memory.create_session(request).await.unwrap();
+        memory
+            .append_session(
+                &SessionJournal::Root(session.id.clone()),
+                &AppendRequest {
+                    namespace: "test".into(),
+                    idempotency_key: "result".into(),
+                    digest: "result".into(),
+                    turns: vec![journal],
+                },
+            )
+            .await
+            .unwrap();
+        let records = memory
+            .load_session(&SessionJournal::Root(session.id))
+            .await
+            .unwrap();
+        assert!(records[0].content.contains("TEMPORARY_PAYLOAD"));
+        assert!(records[0].content.len() >= output.len());
+        let readable = journal_messages(&messages);
+        let inspection = inspect_volatile(&readable, &InspectionSettings::default(), 0);
+        assert!(inspection["entries"][0]["result_path"].is_null());
+        let part = read_entry(
+            &readable,
+            0,
+            "result",
+            &[],
+            100,
+            Some(120),
+            &InspectionSettings::default(),
+        )
+        .unwrap();
+        assert!(part.to_string().len() < 2000);
+        assert!(!directory.path().join("tool-results").exists());
     }
 }

@@ -8,7 +8,7 @@ use octo_core::{Connector, ConnectorId, FactoryContext};
 use toml::Value;
 
 use crate::{
-    config::Config,
+    config::{history::sqlite_path, Config},
     error::{Error, Result},
     manifests::connector_files,
     memory::config::MemoryConfig,
@@ -16,12 +16,8 @@ use crate::{
 
 pub fn protected_paths(config: &Config) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
-    if let Some(path) = config.history.as_deref().and_then(|s| {
-        s.strip_prefix("sqlite:")
-            .or_else(|| s.strip_prefix("file:"))
-    }) {
-        paths.push(PathBuf::from(path));
-    }
+    paths.push(sqlite_path(config.history.as_deref(), &config.deploy_dir)?);
+    paths.push(config.history_backup_dir.clone());
     if matches!(&config.memory, MemoryConfig::Embedded) {
         let vault =
             KaeruConfig::from_env().map_err(|e| Error::Config(format!("memory path: {e}")))?;

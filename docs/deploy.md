@@ -53,6 +53,7 @@ Everything lives under `/opt/albert/`:
 ├── .env                   secrets + ALBERT_CONFIG + KAERU_VAULT_PATH  (chmod 600)
 ├── state/                 runtime state (see below)
 │   ├── history.db         SQLite chat transcript (survives restarts)
+│   ├── history-backups/   consistent snapshots before internal schema upgrades
 │   ├── scheduler.json     scheduler alarms
 │   ├── workspace/         ephemeral file-tool jail (setgid 2770; agent <-> scripts)
 │   └── artifacts/         durable storage-connector objects

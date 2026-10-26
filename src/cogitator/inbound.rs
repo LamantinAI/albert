@@ -1,24 +1,44 @@
 use std::sync::Arc;
 
 use octo_core::{Blob, CogitatorContext, Envelope, InboundMessage};
-use tracing::info;
+use tracing::{info, warn};
 
-use super::{
-    channel_of, command_reply, compaction::CompactOptions, turn_key, AlbertCogitator, UserInput,
-};
+use super::retention::temporary;
+use super::{command_reply, compaction::CompactOptions, turn_key, AlbertCogitator, UserInput};
 use crate::{
     acl::{command as acl_command, is_acl_admin, is_owner, should_respond, tag},
     commands::{help, parse, seed},
+    sessions::SessionContext,
+    sessions::SessionEnded,
 };
 
 impl AlbertCogitator {
     pub(super) async fn handle(self: Arc<Self>, incoming: Arc<Envelope>, ctx: &CogitatorContext) {
+        if incoming.kind.as_str() == "albert.session.closed" {
+            if let Some(ended) = incoming.context.get::<SessionEnded>() {
+                self.on_session_ended(&ended.session_id, ctx).await;
+            }
+            return;
+        }
         if incoming.source == self.self_source {
             return; // never react to our own emissions
         }
         match incoming.kind.as_str() {
             "chat.message" => {
                 if !should_respond(&incoming) {
+                    return;
+                }
+                let incoming = match self.admit_message(incoming, ctx).await {
+                    Ok(incoming) => incoming,
+                    Err(error) => {
+                        warn!(%error, "dialog session admission failed");
+                        return;
+                    }
+                };
+                if temporary(incoming.context.get::<SessionContext>())
+                    && incoming.payload_as::<Blob>().is_some_and(Blob::is_audio)
+                {
+                    self.emit_reply(&incoming, "Voice processing is unavailable in a temporary chat. Save this chat before sending voice messages.".into(), ctx).await;
                     return;
                 }
                 // A text payload is a normal turn; a Blob payload is media the
@@ -100,8 +120,6 @@ impl AlbertCogitator {
         input: UserInput,
         ctx: &CogitatorContext,
     ) {
-        let channel_key = channel_of(&incoming);
-
         // Reflexes fire on text-only turns: instant, no LLM.
         if input.images.is_empty() && tag(&incoming, "forwarded") != Some("true") {
             let owner = is_owner(&incoming);
@@ -111,6 +129,28 @@ impl AlbertCogitator {
                 .as_ref()
                 .map(|cmd| cmd.name.as_str())
                 .unwrap_or("");
+
+            if matches!(
+                command,
+                "compact"
+                    | "model"
+                    | "cancel"
+                    | "restart"
+                    | "help"
+                    | "start"
+                    | "allow"
+                    | "deny"
+                    | "allowed"
+            ) {
+                match self.accept_control(&incoming, &input).await {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(error) => {
+                        warn!(%error, "control input was not accepted");
+                        return;
+                    }
+                }
+            }
 
             if command == "compact" {
                 if !owner {
@@ -133,7 +173,8 @@ impl AlbertCogitator {
             if command == "model" {
                 let args = invocation.as_ref().map(|c| c.args).unwrap_or("");
                 let reply = self.models.command(args, owner);
-                self.emit_reply(&incoming, reply, ctx).await;
+                self.finish_reflex(&incoming, input.text, reply, ctx, false)
+                    .await;
                 return;
             }
 
@@ -156,8 +197,7 @@ impl AlbertCogitator {
                 } else {
                     "Nothing to stop right now."
                 };
-                self.emit_reply(&incoming, msg.to_string(), ctx).await;
-                self.record(&channel_key, input.text, "(cancel)".into())
+                self.finish_reflex(&incoming, input.text, msg.into(), ctx, false)
                     .await;
                 return;
             }
@@ -165,23 +205,26 @@ impl AlbertCogitator {
             // Owner-only /restart: a deterministic reflex onto the same control signal
             // the model's `restart` tool uses — force a process restart, no LLM turn.
             if owner && command == "restart" {
-                self.emit_reply(
-                    &incoming,
-                    "Restarting — back in a couple of seconds.".to_string(),
-                    ctx,
-                )
-                .await;
-                self.record(&channel_key, input.text, "(restart)".into())
-                    .await;
-                self.apply_restart("process".to_string(), ctx).await;
+                if self
+                    .finish_reflex(
+                        &incoming,
+                        input.text,
+                        "Restarting — back in a couple of seconds.".into(),
+                        ctx,
+                        false,
+                    )
+                    .await
+                {
+                    self.apply_restart("process".to_string(), ctx).await;
+                }
                 return;
             }
 
             // /help lists the system commands and the skills' commands this user may run.
             if command == "help" {
                 let reply = help(&self.skills.commands(), owner, is_acl_admin(&incoming));
-                self.emit_reply(&incoming, reply, ctx).await;
-                self.record(&channel_key, input.text, "(help)".into()).await;
+                self.finish_reflex(&incoming, input.text, reply, ctx, false)
+                    .await;
                 return;
             }
 
@@ -190,8 +233,7 @@ impl AlbertCogitator {
             } else {
                 &input.text
             }) {
-                self.emit_reply(&incoming, canned.clone(), ctx).await;
-                self.record(&channel_key, input.text, "(reflex reply)".into())
+                self.finish_reflex(&incoming, input.text, canned, ctx, false)
                     .await;
                 return;
             }
@@ -199,8 +241,7 @@ impl AlbertCogitator {
             // Reflex: owner-only ACL admin, deterministic (out of the LLM).
             if let Some(reply) = acl_command(&self.self_source, command_text, &incoming, ctx).await
             {
-                self.emit_control_reply(&incoming, reply, ctx).await;
-                self.record(&channel_key, input.text, "(acl command)".into())
+                self.finish_reflex(&incoming, input.text, reply, ctx, true)
                     .await;
                 return;
             }
@@ -215,8 +256,8 @@ impl AlbertCogitator {
             if let Some((command, args)) = invoked {
                 if command.owner && !owner {
                     let reply = format!("/{} is for the owner only.", command.name);
-                    self.emit_reply(&incoming, reply.clone(), ctx).await;
-                    self.record(&channel_key, input.text, reply).await;
+                    self.finish_reflex(&incoming, input.text, reply, ctx, false)
+                        .await;
                     return;
                 }
                 match self.skills.instructions(&command.skill) {
@@ -233,8 +274,8 @@ impl AlbertCogitator {
                     }
                     Err(e) => {
                         let reply = format!("/{} couldn't load its skill: {e}", command.name);
-                        self.emit_reply(&incoming, reply.clone(), ctx).await;
-                        self.record(&channel_key, input.text, reply).await;
+                        self.finish_reflex(&incoming, input.text, reply, ctx, false)
+                            .await;
                     }
                 }
                 return;

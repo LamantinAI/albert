@@ -13,7 +13,7 @@ use super::AlbertCogitator;
 use crate::{
     history::{journal_messages, to_messages},
     subagents::{
-        inspection::{inspect, read_entry},
+        inspection::{inspect, inspect_volatile, read_entry},
         Args, Conversation, Run, SubagentTool,
     },
 };
@@ -33,7 +33,7 @@ impl AlbertCogitator {
                 let grants = json!({
                 "connectors":tool.ctx.connectors().iter().filter(|c| c.capabilities.description.is_some())
                     .map(|c| c.id.as_str()).collect::<Vec<_>>(),
-                "tools":self.child_native_tools(PathBuf::new()).iter().map(|t| t.name()).collect::<Vec<_>>(),
+                "tools":self.child_tools_for(PathBuf::new(), tool.session.as_ref()).iter().map(|t| t.name()).collect::<Vec<_>>(),
                 "max_concurrent":self.config.subagents.max_concurrent,
                 "max_tool_turns":self.config.subagents.max_tool_turns,
                 "default_tool_turns":self.config.subagents.default_tool_turns.min(self.config.subagents.max_tool_turns),
@@ -53,13 +53,17 @@ impl AlbertCogitator {
             ),
             Args::Inspect { run_id, offset } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
-                let messages = self.inspection_messages(&run).await;
-                let index = inspect(
-                    &messages,
-                    &self.config.code_workspace.join("tool-results"),
-                    &self.config.subagents.inspection,
-                    offset,
-                );
+                let messages = self.inspection_messages(&run).await?;
+                let index = if super::retention::temporary(run.session.as_ref()) {
+                    inspect_volatile(&messages, &self.config.subagents.inspection, offset)
+                } else {
+                    inspect(
+                        &messages,
+                        &self.config.code_workspace.join("tool-results"),
+                        &self.config.subagents.inspection,
+                        offset,
+                    )
+                };
                 Ok(json!({"run":run.summary(),"journal":index}))
             }
             Args::Read {
@@ -71,7 +75,7 @@ impl AlbertCogitator {
                 limit,
             } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
-                let messages = self.inspection_messages(&run).await;
+                let messages = self.inspection_messages(&run).await?;
                 read_entry(
                     &messages,
                     entry,
@@ -122,7 +126,7 @@ impl AlbertCogitator {
         }
     }
 
-    async fn inspection_messages(&self, run: &Run) -> Vec<Message> {
+    async fn inspection_messages(&self, run: &Run) -> Result<Vec<Message>, String> {
         let persisted = run
             .result
             .borrow()
@@ -130,11 +134,11 @@ impl AlbertCogitator {
             .and_then(Value::as_bool)
             == Some(true);
         if persisted {
-            to_messages(&self.history.load(&format!("subagent/{}", run.id)).await)
+            Ok(to_messages(&self.strict_history(&run.history_key()).await?))
         } else {
             // Running or unpersisted work remains available, without pretending a
             // failed database write succeeded. Never write a journal file.
-            journal_messages(&run.feed.snapshot())
+            Ok(journal_messages(&run.feed.snapshot()))
         }
     }
 }

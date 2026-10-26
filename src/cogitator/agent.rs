@@ -1,3 +1,4 @@
+mod entry;
 use std::{
     env::var,
     sync::{Arc, Mutex},
@@ -19,7 +20,13 @@ use rig::{
 };
 use tracing::{debug, info, warn};
 
-use super::{catalog, scratchpad_scope, AlbertCogitator};
+use super::{
+    catalog,
+    retention::{fence_tools, permitted_memory, temporary},
+    scratchpad_scope,
+    session_dispatch::SessionDispatch,
+    AlbertCogitator,
+};
 use crate::{
     artifacts::Artifacts,
     codex_http::CodexHttp,
@@ -32,42 +39,13 @@ use crate::{
     openrouter_http::OpenRouterHttp,
     scratchpad::PadScope,
     selfconfig::SelfConfig,
+    sessions::{telegram::output_scope, SessionContext},
     status::StatusFeed,
     subagents::{budget::Budget, SubagentTool},
 };
 
 impl AlbertCogitator {
-    /// Build the LLM client per the configured auth mode, then run one rig
-    /// tool-loop. The two modes yield different concrete model types, so the
-    /// build-tools-and-run tail lives in the generic [`Self::drive`].
-    pub(super) async fn run_agent(
-        self: &Arc<Self>,
-        ctx: &CogitatorContext,
-        channel: &str,
-        preamble: &str,
-        prompt: Message,
-        history: Vec<Message>,
-        reply_target: Option<ConnectorId>,
-        owner: bool,
-        feed: StatusFeed,
-        scope: Option<&str>,
-    ) -> (String, Option<String>) {
-        self.run_agent_with_ingress(
-            ctx,
-            channel,
-            preamble,
-            prompt,
-            history,
-            reply_target,
-            owner,
-            feed,
-            scope,
-            None,
-        )
-        .await
-    }
-
-    pub(super) async fn run_agent_with_ingress(
+    pub(super) async fn run_agent_scoped(
         self: &Arc<Self>,
         ctx: &CogitatorContext,
         channel: &str,
@@ -79,15 +57,25 @@ impl AlbertCogitator {
         feed: StatusFeed,
         scope: Option<&str>,
         ingress: Option<Ingress>,
+        session: Option<SessionContext>,
     ) -> (String, Option<String>) {
+        if session.as_ref().is_some_and(|session| !session.is_live()) {
+            return ("Session ended.".into(), None);
+        }
+        let ingress =
+            match super::retention::scope_ingress(&self.authority, ingress, session.as_ref()) {
+                Ok(ingress) => ingress,
+                Err(_) => return ("Session authority is unavailable.".into(), None),
+            };
         let host = Arc::downgrade(self);
-        let conversation = (
-            reply_target
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-            channel.to_owned(),
+        let conversation = Self::logical_conversation(
+            channel,
+            reply_target.as_ref().map(|target| target.as_str()),
         );
+        let physical_channel = session
+            .as_ref()
+            .map(|session| session.reply_route().channel())
+            .unwrap_or(channel);
         let observer_conversation = conversation.clone();
         let feed = feed.with_result_observer(move |name, args, result| {
             if let Some(host) = host.upgrade() {
@@ -105,17 +93,12 @@ impl AlbertCogitator {
             SubagentTool::new(
                 Arc::downgrade(self),
                 ctx.clone(),
-                (
-                    reply_target
-                        .as_ref()
-                        .map(ToString::to_string)
-                        .unwrap_or_default(),
-                    channel.into(),
-                ),
+                conversation.clone(),
                 scope.unwrap_or("routine").into(),
                 owner,
             )
             .with_ingress(ingress.clone())
+            .with_session(session.clone())
         });
         let make_tools = || {
             // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
@@ -131,8 +114,13 @@ impl AlbertCogitator {
                     .with_timeout(Duration::from_secs(360));
             if let Some(target) = &reply_target {
                 dispatch = dispatch
-                    .with_channel_for(target.clone(), ChannelId::new(channel))
-                    .with_origin(target.clone(), ChannelId::new(channel));
+                    .with_channel_for(target.clone(), ChannelId::new(physical_channel))
+                    .with_origin(target.clone(), ChannelId::new(physical_channel));
+            }
+            if let Some(session) = &session {
+                dispatch = dispatch
+                    .with_context(session.clone())
+                    .with_context(output_scope(session, scope.map(str::to_owned)));
             }
             // Stamp this turn's cancellation scope on every dispatch, so a /cancel can
             // reach the connector work (forkd scripts) the model starts this turn.
@@ -162,9 +150,19 @@ impl AlbertCogitator {
                             .iter()
                             .any(|k| k.as_str() == "chat.send_file.result")
                 });
-                let tool =
-                    SendFileTool::new(ctx.bus(), self.self_source.clone(), t.clone(), channel)
-                        .with_origin(t, ChannelId::new(channel));
+                let tool = SendFileTool::new(
+                    ctx.bus(),
+                    self.self_source.clone(),
+                    t.clone(),
+                    physical_channel,
+                )
+                .with_origin(t, ChannelId::new(physical_channel));
+                let tool = match &session {
+                    Some(session) => tool
+                        .with_context(session.clone())
+                        .with_context(output_scope(session, scope.map(str::to_owned))),
+                    None => tool,
+                };
                 if confirmed {
                     tool.with_confirmation_timeout(Duration::from_secs(120))
                 } else {
@@ -176,7 +174,10 @@ impl AlbertCogitator {
             // deploy dir, allow-listed). Applied via the restart tool above.
             let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
             AttemptTools::Root((
-                dispatch,
+                SessionDispatch {
+                    inner: dispatch,
+                    session: session.clone(),
+                },
                 send_file,
                 restart,
                 selfconfig,
@@ -192,19 +193,7 @@ impl AlbertCogitator {
                 scratchpad_scope(&conversation, owner),
             ))
         };
-        let preamble = format!(
-            "{preamble}{}",
-            self.children.context(
-                &(
-                    reply_target
-                        .as_ref()
-                        .map(ToString::to_string)
-                        .unwrap_or_default(),
-                    channel.into()
-                ),
-                owner
-            )
-        );
+        let preamble = format!("{preamble}{}", self.children.context(&conversation, owner));
         let preamble = preamble.as_str();
         let snapshot = self.models.snapshot();
         let vision = needs_vision(history.iter().chain([&prompt]));
@@ -234,12 +223,18 @@ impl AlbertCogitator {
                     }
                 },
                 || feed.tool_call_count() > baseline,
-                |message| async move {
-                    info!(channel, status = %message, "model pool");
+                |_message| async move {
+                    info!(channel, "model pool state changed");
                 },
             )
             .await
-            .unwrap_or_else(|error| error);
+            .unwrap_or_else(|error| {
+                if temporary(session.as_ref()) && error.contains("context budget") {
+                    format!("{error}\nSave this chat before continuing with a larger tool result.")
+                } else {
+                    error
+                }
+            });
         // Drain any restart the model requested during the loop (owner turns only).
         let restart_target = pending.lock().ok().and_then(|mut p| p.take());
         (answer, restart_target)
@@ -256,6 +251,12 @@ impl AlbertCogitator {
         history: Vec<Message>,
         feed: StatusFeed,
     ) -> Result<String, Failure> {
+        if !feed.is_live() {
+            return Err(Failure {
+                kind: FailureKind::Fatal,
+                message: "Session ended.".into(),
+            });
+        }
         let unavailable = |message: &str| Failure {
             kind: FailureKind::Unavailable,
             message: message.into(),
@@ -367,7 +368,7 @@ impl AlbertCogitator {
         .map_err(|error| {
             let failure = model_failure(error);
             warn!(model_id=%model.id, compact, timeout_ms, elapsed_ms=started.elapsed().as_millis(),
-                kind=?failure.kind, reason=%failure.message, "model attempt failed");
+                kind=?failure.kind, "model attempt failed");
             failure
         })?;
         if result.trim().is_empty() {
@@ -463,7 +464,7 @@ impl AlbertCogitator {
     pub(super) async fn drive<M>(
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
-        dispatch: OctoDispatchTool,
+        dispatch: SessionDispatch,
         send_file: Option<SendFileTool>,
         restart: Option<RestartTool>,
         selfconfig: Option<SelfConfig>,
@@ -486,7 +487,9 @@ impl AlbertCogitator {
             max_turns = self.config.max_tool_turns,
             "building agent + running tool-loop"
         );
-        let mut tools = self.memory.delegation_tools();
+        let session = dispatch.session.clone();
+        let volatile = temporary(session.as_ref());
+        let mut tools = permitted_memory(self.memory.delegation_tools(), volatile);
         tools.extend(vec![
             Box::new(dispatch) as Box<dyn ToolDyn>,
             Box::new(discovery),
@@ -527,7 +530,14 @@ impl AlbertCogitator {
         if let Some(tool) = children {
             tools.push(Box::new(tool));
         }
-        let agent = base.tools(artifacts.wrap(tools)).build();
+        let artifacts = if volatile {
+            artifacts.without_disk()
+        } else {
+            artifacts
+        };
+        let agent = base
+            .tools(fence_tools(artifacts.wrap(tools), session))
+            .build();
         agent
             .prompt(prompt)
             .with_hook(feed)
@@ -541,7 +551,7 @@ impl AlbertCogitator {
 /// send-file / owner-only restart and self-config tools). A run consumes them, so
 /// the forced-refresh retry in [`AlbertCogitator::run_agent`] builds a fresh set.
 type TurnTools = (
-    OctoDispatchTool,
+    SessionDispatch,
     Option<SendFileTool>,
     Option<RestartTool>,
     Option<SelfConfig>,

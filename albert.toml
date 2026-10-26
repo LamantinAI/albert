@@ -53,9 +53,21 @@ period_secs = 21600   # base memory-reflection routine cadence (6h)
 # config/connectors/*/*.toml (Octo's from_config_file). See those manifests.
 
 [history]
-# "memory" (lost on restart) | "file:<dir>" (JSON per channel) |
-# "sqlite:<path>" (durable, migrated — survives restarts; path is cwd-relative).
+# Retained session journals. Relative paths follow this config file's directory.
+# Session startup requires SQLite; legacy memory/file stores are not auto-converted.
 backend = "sqlite:state/history.db"
+# Consistent snapshots before internal history/control schema upgrades (WAL included).
+backup_dir = "state/history-backups"
+
+[sessions.limits]
+temporary_max_sessions = 32
+temporary_max_turns = 10000
+temporary_max_bytes = 33554432
+max_page_size = 100                 # ordinary chat/history pages still default to 10
+telegram_tracking_max_scopes = 256
+telegram_tracking_max_ids = 10000
+telegram_cleanup_batches = 4         # at most 100 exact message IDs per API call
+telegram_cleanup_timeout_ms = 3000
 
 [scheduler]
 state_path = "state/scheduler.json"

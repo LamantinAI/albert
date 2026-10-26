@@ -7,6 +7,7 @@ use rig::{
 };
 use tracing::info;
 
+use super::super::retention::{fence_tools, temporary};
 use super::super::{agent::AttemptTools, AlbertCogitator};
 use super::planning::LinkedStage;
 use crate::{
@@ -36,6 +37,9 @@ impl AlbertCogitator {
         workspace: &Path,
         stage: Option<&LinkedStage>,
     ) -> Result<ChildAnswer, String> {
+        if !run.is_live() {
+            return Err("Session ended; child work was not started.".into());
+        }
         // Rebuild-free tool instances live across safe provider retries. Rig owns
         // each attempt's tools, so a shared dynamic adapter keeps their identity.
         let budget = Budget::new(max_turns);
@@ -46,8 +50,12 @@ impl AlbertCogitator {
             Some(&run.id),
             self.config.context.artifacts.clone(),
         );
-        let tools: Vec<Arc<dyn ToolDyn>> = artifacts
-            .wrap(tools)
+        let artifacts = if temporary(run.session.as_ref()) {
+            artifacts.without_disk()
+        } else {
+            artifacts
+        };
+        let tools: Vec<Arc<dyn ToolDyn>> = fence_tools(artifacts.wrap(tools), run.session.clone())
             .into_iter()
             .map(|inner| {
                 Arc::new(LimitedTool {
@@ -88,8 +96,8 @@ impl AlbertCogitator {
                     )
                 },
                 || run.feed.tool_call_count() > 0,
-                |status| async move {
-                    info!(run_id = %run.id, %status, "child model pool");
+                |_status| async move {
+                    info!(run_id = %run.id, "child model pool state changed");
                 },
             )
             .await?;

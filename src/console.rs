@@ -7,8 +7,9 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use octo_approval::{Access, Authority, Origin};
 use octo_core::{
-    Blob, ChannelId, Connector, ConnectorCapabilities, ConnectorContext, ConnectorId, Envelope,
-    EventKind, Filter, OctoError, OctoResult, ReplyChannel, SubscribeOptions,
+    Blob, ChannelId, ChannelMetadata, Connector, ConnectorCapabilities, ConnectorContext,
+    ConnectorId, Envelope, EventKind, Filter, OctoError, OctoResult, ReplyChannel,
+    SubscribeOptions,
 };
 use serde_json::{json, Value};
 use tokio::{
@@ -82,6 +83,9 @@ impl Connector for ConsoleConnector {
                             text,
                         )
                         .with_channel(ChannelId::new(CHANNEL))
+                        .with_channel_metadata(ChannelMetadata::default()
+                            .with_tag("chat_type", "private")
+                            .with_tag("sender_id", "local"))
                         .with_reply_to(ReplyChannel::new(ChannelId::new(CHANNEL)));
                         if let Some((authority, timeout)) = &self.authority {
                             let ingress = authority.issue(Origin {

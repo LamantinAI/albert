@@ -22,6 +22,20 @@ pub struct ScratchpadStore {
     pub(super) instance: u64,
 }
 
+impl ScratchpadStore {
+    /// Remove every authority partition of a discarded temporary conversation.
+    /// Other sessions and their running plans remain untouched.
+    pub(crate) fn purge_conversation(&self, conversation: &str) -> Result<usize, &'static str> {
+        let mut pads = self
+            .inner
+            .lock()
+            .map_err(|_| "scratchpad state unavailable")?;
+        let before = pads.len();
+        pads.retain(|scope, _| scope.conversation != conversation);
+        Ok(before - pads.len())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -37,6 +51,42 @@ mod tests {
         PadScope {
             conversation: "chat:opaque".into(),
             owner: true,
+        }
+    }
+
+    #[test]
+    fn discard_purges_all_actor_partitions_of_only_the_target_conversation() {
+        let store = ScratchpadStore::new();
+        for owner in [false, true] {
+            store.set_goal(
+                &PadScope {
+                    conversation: "closed".into(),
+                    owner,
+                },
+                "temporary".into(),
+            );
+            store.set_goal(
+                &PadScope {
+                    conversation: "other".into(),
+                    owner,
+                },
+                "retained".into(),
+            );
+        }
+        assert_eq!(store.purge_conversation("closed").unwrap(), 2);
+        for owner in [false, true] {
+            assert!(store
+                .render_scoped(&PadScope {
+                    conversation: "closed".into(),
+                    owner
+                })
+                .contains("empty"));
+            assert!(store
+                .render_scoped(&PadScope {
+                    conversation: "other".into(),
+                    owner
+                })
+                .contains("retained"));
         }
     }
     fn action(store: &ScratchpadStore, scope: &PadScope, value: Value) -> Value {

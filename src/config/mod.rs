@@ -27,8 +27,12 @@ use crate::{
     memory::config::MemoryConfig,
     models::PoolConfig,
     scratchpad::Settings as ScratchpadSettings,
+    sessions::settings::SessionSettings,
     subagents::Limits,
 };
+
+pub(crate) mod history;
+use self::history::default_backup_dir;
 
 /// How Albert authenticates to the model backend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
@@ -52,6 +56,7 @@ pub struct CloudEndpoint {
 /// The resolved config the rest of the crate uses (secret already pulled from env).
 #[derive(Clone)]
 pub struct Config {
+    pub sessions: SessionSettings,
     pub authorization: AuthoritySettings,
     pub context: ContextSettings,
     pub subagents: Limits,
@@ -79,6 +84,7 @@ pub struct Config {
     /// the chat as `chat.status` envelopes while a turn runs. Default: on.
     pub stream_status: bool,
     pub history: Option<String>,
+    pub history_backup_dir: PathBuf,
     pub scheduler_state_path: PathBuf,
     pub reflection_secs: u64,
     pub soul_path: PathBuf,
@@ -194,7 +200,9 @@ impl Config {
         raw.authorization.validate().map_err(Error::Config)?;
         raw.subagents.validate().map_err(Error::Config)?;
         raw.scratchpad.validate().map_err(Error::Config)?;
+        raw.sessions.validate()?;
         Ok(Config {
+            sessions: raw.sessions,
             authorization: raw.authorization,
             context: raw.context,
             subagents: raw.subagents,
@@ -211,6 +219,7 @@ impl Config {
             subscription_auth_json: resolve_path(dir, &raw.subscription.auth_json),
             subscription_base_url: raw.subscription.base_url,
             history: Some(raw.history.backend),
+            history_backup_dir: resolve_path(dir, &raw.history.backup_dir),
             scheduler_state_path: resolve(dir, &raw.scheduler.state_path),
             reflection_secs: raw.reflection.period_secs,
             soul_path: resolve(dir, &raw.prompt.soul),
@@ -298,6 +307,8 @@ fn resolve_path(dir: &Path, p: &str) -> PathBuf {
 
 #[derive(Deserialize)]
 struct Raw {
+    #[serde(default)]
+    sessions: SessionSettings,
     #[serde(default)]
     authorization: AuthoritySettings,
     #[serde(default)]
@@ -398,11 +409,14 @@ impl Default for RawReflection {
 struct RawHistory {
     #[serde(default = "d_backend")]
     backend: String,
+    #[serde(default = "default_backup_dir")]
+    backup_dir: String,
 }
 impl Default for RawHistory {
     fn default() -> Self {
         Self {
             backend: d_backend(),
+            backup_dir: default_backup_dir(),
         }
     }
 }
@@ -481,7 +495,7 @@ fn d_reflect() -> u64 {
     21_600
 }
 fn d_backend() -> String {
-    "memory".into()
+    "sqlite:state/history.db".into()
 }
 fn d_state() -> String {
     "state/scheduler.json".into()

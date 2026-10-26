@@ -5,6 +5,7 @@
 
 mod acl;
 mod artifacts;
+mod bootstrap;
 mod codex_http;
 mod codex_model;
 mod cogitator;
@@ -13,6 +14,7 @@ mod config;
 mod connector_catalog;
 mod console;
 mod context;
+mod db;
 mod error;
 mod history;
 mod manifests;
@@ -24,6 +26,8 @@ mod prompt;
 mod routines;
 mod scratchpad;
 mod selfconfig;
+mod service;
+mod sessions;
 mod skills;
 mod sql;
 mod status;
@@ -31,7 +35,7 @@ mod subagents;
 mod transport;
 
 use std::{
-    env::{set_var, var},
+    env::{args, set_var, var},
     fs::create_dir_all,
     sync::Arc,
 };
@@ -49,7 +53,7 @@ use octo_connector_search::factory as search_factory;
 use octo_connector_speak::factory as speak_factory;
 use octo_connector_sql::factory as sql_factory;
 use octo_connector_storage::factory as storage_factory;
-use octo_connector_telegram::factory_with_authority as telegram_factory;
+use octo_connector_telegram::factory_with_policy as telegram_factory;
 use octo_connector_transcribe::factory as transcribe_factory;
 use octo_core::Octo;
 use octo_openai_auth::SubscriptionAuth;
@@ -57,15 +61,17 @@ use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::{
+    bootstrap::open_sessions,
     cogitator::AlbertCogitator,
     config::{AuthMode, Config},
     console::ConsoleConnector,
     error::{Error, Result},
-    history::{FileHistory, HistoryStore, InMemoryHistory, SqliteHistory},
+    history::HistoryStore,
     manifests::declared_types,
     memory::Memory,
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
+    sessions::telegram::SessionTelegramPolicy,
     skills::SkillStore,
     sql::{console_sql_connectors, protected_paths as sql_protected_paths},
 };
@@ -105,7 +111,6 @@ async fn main() -> Result<()> {
     ensure_crypto_provider();
 
     let config = Config::load()?;
-    let authority = config.authorization.build();
     if let Some(pool) = &config.models {
         info!(preferred = %pool.default, members = pool.models.len(), max_attempts = pool.max_attempts, "llm model pool loaded");
     } else {
@@ -126,7 +131,7 @@ async fn main() -> Result<()> {
 
     // `albert login` — interactive ChatGPT-subscription sign-in, then exit (no
     // runtime, no memory vault needed). Writes tokens to the subscription store.
-    if std::env::args().nth(1).as_deref() == Some("login") {
+    if args().nth(1).as_deref() == Some("login") {
         info!(path = %config.subscription_auth_json.display(), "login: writing subscription tokens");
         return openai_login::run(&config.subscription_auth_json).await;
     }
@@ -144,24 +149,15 @@ async fn main() -> Result<()> {
     // Connect and migrate memory before accepting any events.
     let memory = Memory::open(&config).await?;
 
-    // ── Hot context: per-channel transcript backend ──────────────────────────
-    const HISTORY_MAX: usize = 30;
-    let history: Arc<dyn HistoryStore> = match config.history.as_deref() {
-        Some(spec) if spec.starts_with("sqlite:") => {
-            let path = &spec["sqlite:".len()..];
-            info!(path, "history: sqlite backend (migrated, persistent)");
-            Arc::new(SqliteHistory::open_retained(path).await?)
-        }
-        Some(spec) if spec.starts_with("file:") => {
-            let dir = &spec["file:".len()..];
-            info!(dir, "history: file backend");
-            Arc::new(FileHistory::new(dir, HISTORY_MAX)?)
-        }
-        _ => {
-            info!("history: in-memory backend");
-            Arc::new(InMemoryHistory::new(HISTORY_MAX))
-        }
-    };
+    let has_telegram = var("OCTO_TELEGRAM_TOKEN")
+        .map(|token| !token.trim().is_empty())
+        .unwrap_or(false);
+    let sessions = open_sessions(&config, has_telegram).await?;
+    let authority = config
+        .authorization
+        .build()
+        .with_scope_validator(sessions.scope_registry());
+    let history: Arc<dyn HistoryStore> = sessions.journal_router().clone();
 
     // ── Scheduler connector (cron/reminders) ─────────────────────────────────
     // Calendar-style (`cron`) alarms fall back to the owner's timezone.
@@ -190,9 +186,6 @@ async fn main() -> Result<()> {
     // `requires:` is matched against this list).
     // Connector-backed capabilities follow the manifests (the octo loader instantiates
     // them only in the telegram setup, and the subscription organs only with a token).
-    let has_telegram = var("OCTO_TELEGRAM_TOKEN")
-        .map(|t| !t.trim().is_empty())
-        .unwrap_or(false);
     let declared = if has_telegram {
         declared_types(&config.connectors_manifest)
     } else {
@@ -223,17 +216,20 @@ async fn main() -> Result<()> {
     );
 
     let mut builder = Octo::builder()
-        .cogitator(AlbertCogitator::new(
-            "albert",
-            config.clone(),
-            history,
-            memory,
-            scratchpad,
-            skills,
-            prompt,
-            auth.clone(),
-            authority.clone(),
-        ))
+        .cogitator(
+            AlbertCogitator::new(
+                "albert",
+                config.clone(),
+                history,
+                memory,
+                scratchpad,
+                skills,
+                prompt,
+                auth.clone(),
+                authority.clone(),
+            )
+            .with_sessions(sessions.clone()),
+        )
         .add_connector(scheduler);
 
     // ── Connectors: config-driven Telegram (ACL) + calendar, or console ──────
@@ -247,7 +243,16 @@ async fn main() -> Result<()> {
         // config/connectors/mail manifest ships by default (only mail.toml.example),
         // so from_config_file instantiates it only once a real manifest is dropped in.
         builder = builder
-            .register_connector_type("telegram", telegram_factory(authority.clone()))
+            .register_connector_type(
+                "telegram",
+                telegram_factory(
+                    authority.clone(),
+                    Arc::new(SessionTelegramPolicy::new(
+                        sessions.clone(),
+                        authority.clone(),
+                    )),
+                ),
+            )
             .register_connector_type(
                 "sql",
                 sql_factory(authority.clone(), sql_protected_paths(&config)?),

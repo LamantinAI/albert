@@ -12,6 +12,7 @@ use serde_json::{from_str, json};
 
 use super::{Conversation, Task};
 use crate::cogitator::AlbertCogitator;
+use crate::sessions::SessionContext;
 
 #[derive(Clone)]
 pub struct SubagentTool {
@@ -22,6 +23,7 @@ pub struct SubagentTool {
     pub owner: bool,
     pub spawned: Arc<AtomicUsize>,
     pub ingress: Option<Ingress>,
+    pub(crate) session: Option<SessionContext>,
 }
 impl SubagentTool {
     pub fn new(
@@ -39,10 +41,15 @@ impl SubagentTool {
             owner,
             spawned: Arc::new(AtomicUsize::new(0)),
             ingress: None,
+            session: None,
         }
     }
     pub fn with_ingress(mut self, ingress: Option<Ingress>) -> Self {
         self.ingress = ingress;
+        self
+    }
+    pub(crate) fn with_session(mut self, session: Option<SessionContext>) -> Self {
+        self.session = session;
         self
     }
 }

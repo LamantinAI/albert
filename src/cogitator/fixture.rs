@@ -20,6 +20,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
     let dir = tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let config = Config {
+        sessions: Default::default(),
         authorization: Default::default(),
         context: crate::context::Settings {
             enabled: false,
@@ -39,6 +40,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         multimodal: true,
         stream_status: false,
         history: None,
+        history_backup_dir: path.join("history-backups"),
         scheduler_state_path: path.join("scheduler"),
         reflection_secs: 0,
         soul_path: path.join("soul.md"),

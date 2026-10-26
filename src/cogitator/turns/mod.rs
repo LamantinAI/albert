@@ -1,23 +1,20 @@
 //! Albert's interruption policy. A channel transition is serialized with reply
 //! publication; only the model/tool future is aborted, never accepted input.
 
+mod cancel;
 mod compact;
 mod run;
+mod run_context;
 mod spawn;
 
 use std::sync::Arc;
 
-use octo_core::{CogitatorContext, Envelope};
-use octo_rig::carry_out_cancel;
+use octo_core::Envelope;
 use rig::completion::Message;
 use tokio::task::JoinHandle;
-use tracing::warn;
 
-use super::{channel_of, AlbertCogitator};
-use crate::{
-    history::{journal_messages, tool_trace},
-    status::StatusFeed,
-};
+use super::{channel_of, feedback::close_feedback};
+use crate::{history::journal_messages, sessions::SessionContext, status::StatusFeed};
 
 #[derive(Default)]
 pub(super) struct ChannelState {
@@ -25,6 +22,8 @@ pub(super) struct ChannelState {
 }
 
 struct ActiveTurn {
+    /// Actual live feedback target, including idle compaction without a task.
+    feedback: Arc<Envelope>,
     /// Original task envelope; absent for a compact started while idle.
     continuation: Option<Arc<Envelope>>,
     compact_id: Option<i64>,
@@ -38,6 +37,7 @@ struct ActiveTurn {
 }
 
 struct Interrupted {
+    feedback: Arc<Envelope>,
     /// Original task envelope; absent for a compact started while idle.
     continuation: Option<Arc<Envelope>>,
     compact_id: Option<i64>,
@@ -48,14 +48,25 @@ struct Interrupted {
 }
 
 impl ChannelState {
+    pub(in crate::cogitator) fn discard_content(&mut self) -> Result<(), &'static str> {
+        if let Some(active) = self.active.as_mut() {
+            let result = active.feed.discard();
+            active.messages.clear();
+            active.continuation = None;
+            return result;
+        }
+        Ok(())
+    }
     async fn interrupt(&mut self) -> Option<Interrupted> {
         let active = self.active.take()?;
+        close_feedback(&active.feedback);
         active.task.abort();
         let _ = active.task.await; // no old hooks/replies may race the checkpoint
         let checkpoint = active.feed.checkpoint();
         let mut messages = active.messages;
         messages.extend(journal_messages(&checkpoint));
         Some(Interrupted {
+            feedback: active.feedback,
             continuation: active.continuation,
             compact_id: active.compact_id,
             scope: active.scope,
@@ -67,57 +78,18 @@ impl ChannelState {
 }
 
 pub(super) fn turn_key(env: &Envelope) -> (String, String) {
+    if env.context.get::<SessionContext>().is_some() {
+        return ("session".into(), channel_of(env));
+    }
     (env.source.to_string(), channel_of(env))
-}
-
-impl AlbertCogitator {
-    pub(super) async fn cancel_channel(
-        &self,
-        key: &(String, String),
-        ctx: &CogitatorContext,
-    ) -> bool {
-        let state = self.turns.lock().unwrap().get(key).cloned();
-        let Some(state) = state else {
-            return self.children.cancel_channel(key).await;
-        };
-        let mut locked = state.lock().await;
-        let previous = locked.interrupt().await;
-        if let Some(previous) = &previous {
-            self.cancel_scope(&previous.scope, ctx).await;
-        }
-        let children_cancelled = self.children.cancel_channel(key).await;
-        let Some(previous) = previous else {
-            return children_cancelled;
-        };
-        // Caller records the explicit /cancel after this checkpoint.
-        let channel = &key.1;
-        if let Some(record) = tool_trace(&previous.checkpoint) {
-            if let Err(error) = self.history.append(channel, &[record]).await {
-                warn!(%error, "could not persist interrupted tool history");
-            }
-        }
-        true
-    }
-
-    async fn cancel_scope(&self, scope: &str, ctx: &CogitatorContext) {
-        if let Err(error) = carry_out_cancel(&ctx.bus(), &self.self_source, scope).await {
-            warn!(%error, %scope, "failed to publish cancellation");
-        }
-    }
-
-    pub(super) async fn stop_turns(&self, ctx: &CogitatorContext) {
-        let keys: Vec<_> = self.turns.lock().unwrap().keys().cloned().collect();
-        for key in keys {
-            self.cancel_channel(&key, ctx).await;
-        }
-        self.children.cancel_all().await;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ActiveTurn, ChannelState};
     use crate::status::StatusFeed;
+    use octo_connector_telegram::TurnFeedback;
+    use octo_core::{ConnectorId, Envelope, EventKind};
     use rig::completion::Message;
     use std::sync::Arc;
     use tokio::{
@@ -137,6 +109,14 @@ mod tests {
         }
         let guard = DropNotice(Some(dropped));
         ActiveTurn {
+            feedback: Arc::new(
+                Envelope::new(
+                    ConnectorId::new("telegram"),
+                    EventKind::new("chat.message"),
+                    String::new(),
+                )
+                .with_context(TurnFeedback::new("scope")),
+            ),
             continuation: None,
             compact_id: None,
             scope: "scope".into(),
@@ -158,6 +138,12 @@ mod tests {
             let (tx, rx) = oneshot::channel();
             state.active = Some(blocked(messages, tx));
             let previous = state.interrupt().await.unwrap();
+            assert!(!previous
+                .feedback
+                .context
+                .get::<TurnFeedback>()
+                .unwrap()
+                .is_open());
             rx.await.unwrap();
             messages = previous.messages;
             messages.push(Message::user(next));
@@ -198,6 +184,14 @@ mod tests {
             state.active = None;
         });
         gate.active = Some(ActiveTurn {
+            feedback: Arc::new(
+                Envelope::new(
+                    ConnectorId::new("telegram"),
+                    EventKind::new("chat.message"),
+                    String::new(),
+                )
+                .with_context(TurnFeedback::new("quick")),
+            ),
             continuation: None,
             compact_id: None,
             scope: "quick".into(),

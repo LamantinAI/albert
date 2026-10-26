@@ -1,11 +1,11 @@
 //! Bridge to `octo-history`: re-exports the neutral history types and adds the
 //! only LLM-specific bit — converting stored [`Turn`]s into `rig` chat messages.
-//! This is the **hot context** tier (the rolling per-channel transcript), distinct
+//! This is the retained Session journal and model context tier, distinct
 //! from kaeru (deliberate memory).
 
-pub use octo_history::{
-    ContextWindow, FileHistory, HistoryStore, InMemoryHistory, Role, SqliteHistory, Turn,
-};
+pub use octo_history::{ContextWindow, HistoryStore, Role, Turn};
+#[cfg(test)]
+pub use octo_history::{InMemoryHistory, SqliteHistory};
 
 use std::borrow::Cow;
 
@@ -13,6 +13,7 @@ use rig::completion::Message;
 use serde_json::{from_str, to_string};
 
 mod journal;
+pub(crate) mod sessions;
 pub(crate) use journal::journal_messages;
 
 const JOURNAL_MARKER: &str = "[albert tool journal v2]\n";

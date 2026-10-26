@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::{sync::watch, time::timeout};
 
-use crate::{scratchpad::StageLink, status::StatusFeed};
+use crate::{scratchpad::StageLink, sessions::SessionContext, status::StatusFeed};
 pub use dispatch::ScopedDispatch;
 use inspection::Settings as InspectionSettings;
 pub use tool::{Args, SubagentTool};
@@ -108,11 +108,48 @@ pub struct Run {
     pub conversation: Conversation,
     pub owner: bool,
     pub feed: StatusFeed,
+    pub(crate) session: Option<SessionContext>,
     observed: AtomicBool,
     pub cancel: watch::Sender<bool>,
     pub result: watch::Receiver<Value>,
+    completion: watch::Sender<Value>,
+    disposed: Mutex<bool>,
 }
 impl Run {
+    pub(crate) fn is_live(&self) -> bool {
+        !*self.disposed.lock().unwrap() && self.session.as_ref().is_none_or(SessionContext::is_live)
+    }
+    pub(crate) fn complete(&self, value: Value) {
+        let disposed = self.disposed.lock().unwrap();
+        if !*disposed && self.session.as_ref().is_none_or(SessionContext::is_live) {
+            self.completion.send_replace(value);
+        } else {
+            self.completion
+                .send_replace(json!({"outcome":{"status":"closed"}}));
+        }
+    }
+    fn discard(&self) -> Result<(), &'static str> {
+        let mut poisoned = false;
+        *self.disposed.lock().unwrap_or_else(|error| {
+            poisoned = true;
+            error.into_inner()
+        }) = true;
+        let feed = self.feed.discard();
+        self.completion
+            .send_replace(json!({"outcome":{"status":"closed"}}));
+        if poisoned {
+            Err("child state was poisoned during cleanup")
+        } else {
+            feed
+        }
+    }
+    pub(crate) fn history_key(&self) -> String {
+        if self.conversation.0 == "session" {
+            format!("{}/child/{}", self.conversation.1, self.id)
+        } else {
+            format!("subagent/{}", self.id)
+        }
+    }
     pub fn acknowledge(&self) {
         if !self.result.borrow().is_null() {
             self.observed.store(true, Ordering::Relaxed);
@@ -135,7 +172,7 @@ impl Run {
         json!({"run_id":self.id,"parent_run_id":self.parent,"status":self.status(),
             "tool_calls":self.feed.tool_call_count(),"workspace":result.get("workspace"),
             "journal_saved":result.get("journal_saved"),"result_available":!result.is_null(),
-            "history_key":format!("subagent/{}",self.id)})
+            "history_key":self.history_key()})
     }
 
     pub fn view(&self) -> Value {
@@ -166,6 +203,7 @@ struct State {
     // keeps its own shared counter across model retries.
 }
 impl Registry {
+    #[cfg(test)]
     pub fn reserve(
         &self,
         limits: &Limits,
@@ -174,7 +212,22 @@ impl Registry {
         owner: bool,
         prefix: &str,
     ) -> Result<(Arc<Run>, watch::Receiver<bool>, watch::Sender<Value>), String> {
+        self.reserve_scoped(limits, parent, conversation, owner, prefix, None)
+    }
+
+    pub(crate) fn reserve_scoped(
+        &self,
+        limits: &Limits,
+        parent: String,
+        conversation: Conversation,
+        owner: bool,
+        prefix: &str,
+        session: Option<SessionContext>,
+    ) -> Result<(Arc<Run>, watch::Receiver<bool>, watch::Sender<Value>), String> {
         let mut state = self.0.lock().unwrap();
+        if session.as_ref().is_some_and(|session| !session.is_live()) {
+            return Err("Session ended; child was not reserved.".into());
+        }
         if state
             .runs
             .values()
@@ -204,10 +257,13 @@ impl Registry {
             parent,
             conversation,
             owner,
-            feed: StatusFeed::silent(),
+            feed: StatusFeed::silent().with_session_context(session.clone()),
+            session,
             observed: AtomicBool::new(false),
             cancel,
             result,
+            completion: tx.clone(),
+            disposed: Mutex::new(false),
         });
         state.runs.insert(seq, run.clone());
         Ok((run, rx, tx))
@@ -218,7 +274,7 @@ impl Registry {
             .unwrap()
             .runs
             .values()
-            .filter(|r| &r.conversation == conversation && (!r.owner || owner))
+            .filter(|r| &r.conversation == conversation && (!r.owner || owner) && r.is_live())
             .cloned()
             .collect()
     }
@@ -271,7 +327,15 @@ impl Registry {
         }
     }
     pub async fn cancel_channel(&self, conversation: &Conversation) -> bool {
-        let runs = self.visible(conversation, true);
+        let runs: Vec<_> = self
+            .0
+            .lock()
+            .unwrap()
+            .runs
+            .values()
+            .filter(|run| &run.conversation == conversation)
+            .cloned()
+            .collect();
         let mut cancelled = false;
         for run in &runs {
             if run.result.borrow().is_null() {
@@ -281,6 +345,35 @@ impl Registry {
         }
         join_all(runs.iter().map(|run| run.wait(60))).await;
         cancelled
+    }
+
+    pub(crate) fn discard_conversation(
+        &self,
+        conversation: &Conversation,
+    ) -> Result<(), &'static str> {
+        let mut failed = false;
+        self.0
+            .lock()
+            .unwrap_or_else(|error| {
+                failed = true;
+                error.into_inner()
+            })
+            .runs
+            .retain(|_, run| {
+                if &run.conversation == conversation {
+                    if run.discard().is_err() {
+                        failed = true;
+                    }
+                    false
+                } else {
+                    true
+                }
+            });
+        if failed {
+            Err("child registry cleanup was partial")
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -304,6 +397,7 @@ mod tests {
             .await
             .unwrap();
         let tool = ScopedDispatch {
+            session: None,
             inner: OctoDispatchTool::new(bus, ConnectorId::new("child"), "allowed"),
             allowed: HashMap::from([("allowed".into(), vec![EventKind::new("allowed.**")])]),
         };

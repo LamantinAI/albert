@@ -118,6 +118,7 @@ impl AlbertCogitator {
         history: Vec<Message>,
         max_tokens: usize,
         guidance: &str,
+        fence: StatusFeed,
     ) -> Result<String, Failure> {
         self.model_attempt(
             &model,
@@ -127,7 +128,7 @@ impl AlbertCogitator {
             "compact",
             prompt,
             history,
-            StatusFeed::silent(),
+            fence,
         )
         .await
     }

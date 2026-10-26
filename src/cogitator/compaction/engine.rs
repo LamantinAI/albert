@@ -26,6 +26,19 @@ impl AlbertCogitator {
         progress: &StatusFeed,
         options: &CompactOptions,
     ) -> Result<CompactOutcome, String> {
+        self.compact_before(channel, force, preserve_latest, progress, options, None)
+            .await
+    }
+
+    pub(in crate::cogitator) async fn compact_before(
+        &self,
+        channel: &str,
+        force: bool,
+        preserve_latest: bool,
+        progress: &StatusFeed,
+        options: &CompactOptions,
+        through: Option<i64>,
+    ) -> Result<CompactOutcome, String> {
         if force {
             progress
                 .progress(if options.dry_run {
@@ -51,6 +64,9 @@ impl AlbertCogitator {
             .context(channel)
             .await
             .map_err(|e| e.to_string())?;
+        if let Some(boundary) = through {
+            window.messages.retain(|message| message.id <= boundary);
+        }
         let fresh = settings.new_tokens(&window);
         let summary_size = window
             .compact
@@ -118,14 +134,20 @@ impl AlbertCogitator {
                                         .await;
                                 }
                                 self.compact_attempt(
-                                    model, refresh, prompt, history, max_tokens, guidance,
+                                    model,
+                                    refresh,
+                                    prompt,
+                                    history,
+                                    max_tokens,
+                                    guidance,
+                                    progress.fenced_silent(),
                                 )
                                 .await
                             }
                         },
                         || false,
-                        |status| async move {
-                            info!(channel, pass=index+1, %status, "compaction model");
+                        |_status| async move {
+                            info!(channel, pass = index + 1, "compaction model state changed");
                         },
                     )
                     .await?;

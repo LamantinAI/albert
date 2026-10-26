@@ -9,6 +9,7 @@ use tracing::{info, warn};
 
 use super::{
     action_context, now_rfc3339, with_action_log, AlbertCogitator, ROUTINE_MEMORY_REFLECTION,
+    SCHEDULER_ID,
 };
 use crate::status::StatusFeed;
 
@@ -31,6 +32,10 @@ impl AlbertCogitator {
         incoming: Arc<Envelope>,
         ctx: &CogitatorContext,
     ) {
+        if self.session_service.is_some() && incoming.source.as_str() != SCHEDULER_ID {
+            warn!("untrusted alarm source rejected");
+            return;
+        }
         let payload = incoming
             .payload_as::<Value>()
             .cloned()
@@ -38,6 +43,10 @@ impl AlbertCogitator {
         // System routine (self-care, e.g. memory reflection) — internal, no user message.
         if let Some(routine) = payload.get("routine").and_then(Value::as_str) {
             self.run_routine(routine, ctx).await;
+            return;
+        }
+        if self.session_service.is_some() {
+            self.on_session_alarm(incoming, ctx).await;
             return;
         }
         let task = payload

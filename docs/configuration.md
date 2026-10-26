@@ -61,7 +61,8 @@ system = "system.md"     # operating instructions (hot-reloaded)
 period_secs = 21600      # base memory-reflection routine cadence (6h)
 
 [history]
-backend = "sqlite:state/history.db"   # "memory" | "file:<dir>" | "sqlite:<path>"
+backend = "sqlite:state/history.db"   # retained session journals
+backup_dir = "state/history-backups" # pre-upgrade SQLite snapshots
 
 [scheduler]
 state_path = "state/scheduler.json"   # where alarms persist (survives restart)
@@ -122,13 +123,23 @@ schemas — Albert reconciles all of that transparently (see [`src/codex_http.rs
 
 ### History backend
 
-`[history] backend` chooses where the per-channel chat transcript lives:
+`[history] backend = "sqlite:state/history.db"` is the default and the supported
+Albert Session backend. It retains complete journals and independent compact
+checkpoints. The path and `backup_dir` resolve against the directory containing
+`albert.toml`; absolute paths remain absolute. Memory/file history backends remain
+available in Octo for other assemblies, but Albert refuses them explicitly at
+Session startup instead of silently replacing their data.
 
-- `"memory"` — in-RAM, lost on restart (dev default).
-- `"file:<dir>"` — JSON per channel.
-- `"sqlite:<path>"` — a migrated SQLite file (WAL), trimmed to a per-channel cap,
-  **survives restarts** — this is what a real deployment uses, so Albert still
-  remembers the dialogue after a reboot. The path is relative to the working dir.
+Before schema upgrades or actual legacy channel data migration, startup creates
+a consistent `VACUUM INTO` snapshot, including
+committed WAL data, under `backup_dir` (default `state/history-backups`). On Unix,
+the directory is mode 700 and completed snapshots are mode 600. A backup failure
+stops startup before either migration owner opens the database. Both the actual
+history database and backup directory are protected from user SQL stores.
+
+See [sessions.md](sessions.md) for private/group access, temporary chats, limits,
+identity links and automatic legacy import. No web server or browser login is
+enabled by this Session foundation.
 
 ### Prompt files (`soul.md`, `system.md`)
 

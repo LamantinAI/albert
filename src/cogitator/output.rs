@@ -9,13 +9,18 @@ use tracing::warn;
 use super::{AlbertCogitator, SCHEDULER_ID};
 use crate::{
     history::{assistant_turn, Turn},
+    sessions::{telegram::output_scope, SessionContext},
     status::StatusFeed,
 };
 
 impl AlbertCogitator {
     /// Query the scheduler for active alarms and render them for the preamble, so
     /// the model can cancel the right reminder by matching its task.
-    pub(super) async fn active_reminders(&self, ctx: &CogitatorContext) -> String {
+    pub(super) async fn active_reminders(
+        &self,
+        ctx: &CogitatorContext,
+        session: Option<&SessionContext>,
+    ) -> String {
         let req = Envelope::new(
             self.self_source.clone(),
             EventKind::from_static("octo.scheduler.list_alarms"),
@@ -38,6 +43,15 @@ impl AlbertCogitator {
         }
         let lines: Vec<String> = items
             .iter()
+            .filter(|alarm| {
+                session.is_none_or(|session| {
+                    alarm
+                        .get("payload")
+                        .and_then(|payload| payload.get("albert_session_id"))
+                        .and_then(Value::as_str)
+                        == Some(session.session_id().as_str())
+                })
+            })
             .map(|a| {
                 let id = a.get("id").and_then(Value::as_str).unwrap_or("?");
                 let task = a
@@ -67,6 +81,23 @@ impl AlbertCogitator {
 
     /// Nudge the source connector's "typing…" indicator for the turn (Telegram
     /// keeps it alive until the reply lands; other connectors ignore the kind).
+    pub(super) async fn emit_typing_for(&self, incoming: &Envelope, ctx: &CogitatorContext) {
+        let Ok(_delivery) = self.delivery_lease(incoming).await else {
+            return;
+        };
+        let event = self.feedback_output(
+            incoming,
+            Envelope::new(
+                self.self_source.clone(),
+                EventKind::from_static("chat.typing"),
+                json!({}),
+            ),
+        );
+        if ctx.publish(event).await.is_err() {
+            warn!("failed to publish typing");
+        }
+    }
+
     pub(super) async fn emit_typing(
         &self,
         target: ConnectorId,
@@ -107,6 +138,9 @@ impl AlbertCogitator {
         text: String,
         ctx: &CogitatorContext,
     ) {
+        let Ok(_delivery) = self.delivery_lease(incoming).await else {
+            return;
+        };
         let mut reply = Envelope::new(
             self.self_source.clone(),
             EventKind::from_static("chat.reply"),
@@ -121,6 +155,12 @@ impl AlbertCogitator {
         if let Some(metadata) = incoming.channel_metadata.clone() {
             reply = reply.with_channel_metadata(metadata);
         }
+        if let Some(session) = incoming.context.get::<SessionContext>() {
+            reply = reply
+                .with_tag("session_id", session.session_id().as_str())
+                .with_context(session.clone())
+                .with_context(output_scope(session, Some(incoming.id.to_string())));
+        }
         if let Err(error) = ctx.publish(reply).await {
             warn!(%error,"could not send control reply");
         }
@@ -133,15 +173,25 @@ impl AlbertCogitator {
         text: String,
         ctx: &CogitatorContext,
     ) {
-        self.emit_text(
-            incoming.source.clone(),
-            incoming.channel.clone(),
-            text,
-            Some(incoming.id),
-            incoming.reply_to.clone(),
-            ctx,
-        )
-        .await;
+        self.end_feedback(incoming, ctx).await;
+        let Ok(_delivery) = self.delivery_lease(incoming).await else {
+            return;
+        };
+        let mut reply = self.feedback_output(
+            incoming,
+            Envelope::new(
+                self.self_source.clone(),
+                EventKind::from_static("chat.reply"),
+                text,
+            )
+            .with_correlation(incoming.id),
+        );
+        if let Some(route) = incoming.reply_to.clone() {
+            reply = reply.with_reply_to(route);
+        }
+        if let Err(error) = ctx.publish(reply).await {
+            warn!(%error, "failed to publish reply");
+        }
     }
 
     /// Emit a `chat.reply` with explicit target/channel (used by the reply and the

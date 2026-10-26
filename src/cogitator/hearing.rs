@@ -13,9 +13,9 @@ use std::{
     time::Duration,
 };
 
-use chrono::Utc;
 use octo_core::{control::CANCEL_SCOPE_TAG, Blob, CogitatorContext, Envelope, EventKind};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tracing::info;
 
 use super::AlbertCogitator;
@@ -102,7 +102,7 @@ impl AlbertCogitator {
             .and_then(|f| Path::new(f).extension())
             .and_then(|e| e.to_str())
             .unwrap_or("ogg");
-        let rel = format!("inbox/voice-{}.{ext}", Utc::now().timestamp_millis());
+        let rel = format!("inbox/voice-{:x}.{ext}", Sha256::digest(blob.bytes()));
         let full = self.config.code_workspace.join(&rel);
         if let Some(dir) = full.parent() {
             create_dir_all(dir)?;

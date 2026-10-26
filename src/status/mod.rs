@@ -8,18 +8,27 @@
 //! The feed is deliberately fire-and-forget: a failed publish is logged and the
 //! turn goes on — live feedback must never break cognition.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
+use octo_connector_telegram::TurnFeedback;
 use octo_core::{ChannelId, ConnectorId, Envelope, EventBus as _, EventKind, InProcessBus};
 use rig::{
-    agent::{HookAction, PromptHook, ToolCallHookAction},
-    completion::{CompletionModel, CompletionResponse, Message},
-    message::{AssistantContent, ReasoningContent, ToolCall, ToolFunction},
+    completion::Message,
+    message::{AssistantContent, ToolCall, ToolFunction},
     OneOrMany,
 };
 use serde_json::Value;
+use tokio::sync::RwLock;
 use tracing::warn;
 
+use crate::history::sessions::Backend;
+use crate::sessions::{telegram::output_scope, SessionContext};
+
+mod feedback;
+mod hooks;
 mod trace;
 use self::trace::Trace;
 
@@ -49,13 +58,20 @@ pub struct StatusFeed {
     actions: Arc<Mutex<Vec<String>>>,
     trace: Arc<Mutex<Trace>>,
     result_observer: Option<Arc<ResultObserver>>,
+    session_context: Option<SessionContext>,
+    discarded: Arc<AtomicBool>,
+    attempt_id: Option<String>,
+    feedback: Option<TurnFeedback>,
 }
 
+#[derive(Clone)]
 struct Feed {
     bus: Arc<InProcessBus>,
     source: ConnectorId,
     target: ConnectorId,
     channel: Option<ChannelId>,
+    session: Option<String>,
+    backend: Option<Arc<RwLock<Backend>>>,
 }
 
 impl StatusFeed {
@@ -71,11 +87,31 @@ impl StatusFeed {
                 source,
                 target,
                 channel,
+                session: None,
+                backend: None,
             })),
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
             result_observer: None,
+            session_context: None,
+            discarded: Arc::new(AtomicBool::new(false)),
+            attempt_id: None,
+            feedback: None,
         }
+    }
+
+    pub(crate) fn with_session(mut self, session: Option<&str>) -> Self {
+        if let Some(feed) = self.feed.as_mut() {
+            Arc::make_mut(feed).session = session.map(str::to_owned);
+        }
+        self
+    }
+
+    pub(crate) fn with_backend(mut self, backend: Arc<RwLock<Backend>>) -> Self {
+        if let Some(feed) = self.feed.as_mut() {
+            Arc::make_mut(feed).backend = Some(backend);
+        }
+        self
     }
 
     /// A feed that swallows live status — for system routines and disabled config.
@@ -86,6 +122,56 @@ impl StatusFeed {
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
             result_observer: None,
+            session_context: None,
+            discarded: Arc::new(AtomicBool::new(false)),
+            attempt_id: None,
+            feedback: None,
+        }
+    }
+
+    pub(crate) fn with_session_context(mut self, context: Option<SessionContext>) -> Self {
+        self.session_context = context;
+        self
+    }
+    pub(crate) fn with_attempt(mut self, attempt_id: String) -> Self {
+        self.attempt_id = Some(attempt_id);
+        self
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        !self.discarded.load(Ordering::Acquire)
+            && self
+                .session_context
+                .as_ref()
+                .is_none_or(SessionContext::is_live)
+    }
+    pub(crate) fn fenced_silent(&self) -> Self {
+        let mut feed = Self::silent();
+        feed.session_context = self.session_context.clone();
+        feed.discarded = self.discarded.clone();
+        feed
+    }
+
+    pub(crate) fn discard(&self) -> Result<(), &'static str> {
+        self.discarded.store(true, Ordering::Release);
+        let mut poisoned = false;
+        let mut trace = self.trace.lock().unwrap_or_else(|error| {
+            poisoned = true;
+            error.into_inner()
+        });
+        *trace = Trace::default();
+        drop(trace);
+        self.actions
+            .lock()
+            .unwrap_or_else(|error| {
+                poisoned = true;
+                error.into_inner()
+            })
+            .clear();
+        if poisoned {
+            Err("status buffers were poisoned during cleanup")
+        } else {
+            Ok(())
         }
     }
 
@@ -107,11 +193,21 @@ impl StatusFeed {
     }
 
     pub fn checkpoint(&self) -> Vec<Message> {
-        self.trace.lock().unwrap().drain()
+        let mut trace = self.trace.lock().unwrap();
+        if self.is_live() {
+            trace.drain()
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn snapshot(&self) -> Vec<Message> {
-        self.trace.lock().unwrap().clone().drain()
+        let trace = self.trace.lock().unwrap();
+        if self.is_live() {
+            trace.clone().drain()
+        } else {
+            Vec::new()
+        }
     }
 
     /// A deterministic perception call participates in the same tool journal.
@@ -132,12 +228,18 @@ impl StatusFeed {
         )
         .with_call_id(call_id.clone());
         let mut trace = self.trace.lock().unwrap();
+        if !self.is_live() {
+            return;
+        }
         trace.response(None, OneOrMany::one(AssistantContent::ToolCall(call)));
         trace.start(name, Some(&call_id), id, &args);
     }
 
     pub fn finish_external(&self, id: &str, result: &str) {
-        self.trace.lock().unwrap().result(id, result);
+        let mut trace = self.trace.lock().unwrap();
+        if self.is_live() {
+            trace.result(id, result);
+        }
     }
 
     /// Retrying a whole model attempt after tools ran could repeat external effects.
@@ -152,7 +254,20 @@ impl StatusFeed {
     }
 
     async fn emit(&self, line: String) {
+        if !self.is_live() || !self.feedback_open() {
+            return;
+        }
         let Some(feed) = &self.feed else { return };
+        let lease = match &feed.backend {
+            Some(backend) => Some(backend.read().await),
+            None => None,
+        };
+        if lease
+            .as_ref()
+            .is_some_and(|backend| **backend == Backend::Closed)
+        {
+            return;
+        }
         let mut env = Envelope::new(
             feed.source.clone(),
             EventKind::from_static("chat.status"),
@@ -162,102 +277,19 @@ impl StatusFeed {
         if let Some(ch) = &feed.channel {
             env = env.with_channel(ch.clone());
         }
+        if let Some(session) = &feed.session {
+            env = env.with_tag("session_id", session);
+        }
+        if let Some(session) = &self.session_context {
+            env = env
+                .with_context(session.clone())
+                .with_context(output_scope(session, self.attempt_id.clone()));
+        }
+        if let Some(feedback) = &self.feedback {
+            env = env.with_context(feedback.clone());
+        }
         if let Err(e) = feed.bus.publish(env).await {
             warn!(error = %e, "failed to publish chat.status");
-        }
-    }
-}
-
-impl<M: CompletionModel> PromptHook<M> for StatusFeed {
-    /// Before each tool runs: show which one, with a clipped arg preview.
-    fn on_tool_call(
-        &self,
-        tool_name: &str,
-        tool_call_id: Option<String>,
-        internal_call_id: &str,
-        args: &str,
-    ) -> impl std::future::Future<Output = ToolCallHookAction> + Send {
-        self.trace.lock().unwrap().start(
-            tool_name,
-            tool_call_id.as_deref(),
-            internal_call_id,
-            args,
-        );
-        let feed = self.clone();
-        let line = format!(
-            "🔧 {tool_name} {}",
-            clip(&display_args(tool_name, args).replace('\n', " "), 160)
-        );
-        async move {
-            feed.emit(line).await;
-            ToolCallHookAction::cont()
-        }
-    }
-
-    /// After each tool returns: record a compact, durable line of what was done —
-    /// name + (kept) arguments + a hard-compressed result. Args are cheap and are the
-    /// "what did I do"; results are the expensive half, so they collapse to ok/err.
-    fn on_tool_result(
-        &self,
-        tool_name: &str,
-        _tool_call_id: Option<String>,
-        internal_call_id: &str,
-        args: &str,
-        result: &str,
-    ) -> impl std::future::Future<Output = HookAction> + Send {
-        let recorded = self.trace.lock().unwrap().result(internal_call_id, result);
-        if recorded {
-            if let Some(observer) = &self.result_observer {
-                observer(tool_name, args, result);
-            }
-        }
-        if let Ok(mut v) = self.actions.lock() {
-            v.push(format!(
-                "{tool_name} {} -> {}",
-                clip(&display_args(tool_name, args).replace('\n', " "), 120),
-                summarize_result(result),
-            ));
-        }
-        async { HookAction::cont() }
-    }
-
-    /// After each model round: surface any reasoning the provider returned
-    /// (e.g. Codex reasoning summaries) as the agent's "thoughts".
-    fn on_completion_response(
-        &self,
-        _prompt: &Message,
-        response: &CompletionResponse<M::Response>,
-    ) -> impl std::future::Future<Output = HookAction> + Send {
-        let feed = self.clone();
-        self.trace
-            .lock()
-            .unwrap()
-            .response(response.message_id.clone(), response.choice.clone());
-        let thoughts: Vec<String> = response
-            .choice
-            .iter()
-            .filter_map(|c| match c {
-                AssistantContent::Reasoning(r) => {
-                    let text = r
-                        .content
-                        .iter()
-                        .filter_map(|rc| match rc {
-                            ReasoningContent::Text { text, .. } => Some(text.as_str()),
-                            ReasoningContent::Summary(text) => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    (!text.trim().is_empty()).then(|| format!("💭 {}", clip(&text, 280)))
-                }
-                _ => None,
-            })
-            .collect();
-        async move {
-            for line in thoughts {
-                feed.emit(line).await;
-            }
-            HookAction::cont()
         }
     }
 }

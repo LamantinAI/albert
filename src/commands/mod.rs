@@ -20,7 +20,7 @@ use crate::acl::BOOTSTRAP_COMMANDS;
 use tracing::{info, warn};
 
 /// Names no skill can claim.
-pub const RESERVED: [&str; 12] = [
+pub const RESERVED: [&str; 18] = [
     "start",
     "help",
     "cancel",
@@ -33,16 +33,48 @@ pub const RESERVED: [&str; 12] = [
     "chatinfo",
     "groupmode",
     "model",
+    "sessions",
+    "new",
+    "open",
+    "tmp",
+    "save",
+    "end",
 ];
 
 /// The channel command that sets the bot's menu (octo's telegram connector accepts it).
 pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
-const SYSTEM: [(&str, &str, bool); 10] = [
+const SYSTEM: [(&str, &str, bool); 16] = [
     ("help", "Command reference", false),
     ("model", "Select a model", true),
     ("chatinfo", "Chat and author IDs", false),
+    (
+        "sessions",
+        "Private chats: list saved chats (10 per page)",
+        false,
+    ),
+    (
+        "new",
+        "Private chats: open a new chat (optional title)",
+        false,
+    ),
+    ("open", "Private chats: continue /open <session-id>", false),
+    (
+        "tmp",
+        "Private chats: open a separate temporary chat",
+        false,
+    ),
+    (
+        "save",
+        "Save this temporary chat as a separate persistent chat",
+        false,
+    ),
+    (
+        "end",
+        "Leave this temporary or saved excursion and return",
+        false,
+    ),
     ("groupmode", "Group mode: all or allowed", true),
     ("cancel", "Stop the current task", true),
     (
@@ -323,7 +355,10 @@ mod tests {
                 .map(|e| e["command"].as_str().unwrap().to_string())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names("commands"), ["help", "chatinfo", "brief"]);
+        assert_eq!(
+            names("commands"),
+            ["help", "chatinfo", "sessions", "new", "open", "tmp", "save", "end", "brief"]
+        );
         assert!(names("owner_commands").contains(&"settings".to_string()));
     }
 

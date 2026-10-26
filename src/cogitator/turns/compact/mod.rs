@@ -9,6 +9,7 @@ use crate::{
     cogitator::{
         channel_of,
         compaction::{CompactOptions, CompactOutcome},
+        feedback::fresh_feedback,
         AlbertCogitator,
     },
     history::tool_trace,
@@ -37,6 +38,7 @@ impl AlbertCogitator {
         let continuation = interrupted.as_ref().and_then(|p| p.continuation.clone());
         let owner = interrupted.as_ref().is_none_or(|p| p.owner);
         if let Some(previous) = interrupted {
+            self.end_feedback(&previous.feedback, ctx).await;
             self.cancel_scope(&previous.scope, ctx).await;
             if let Some(record) = tool_trace(&previous.checkpoint) {
                 if self.history.append(&channel, &[record]).await.is_err() {
@@ -62,38 +64,33 @@ impl AlbertCogitator {
             self.id,
             self.turn_seq.fetch_add(1, Ordering::Relaxed)
         );
+        let incoming = fresh_feedback(&incoming, &format!("{scope}/compact"));
+        let feedback = incoming.clone();
         let me = self.clone();
         let owned_ctx = ctx.clone();
         let owned_state = state.clone();
         let owned_scope = scope.clone();
-        let progress = StatusFeed::new(
-            ctx.bus(),
-            self.self_source.clone(),
-            incoming.source.clone(),
-            incoming.channel.clone(),
-        );
-        let resume = continuation.clone();
-        let task = spawn(async move {
-            me.emit_typing(
-                incoming.source.clone(),
-                incoming.channel.clone(),
-                &owned_ctx,
+        let progress = self
+            .scope_feed(
+                &incoming,
+                StatusFeed::new(
+                    ctx.bus(),
+                    self.self_source.clone(),
+                    incoming.source.clone(),
+                    incoming.channel.clone(),
+                ),
             )
             .await;
+        let resume = continuation.clone();
+        let task = spawn(async move {
+            me.emit_typing_for(&incoming, &owned_ctx).await;
             let outcome = me
                 .compact_with_options(&channel, true, false, &progress, &options)
                 .await;
             if outcome.is_ok() {
                 if let Some(original) = resume {
-                    me.resume_after_compact(
-                        original,
-                        owner,
-                        &owned_ctx,
-                        &owned_scope,
-                        owned_state,
-                        &progress,
-                    )
-                    .await;
+                    me.resume_after_compact(original, owner, &owned_ctx, &owned_scope, owned_state)
+                        .await;
                     return;
                 }
             }
@@ -109,6 +106,7 @@ impl AlbertCogitator {
                 .await;
         });
         locked.active = Some(ActiveTurn {
+            feedback,
             continuation,
             compact_id,
             scope,
@@ -128,7 +126,6 @@ impl AlbertCogitator {
         ctx: &CogitatorContext,
         scope: &str,
         state: Arc<Mutex<ChannelState>>,
-        progress: &StatusFeed,
     ) {
         let (history, revision) = match self.visible_snapshot(&channel_of(&incoming)).await {
             Ok(snapshot) => snapshot,
@@ -139,19 +136,27 @@ impl AlbertCogitator {
             }
         };
         let prompt = Message::user("[Runtime continuation after manual compaction] Continue the interrupted task from the conversation context. Preserve completed actions; verify UNKNOWN outcomes before repeating any action. Check existing subagents and collect their results instead of launching replacements. This is a continuation, not a new user request.");
-        let feed = self.feed(ctx, incoming.source.clone(), incoming.channel.clone());
+        let incoming = fresh_feedback(&incoming, &format!("{scope}/resume"));
+        let feed = self
+            .scope_feed(
+                &incoming,
+                self.feed(ctx, incoming.source.clone(), incoming.channel.clone()),
+            )
+            .await;
         {
             let mut locked = state.lock().await;
             let Some(active) = locked.active.as_mut().filter(|a| a.scope == scope) else {
                 return;
             };
+            self.end_feedback(&active.feedback, ctx).await;
+            active.feedback = incoming.clone();
+            active.continuation = Some(incoming.clone());
             active.compact_id = revision;
             active.messages = history.clone();
             active.messages.push(prompt.clone());
             active.feed = feed.clone();
         }
-        progress
-            .progress("Compaction finished. Continuing the interrupted task...")
+        feed.progress("Compaction finished. Continuing the interrupted task...")
             .await;
         self.run_turn(
             incoming, None, prompt, history, owner, ctx, scope, feed, state,
@@ -173,6 +178,9 @@ impl AlbertCogitator {
             .as_ref()
             .is_some_and(|active| active.scope == scope)
         {
+            if let Some(active) = locked.active.as_ref() {
+                self.end_feedback(&active.feedback, ctx).await;
+            }
             self.emit_reply(incoming, answer, ctx).await;
             locked.active = None;
         }

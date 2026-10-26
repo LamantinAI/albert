@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::Utc;
+use octo_connector_telegram::NativeBatch;
 use octo_core::{Blob, CogitatorContext, Envelope};
 use rig::{
     completion::Message,
@@ -7,11 +8,12 @@ use rig::{
     OneOrMany,
 };
 
-use serde_json::{to_string, Map, Value};
+use serde_json::{json, to_string, Map, Value};
 
 use crate::{
     history::{recent_actions, Turn, ACTION_MARKER},
     scratchpad::PadScope,
+    sessions::SessionContext,
     subagents::Conversation,
 };
 
@@ -129,6 +131,9 @@ pub(super) fn media_type(content_type: &str) -> ImageMediaType {
 }
 
 pub(super) fn channel_of(env: &Envelope) -> String {
+    if let Some(session) = env.context.get::<SessionContext>() {
+        return session.root_history_key();
+    }
     env.channel
         .as_ref()
         .map(|c| c.as_str().to_string())
@@ -179,6 +184,9 @@ fn source_context(env: &Envelope) -> String {
         return String::new();
     };
     let mut source = Map::new();
+    if let Some(batch) = env.context.get::<NativeBatch>() {
+        source.insert("native_frames".into(), Value::Array(batch.frames.iter().map(|frame| json!({"bot_id":frame.bot_id,"connector":frame.connector.as_str(),"chat_id":frame.chat_id,"actor_id":frame.actor_id,"update_id":frame.update_id,"message_id":frame.message_id,"date":frame.date,"chat_type":frame.chat_type})).collect()));
+    }
     for key in [
         "chat_id",
         "chat_type",
@@ -207,6 +215,9 @@ fn source_context(env: &Envelope) -> String {
 /// Front-load the incoming envelope's provenance for the model — where the message
 /// came from, so it can reply through the same channel and store it on reminders.
 pub(super) fn incoming_context(env: &Envelope, channel: &str) -> String {
+    if let Some(session) = env.context.get::<SessionContext>() {
+        return format!("Context — this message arrived via connector {:?}, channel {:?}; logical session {}. Reply to the initiating route. The host pins reminder routes automatically.\n{}", session.reply_route().connector(), session.reply_route().channel(), session.session_id(), source_context(env));
+    }
     format!(
         "Context — this message arrived via connector \"{}\", channel \"{}\". Reply through this \
          same connector/channel; when scheduling a reminder, put channel=\"{channel}\" and \

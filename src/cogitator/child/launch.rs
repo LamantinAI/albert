@@ -23,6 +23,7 @@ use crate::{
     connector_catalog::ConnectorCatalog,
     history::{tool_trace, Turn},
     scratchpad::Reservation,
+    sessions::telegram::output_scope,
     subagents::{ScopedDispatch, SubagentTool, Task},
 };
 
@@ -34,6 +35,13 @@ impl AlbertCogitator {
     ) -> Result<Value, String> {
         if tool.ctx.shutdown.is_cancelled() {
             return Err("Runtime is shutting down.".into());
+        }
+        if tool
+            .session
+            .as_ref()
+            .is_some_and(|session| !session.is_live())
+        {
+            return Err("Session ended; child was not started.".into());
         }
         let limits = &self.config.subagents;
         if task.task.trim().is_empty() {
@@ -76,7 +84,7 @@ impl AlbertCogitator {
         if connectors.len() != allowed.len() {
             return Err("Unknown or unadvertised connector grant.".into());
         }
-        let available = self.child_native_tools(PathBuf::new());
+        let available = self.child_tools_for(PathBuf::new(), tool.session.as_ref());
         for name in &task.tools {
             if !available.iter().any(|t| t.name() == *name) {
                 return Err(format!("Native tool cannot be delegated: {name}"));
@@ -116,12 +124,13 @@ impl AlbertCogitator {
             self.release_stage_launch(&stage);
             return Err("Subagent run budget exhausted for this parent turn.".into());
         }
-        let (run, mut cancelled, done) = match self.children.reserve(
+        let (run, mut cancelled, _done) = match self.children.reserve_scoped(
             limits,
             tool.parent.clone(),
             tool.conversation.clone(),
             tool.owner,
             &self.id,
+            tool.session.clone(),
         ) {
             Ok(value) => value,
             Err(error) => {
@@ -164,7 +173,7 @@ impl AlbertCogitator {
             .collect::<Vec<_>>()
             .join("\n");
         let mut tools: Vec<_> = self
-            .child_native_tools(workspace.clone())
+            .child_tools_for(workspace.clone(), tool.session.as_ref())
             .into_iter()
             .filter(|t| task.tools.contains(&t.name()))
             .collect();
@@ -173,9 +182,24 @@ impl AlbertCogitator {
                 .with_scope(scope.clone())
                 .with_timeout(Duration::from_secs(360))
                 .with_origin(
-                    ConnectorId::new(&tool.conversation.0),
-                    ChannelId::new(&tool.conversation.1),
+                    ConnectorId::new(
+                        tool.session
+                            .as_ref()
+                            .map(|s| s.reply_route().connector())
+                            .unwrap_or(&tool.conversation.0),
+                    ),
+                    ChannelId::new(
+                        tool.session
+                            .as_ref()
+                            .map(|s| s.reply_route().channel())
+                            .unwrap_or(&tool.conversation.1),
+                    ),
                 );
+            if let Some(session) = &tool.session {
+                dispatch = dispatch
+                    .with_context(session.clone())
+                    .with_context(output_scope(session, Some(scope.clone())));
+            }
             if let Some(child) = child_ingress {
                 let targets = connectors
                     .iter()
@@ -191,6 +215,7 @@ impl AlbertCogitator {
             }
             tools.push(Box::new(ScopedDispatch {
                 inner: dispatch,
+                session: tool.session.clone(),
                 allowed: connectors
                     .iter()
                     .map(|c| (c.id.to_string(), c.capabilities.event_kinds_accept.clone()))
@@ -202,6 +227,20 @@ impl AlbertCogitator {
         let ctx = tool.ctx.clone();
         let owned_run = run.clone();
         let info_task = task.clone();
+        let physical_origin = tool
+            .session
+            .as_ref()
+            .map(|session| {
+                (
+                    session.reply_route().connector().to_owned(),
+                    session.reply_route().channel().to_owned(),
+                )
+            })
+            .unwrap_or_else(|| tool.conversation.clone());
+        let session_id = tool
+            .session
+            .as_ref()
+            .map(|session| session.session_id().clone());
         // No await between reservation and installing the supervisor: interrupting
         // the parent cannot orphan a reserved run.
         spawn(async move {
@@ -238,19 +277,26 @@ impl AlbertCogitator {
             if let Err(error) = carry_out_cancel(&ctx.bus(), &source, &scope).await {
                 warn!(%error, %scope, "child connector cancellation failed");
             }
-            let mut records = vec![Turn::user(json!({
-                "run_id":scope,"parent_run_id":owned_run.parent,
-                "origin_connector":owned_run.conversation.0,"origin_channel":owned_run.conversation.1,
-                "assignment":info_task
-            }).to_string())];
+            let mut records = vec![Turn::user(
+                json!({
+                    "run_id":scope,"parent_run_id":owned_run.parent,
+                    "origin_connector":physical_origin.0,"origin_channel":physical_origin.1,
+                    "logical_conversation":owned_run.conversation,"session_id":session_id,
+                    "assignment":info_task
+                })
+                .to_string(),
+            )];
             records.extend(tool_trace(&owned_run.feed.snapshot()));
             records.push(Turn::assistant(
                 json!({"outcome":outcome,"workspace":workspace}).to_string(),
             ));
-            let history_key = format!("subagent/{scope}");
-            let persisted = me.history.append(&history_key, &records).await.is_ok();
+            let history_key = owned_run.history_key();
+            let persisted = me
+                .append_host(&history_key, &scope, "child-final", records)
+                .await
+                .is_ok();
             info!(run_id = %scope, parent_run_id = %owned_run.parent, status = %outcome["status"], "subagent finished");
-            done.send_replace(json!({"outcome":outcome,"workspace":workspace,"journal_saved":persisted,
+            owned_run.complete(json!({"outcome":outcome,"workspace":workspace,"journal_saved":persisted,
                 "note":"Check inspect for completed tools and UNKNOWN outcomes before repeating actions."}));
         });
         info!(run_id = %run.id, parent_run_id = %run.parent, "subagent spawned");

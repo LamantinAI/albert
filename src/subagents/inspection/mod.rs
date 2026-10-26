@@ -41,6 +41,19 @@ impl Settings {
 }
 
 pub fn inspect(messages: &[Message], root: &Path, settings: &Settings, offset: usize) -> Value {
+    inspect_inner(messages, Some(root), settings, offset)
+}
+
+pub fn inspect_volatile(messages: &[Message], settings: &Settings, offset: usize) -> Value {
+    inspect_inner(messages, None, settings, offset)
+}
+
+fn inspect_inner(
+    messages: &[Message],
+    root: Option<&Path>,
+    settings: &Settings,
+    offset: usize,
+) -> Value {
     let records = records(messages);
     let entries: Vec<_> = records
         .iter()
@@ -64,8 +77,12 @@ pub fn inspect(messages: &[Message], root: &Path, settings: &Settings, offset: u
             } else {
                 "returned"
             };
-            let payload = materialize(&output, root, settings);
-            let arguments = materialize(&record.arguments, root, settings);
+            let view = |value: &Value| match root {
+                Some(root) => materialize(value, root, settings),
+                None => json!({"preview":clip(&value.to_string(), settings.preview_chars),"note":"Temporary payload remains in the RAM journal. Use subagent read; automatic disk materialization is disabled."}),
+            };
+            let payload = view(&output);
+            let arguments = view(&record.arguments);
             json!({"entry":index,"id":record.id,"call_id":record.call_id,"tool":record.tool,"status":status,
             "result_metadata":result_metadata(&output, settings.preview_chars),
             "arguments_preview":clip(&record.arguments.to_string(), settings.preview_chars),

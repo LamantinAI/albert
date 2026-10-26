@@ -40,6 +40,11 @@ impl Recovery {
         model: &M,
         request: CompletionRequest,
     ) -> Result<CompletionResponse<M::Response>, CompletionError> {
+        if !self.feed.is_live() {
+            return Err(CompletionError::ProviderError(
+                "Session ended; model request was not started.".into(),
+            ));
+        }
         // Initial-request failures retain normal pool fallback. Only the current
         // request *after* tool results is resumed, on the exact same model/client.
         let continuation = request.chat_history.iter().any(|message| match message {
@@ -52,6 +57,11 @@ impl Recovery {
             return model.completion(request).await;
         }
         loop {
+            if !self.feed.is_live() {
+                return Err(CompletionError::ProviderError(
+                    "Session ended; model continuation was not requested.".into(),
+                ));
+            }
             if self.remaining.load(Ordering::Relaxed) == 0 {
                 return model.completion(request).await;
             }

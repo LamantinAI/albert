@@ -2,14 +2,20 @@ use std::path::PathBuf;
 
 use rig::tool::ToolDyn;
 
+use super::super::retention::{permitted_memory, temporary};
 use super::super::AlbertCogitator;
 use crate::{
     scratchpad::ScratchpadStore,
+    sessions::SessionContext,
     subagents::{WorkspaceRead, WorkspaceWrite},
 };
 
 impl AlbertCogitator {
-    pub(super) fn child_native_tools(&self, workspace: PathBuf) -> Vec<Box<dyn ToolDyn>> {
+    pub(super) fn child_tools_for(
+        &self,
+        workspace: PathBuf,
+        session: Option<&SessionContext>,
+    ) -> Vec<Box<dyn ToolDyn>> {
         let pad = ScratchpadStore::with_limits(self.config.scratchpad.clone())
             .expect("validated scratchpad limits")
             .handle("child");
@@ -26,7 +32,10 @@ impl AlbertCogitator {
             Box::new(WorkspaceRead(workspace.clone())),
             Box::new(WorkspaceWrite(workspace)),
         ];
-        tools.extend(self.memory.delegation_tools());
+        tools.extend(permitted_memory(
+            self.memory.delegation_tools(),
+            temporary(session),
+        ));
         tools
     }
 }

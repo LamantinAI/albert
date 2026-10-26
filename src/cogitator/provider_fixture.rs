@@ -35,6 +35,12 @@ async fn completion(
     if model.starts_with("never") {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
+    if model == "feedback-phases" && count == 1 {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
+    if model == "session-delayed" {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
     if model == "compact-delayed"
         && body["tools"]
             .as_array()
@@ -105,7 +111,7 @@ async fn completion(
             }}]}),
             "tool_calls",
         )
-    } else if matches!(model, "child-dispatch" | "large-output") && count == 1 {
+    } else if matches!(model, "child-dispatch" | "large-output" | "volatile-output") && count == 1 {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"child-search","type":"function","function":{
                 "name":"dispatch_to_connector","arguments":json!({"target":"search","kind":"search.web","payload":{"query":"test"}}).to_string()

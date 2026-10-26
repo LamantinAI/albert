@@ -30,25 +30,35 @@ use tokio::{select, spawn, sync::Mutex as AsyncMutex, task::JoinSet};
 use crate::{
     commands::{menu, publish_menu, SET_COMMANDS},
     config::Config,
-    history::HistoryStore,
+    history::{sessions::SessionHistory, HistoryStore},
     memory::Memory,
     models::ModelPool,
     prompt::PromptFiles,
     routines::seed_base_routine,
     scratchpad::ScratchpadStore,
+    service::session::SessionService,
     skills::SkillStore,
     subagents::Registry,
 };
 
 mod agent;
 mod alarms;
+mod build;
 mod child;
 mod compaction;
 mod context;
 mod errors;
+mod feedback;
 mod inbound;
 mod output;
 
+mod native_requests;
+mod retention;
+mod session_alarms;
+pub(crate) mod session_dispatch;
+mod session_runtime;
+#[cfg(test)]
+mod session_runtime_tests;
 mod turns;
 use self::{
     context::{
@@ -70,6 +80,9 @@ pub struct AlbertCogitator {
     config: Config,
     models: ModelPool,
     history: Arc<dyn HistoryStore>,
+    session_service: Option<Arc<SessionService>>,
+    session_history: Option<Arc<SessionHistory>>,
+    request_gates: session_runtime::RequestGates,
     memory: Memory,
     scratchpad: Arc<ScratchpadStore>,
     skills: Arc<SkillStore>,
@@ -83,39 +96,6 @@ pub struct AlbertCogitator {
     turn_seq: AtomicU64,
 }
 
-impl AlbertCogitator {
-    pub fn new(
-        id: impl Into<String>,
-        config: Config,
-        history: Arc<dyn HistoryStore>,
-        memory: Memory,
-        scratchpad: Arc<ScratchpadStore>,
-        skills: Arc<SkillStore>,
-        prompt: Arc<PromptFiles>,
-        auth: Arc<SubscriptionAuth>,
-        authority: Authority,
-    ) -> Arc<Self> {
-        let id = id.into();
-        let models = ModelPool::new(&config);
-        Arc::new(Self {
-            authority,
-            children: Default::default(),
-            models,
-            self_source: ConnectorId::new(format!("cogitator/{id}")),
-            id,
-            config,
-            history,
-            memory,
-            scratchpad,
-            skills,
-            prompt,
-            auth,
-            turns: Mutex::new(HashMap::new()),
-            turn_seq: AtomicU64::new(0),
-        })
-    }
-}
-
 #[async_trait]
 impl Cogitator for AlbertCogitator {
     fn id(&self) -> &str {
@@ -124,7 +104,9 @@ impl Cogitator for AlbertCogitator {
 
     fn filter(&self) -> Filter {
         // Perceive user messages and scheduler fires.
-        Filter::by_kind("chat.message").with_kind("alarm.fired")
+        Filter::by_kind("chat.message")
+            .with_kind("alarm.fired")
+            .with_kind("albert.session.closed")
     }
 
     async fn run(
@@ -162,6 +144,10 @@ impl Cogitator for AlbertCogitator {
         loop {
             select! {
                 next = subscription.next() => match next {
+                    Some(envelope) if envelope.kind.as_str() == "albert.session.closed" => {
+                        let me = self.clone(); let context = ctx.clone();
+                        maintenance.spawn(async move { me.handle(envelope, &context).await; });
+                    }
                     Some(envelope) if envelope.kind.as_str() == "alarm.fired" => {
                         let me = self.clone(); let context = ctx.clone();
                         maintenance.spawn(async move { me.on_alarm(envelope, &context).await; });

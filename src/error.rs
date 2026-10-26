@@ -10,10 +10,14 @@ use rig::{completion::PromptError, http_client::Error as HttpError};
 use thiserror::Error;
 use toml::de::Error as TomlError;
 
-use crate::memory::MemoryError;
+use crate::{db::error::DatabaseError, memory::MemoryError, sessions::error::SessionError};
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Session(#[from] SessionError),
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
     #[error(transparent)]
     Memory(#[from] MemoryError),
     /// Config problems that aren't a TOML parse error (missing file, missing
