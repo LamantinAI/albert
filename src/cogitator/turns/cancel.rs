@@ -1,10 +1,54 @@
 use octo_core::CogitatorContext;
+use octo_history::SessionId;
 use octo_rig::carry_out_cancel;
 use tracing::warn;
 
 use crate::{cogitator::AlbertCogitator, history::tool_trace};
 
 impl AlbertCogitator {
+    pub(crate) async fn panel_active(&self, session: &SessionId) -> Option<String> {
+        let key = ("session".to_owned(), format!("session/{session}"));
+        let state = self.turns.lock().unwrap().get(&key).cloned()?;
+        let state = state.lock().await;
+        state
+            .active
+            .as_ref()
+            .map(|active| active.feedback.id.to_string())
+    }
+
+    pub(crate) async fn panel_cancel_exact(
+        &self,
+        session: &SessionId,
+        attempt: &str,
+        ctx: &CogitatorContext,
+    ) -> bool {
+        let key = ("session".to_owned(), format!("session/{session}"));
+        let state = self.turns.lock().unwrap().get(&key).cloned();
+        let Some(state) = state else {
+            return false;
+        };
+        let mut locked = state.lock().await;
+        if !locked
+            .active
+            .as_ref()
+            .is_some_and(|active| active.feedback.id.to_string() == attempt)
+        {
+            return false;
+        }
+        let Some(previous) = locked.interrupt().await else {
+            return false;
+        };
+        self.end_feedback(&previous.feedback, ctx).await;
+        self.cancel_scope(&previous.scope, ctx).await;
+        self.children.cancel_channel(&key).await;
+        if let Some(record) = tool_trace(&previous.checkpoint) {
+            if self.history.append(&key.1, &[record]).await.is_err() {
+                warn!("could not persist stopped tool checkpoint");
+            }
+        }
+        true
+    }
+
     pub(in crate::cogitator) async fn cancel_channel(
         &self,
         key: &(String, String),

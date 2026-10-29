@@ -18,6 +18,9 @@ impl SessionService {
         session_id: &SessionId,
         reply: ReplyRoute,
     ) -> SessionResult<SessionContext> {
+        if reply.connector() == "web" {
+            return self.web_reminder_context(session_id, reply).await;
+        }
         let mut tx = self.history().begin_journal().await?;
         let session = self.catalog_session_in(&mut tx, session_id).await?;
         require_host(&session.host)?;
@@ -44,6 +47,7 @@ impl SessionService {
             _ => return Err(SessionError::Denied),
         };
         let context = SessionContext {
+            actor_tools: None,
             lease: self.lease_for_in(&mut tx, session_id).await?,
             cleanup_scope: None,
             user,

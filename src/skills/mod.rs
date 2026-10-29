@@ -34,6 +34,7 @@ use tracing::{debug, info};
 
 use crate::commands::SkillCommand;
 
+pub(crate) mod control;
 mod discovery;
 
 mod tools;
@@ -97,6 +98,13 @@ impl SkillStore {
                 page: page.max(1),
             }),
         })
+    }
+
+    pub(crate) fn refresh(&self, directory: PathBuf, capabilities: &[&str]) {
+        let catalog = scan(&directory, capabilities);
+        let mut inner = self.inner.lock().unwrap();
+        inner.catalog = catalog;
+        inner.cache.clear();
     }
 
     /// Every selectable skill's name and complete trigger description, on every

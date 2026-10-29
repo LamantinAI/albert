@@ -8,8 +8,8 @@ use super::{command_reply, compaction::CompactOptions, turn_key, AlbertCogitator
 use crate::{
     acl::{command as acl_command, is_acl_admin, is_owner, should_respond, tag},
     commands::{help, parse, seed},
-    sessions::SessionContext,
     sessions::SessionEnded,
+    sessions::{acceptance::SourceReceipt, SessionContext},
 };
 
 impl AlbertCogitator {
@@ -28,9 +28,13 @@ impl AlbertCogitator {
                 if !should_respond(&incoming) {
                     return;
                 }
+                let receipt = incoming.context.get::<SourceReceipt>().cloned();
                 let incoming = match self.admit_message(incoming, ctx).await {
                     Ok(incoming) => incoming,
                     Err(error) => {
+                        if let Some(receipt) = receipt {
+                            receipt.complete(Err("Session admission failed.".into()));
+                        }
                         warn!(%error, "dialog session admission failed");
                         return;
                     }
@@ -121,7 +125,10 @@ impl AlbertCogitator {
         ctx: &CogitatorContext,
     ) {
         // Reflexes fire on text-only turns: instant, no LLM.
-        if input.images.is_empty() && tag(&incoming, "forwarded") != Some("true") {
+        if incoming.source.as_str() != "web"
+            && input.images.is_empty()
+            && tag(&incoming, "forwarded") != Some("true")
+        {
             let owner = is_owner(&incoming);
             let command_text = tag(&incoming, "command_text").unwrap_or(&input.text);
             let invocation = parse(command_text);
@@ -222,7 +229,16 @@ impl AlbertCogitator {
 
             // /help lists the system commands and the skills' commands this user may run.
             if command == "help" {
-                let reply = help(&self.skills.commands(), owner, is_acl_admin(&incoming));
+                let skills = if incoming
+                    .context
+                    .get::<SessionContext>()
+                    .is_some_and(SessionContext::chat_only)
+                {
+                    Vec::new()
+                } else {
+                    self.skills.commands()
+                };
+                let reply = help(&skills, owner, is_acl_admin(&incoming));
                 self.finish_reflex(&incoming, input.text, reply, ctx, false)
                     .await;
                 return;
@@ -248,11 +264,18 @@ impl AlbertCogitator {
 
             // A skill's command: an ordinary turn, seeded with that skill's instructions.
             // An unknown `/word` falls through and reaches the agent as text.
-            let invoked = parse(command_text).and_then(|inv| {
-                self.skills
-                    .command(&inv.name)
-                    .map(|c| (c, inv.args.to_string()))
-            });
+            let invoked = parse(command_text)
+                .filter(|_| {
+                    !incoming
+                        .context
+                        .get::<SessionContext>()
+                        .is_some_and(SessionContext::chat_only)
+                })
+                .and_then(|inv| {
+                    self.skills
+                        .command(&inv.name)
+                        .map(|c| (c, inv.args.to_string()))
+                });
             if let Some((command, args)) = invoked {
                 if command.owner && !owner {
                     let reply = format!("/{} is for the owner only.", command.name);

@@ -43,6 +43,13 @@ impl AlbertCogitator {
         {
             return Err("Session ended; child was not started.".into());
         }
+        if tool
+            .session
+            .as_ref()
+            .is_some_and(|session| session.chat_only())
+        {
+            return Err("This account cannot delegate work.".into());
+        }
         let limits = &self.config.subagents;
         if task.task.trim().is_empty() {
             return Err("Subagent task is empty.".into());

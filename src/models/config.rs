@@ -1,13 +1,13 @@
 use std::{collections::HashSet, fs::read_to_string, path::Path};
 
 use mcp_http::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use toml::from_str;
 
 use super::reasoning::ReasoningSupport;
 use crate::config::{AuthMode, Config};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelSpec {
     pub id: String,
@@ -32,7 +32,7 @@ pub struct ModelSpec {
     pub request_timeout_ms: u64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PoolConfig {
     pub default: String,
@@ -47,7 +47,7 @@ pub struct PoolConfig {
     pub roles: Vec<RoleProfile>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoleProfile {
     pub id: String,
@@ -81,7 +81,7 @@ impl PoolConfig {
         Ok(config)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         if !(1..=32).contains(&self.max_attempts)
             || self.retries_per_model > 8
             || self.retry_delay_ms > 60_000

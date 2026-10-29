@@ -75,6 +75,14 @@ impl SelfConfig {
         ListSecrets(self.clone())
     }
 
+    pub(crate) fn panel_set_secret(&self, name: &str, value: &str) -> Result<(), String> {
+        self.upsert_secret(name, value).map(|_| ())
+    }
+
+    pub(crate) fn panel_secret_names(&self) -> Vec<String> {
+        self.secret_names()
+    }
+
     /// Resolve a deploy-relative path inside the jail AND the allow-list.
     fn resolve(&self, rel: &str) -> Result<PathBuf, String> {
         let abs = resolve_in_root(&self.root, rel).map_err(|e| e.to_string())?;
@@ -464,8 +472,8 @@ mod tests {
         assert_eq!(sc.upsert_secret("JIRA_TOKEN", "abc123").unwrap(), "added");
         assert_eq!(sc.upsert_secret("EXISTING", "new").unwrap(), "updated");
         let env = fs::read_to_string(root.join(".env")).unwrap();
-        assert!(env.contains("JIRA_TOKEN=abc123"));
-        assert!(env.contains("EXISTING=new") && !env.contains("EXISTING=old"));
+        assert!(env.contains("JIRA_TOKEN=\"abc123\""));
+        assert!(env.contains("EXISTING=\"new\"") && !env.contains("EXISTING=old"));
         assert!(env.contains("# comment"), "comments preserved");
 
         // Listing returns names, never values.
@@ -522,5 +530,53 @@ mod tests {
             fs::read_to_string(root.join("albert.toml")).unwrap(),
             "a = 2\nb = 1\n"
         );
+    }
+    #[test]
+    fn saved_secrets_round_trip_literals_and_replace_exported_or_spaced_assignments() {
+        use dotenvy::from_path_iter;
+        use std::fs::{read_to_string, write};
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let config = super::SelfConfig::new(dir.path().to_path_buf());
+        let path = dir.path().join(".env");
+        write(
+            &path,
+            "export ROUNDTRIP_SECRET = old\nROUNDTRIP_SECRET=duplicate\nOTHER=retained\n",
+        )
+        .unwrap();
+        for value in [
+            "abc$UNSET",
+            "a b # c",
+            "'quoted' and \"double\"",
+            r"C:\tmp\secret",
+            "",
+            "日本語 café",
+        ] {
+            config.upsert_secret("ROUNDTRIP_SECRET", value).unwrap();
+            let entries: Vec<_> = from_path_iter(&path)
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(
+                entries
+                    .iter()
+                    .filter(|(key, _)| key == "ROUNDTRIP_SECRET")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                entries
+                    .iter()
+                    .find(|(key, _)| key == "ROUNDTRIP_SECRET")
+                    .unwrap()
+                    .1,
+                value
+            );
+            assert_eq!(
+                entries.iter().find(|(key, _)| key == "OTHER").unwrap().1,
+                "retained"
+            );
+        }
+        assert!(read_to_string(path).unwrap().contains("OTHER=retained"));
     }
 }

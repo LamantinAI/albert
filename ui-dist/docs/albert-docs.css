@@ -1,0 +1,47 @@
+:root {
+  color-scheme: light;
+  background: #f7f4ec;
+  color: #25251f;
+  font-family: system-ui, sans-serif;
+}
+body {
+  margin: 0;
+}
+.docs-header {
+  padding: 24px max(24px, calc((100vw - 1460px) / 2));
+  border-bottom: 1px solid #d9d5c9;
+}
+.docs-header div {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+}
+.docs-header a {
+  color: #25251f;
+  font:
+    600 28px Georgia,
+    serif;
+  text-decoration: none;
+}
+.docs-header span {
+  color: #88652b;
+  font-size: 14px;
+}
+.docs-header p {
+  margin-bottom: 0;
+  font-size: 14px;
+  color: #65665c;
+}
+.swagger-ui .info .title {
+  color: #25251f;
+}
+.swagger-ui .scheme-container {
+  background: #f7f4ec;
+  box-shadow: none;
+}
+.swagger-ui .auth-wrapper {
+  display: none;
+}
+#swagger-ui {
+  padding: 8px;
+}

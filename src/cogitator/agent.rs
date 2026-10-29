@@ -1,6 +1,9 @@
+mod chat;
 mod entry;
+mod types;
+use self::chat::chat_tools;
+pub(super) use self::types::AttemptTools;
 use std::{
-    env::var,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -22,7 +25,7 @@ use tracing::{debug, info, warn};
 
 use super::{
     catalog,
-    retention::{fence_tools, permitted_memory, temporary},
+    retention::{fence_tools, permitted_memory, scope_ingress, temporary},
     scratchpad_scope,
     session_dispatch::SessionDispatch,
     AlbertCogitator,
@@ -41,7 +44,7 @@ use crate::{
     selfconfig::SelfConfig,
     sessions::{telegram::output_scope, SessionContext},
     status::StatusFeed,
-    subagents::{budget::Budget, SubagentTool},
+    subagents::SubagentTool,
 };
 
 impl AlbertCogitator {
@@ -62,11 +65,15 @@ impl AlbertCogitator {
         if session.as_ref().is_some_and(|session| !session.is_live()) {
             return ("Session ended.".into(), None);
         }
-        let ingress =
-            match super::retention::scope_ingress(&self.authority, ingress, session.as_ref()) {
+        let chat_only = session.as_ref().is_some_and(SessionContext::chat_only);
+        let ingress = if chat_only {
+            None
+        } else {
+            match scope_ingress(&self.authority, ingress, session.as_ref()) {
                 Ok(ingress) => ingress,
                 Err(_) => return ("Session authority is unavailable.".into(), None),
-            };
+            }
+        };
         let host = Arc::downgrade(self);
         let conversation = Self::logical_conversation(
             channel,
@@ -88,8 +95,8 @@ impl AlbertCogitator {
         let pending: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         // One drive run consumes its tool instances, and the forced-refresh retry
         // below needs a second set — so the tools are built per attempt.
-        let discovery = ConnectorCatalog::new(ctx.connectors());
-        let child_tool = self.config.subagents.enabled.then(|| {
+        let discovery = (!chat_only).then(|| ConnectorCatalog::new(ctx.connectors()));
+        let child_tool = (!chat_only && self.config.subagents.enabled).then(|| {
             SubagentTool::new(
                 Arc::downgrade(self),
                 ctx.clone(),
@@ -101,6 +108,12 @@ impl AlbertCogitator {
             .with_session(session.clone())
         });
         let make_tools = || {
+            if chat_only {
+                return AttemptTools::ChatOnly {
+                    session: session.clone(),
+                    pad: scratchpad_scope(&conversation, false),
+                };
+            }
             // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
             // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
             // (max_timeout_secs), and the imagegen / transcribe skills request up to it — so
@@ -181,7 +194,7 @@ impl AlbertCogitator {
                 send_file,
                 restart,
                 selfconfig,
-                discovery.clone(),
+                discovery.as_ref().expect("host tool policy").clone(),
                 child_tool.clone(),
                 Artifacts::new(
                     self.config.code_workspace.clone(),
@@ -193,7 +206,12 @@ impl AlbertCogitator {
                 scratchpad_scope(&conversation, owner),
             ))
         };
-        let preamble = format!("{preamble}{}", self.children.context(&conversation, owner));
+        let children = if chat_only {
+            String::new()
+        } else {
+            self.children.context(&conversation, owner)
+        };
+        let preamble = format!("{preamble}{children}");
         let preamble = preamble.as_str();
         let snapshot = self.models.snapshot();
         let vision = needs_vision(history.iter().chain([&prompt]));
@@ -288,12 +306,11 @@ impl AlbertCogitator {
         let budget = budget.enabled.then_some(budget);
         let result = match model.provider {
             AuthMode::ApiKey => {
-                let key = match &model.api_key_env {
-                    Some(name) => var(name).ok(),
-                    None => self.config.api_key.clone(),
-                }
-                .filter(|key| !key.trim().is_empty())
-                .ok_or_else(|| unavailable("API key is unavailable."))?;
+                let key = self
+                    .config
+                    .model_key(model.api_key_env.as_deref())
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or_else(|| unavailable("API key is unavailable."))?;
                 let mut builder = OpenRouterClient::builder()
                     .api_key(key.as_str())
                     .http_client(OpenRouterHttp::new(http));
@@ -405,6 +422,15 @@ impl AlbertCogitator {
                     prompt, history, feed, artifacts, pad_scope,
                 )
                 .await
+            }
+            AttemptTools::ChatOnly { session, pad } => {
+                base.tools(chat_tools(&self.scratchpad, pad, session))
+                    .build()
+                    .prompt(prompt)
+                    .with_hook(feed)
+                    .max_turns(self.config.max_tool_turns)
+                    .with_history(history)
+                    .await
             }
             AttemptTools::Compact { max_tokens } => {
                 base.max_tokens(max_tokens as u64)
@@ -545,30 +571,4 @@ impl AlbertCogitator {
             .with_history(history)
             .await
     }
-}
-
-/// The per-attempt tool instances for one drive run (dispatch + the optional
-/// send-file / owner-only restart and self-config tools). A run consumes them, so
-/// the forced-refresh retry in [`AlbertCogitator::run_agent`] builds a fresh set.
-type TurnTools = (
-    SessionDispatch,
-    Option<SendFileTool>,
-    Option<RestartTool>,
-    Option<SelfConfig>,
-    ConnectorCatalog,
-    Option<SubagentTool>,
-    Artifacts,
-    PadScope,
-);
-
-pub(super) enum AttemptTools {
-    Compact {
-        max_tokens: usize,
-    },
-    Root(TurnTools),
-    Child {
-        tools: Vec<Box<dyn ToolDyn>>,
-        max_turns: usize,
-        budget: Arc<Budget>,
-    },
 }

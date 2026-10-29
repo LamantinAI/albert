@@ -23,6 +23,7 @@ deeper reference.
 - **[sql-connector.md](sql-connector.md)** — dedicated SQLite purpose stores, schema metadata, native SQL and authenticated human approval.
 - **[sessions.md](sessions.md)** — private chats across transports, channel-bound groups,
   temporary chats, retained history, startup backups and automatic legacy import.
+- **[web-panel.md](web-panel.md)** — embedded React workspace, first setup, owner/user accounts, private chats, configuration and API.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.

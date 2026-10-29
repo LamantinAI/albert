@@ -25,7 +25,11 @@ Orient by module before changing code. Everything is under `src/`:
 
 | Module | Owns |
 |--------|------|
-| `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history / scheduler / scratchpad / prompt loader; register connector factories + `from_config_file`, or fall back to console; run Octo. |
+| `main.rs` | Process environment, CLI login and runtime/re-exec entry point; web/startup owns assembly wiring. Load `.env` + `albert.toml`, open the kaeru vault, build history / scheduler / scratchpad / prompt loader; register connector factories + `from_config_file`, or fall back to console; run Octo. |
+| `web/` | Embedded assets, hosted panel, setup-ready runtime, private Session bridge and native approval integration. |
+| `api/` | JWT/CSRF HTTP adapter, DTOs and generated OpenAPI contract. |
+| `service/` | Accounts, sessions and owner configuration/models/skills services. Shared SQLx internal storage. |
+| `frontend/` | React + TypeScript CSR project; regenerate ui-dist with npm run build:embedded before Cargo after a UI edit. |
 | `cogitator/` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset; picks the LLM client by `Config::auth` (API key vs ChatGPT subscription). |
 | `octo-openai-auth` | ChatGPT-subscription token store: read/write a codex-style `auth.json`; `ensure_fresh` returns the `Subscription` (access token + account id), refreshing the access token in place before it expires. |
 | `openai_login.rs` | `albert login` — the interactive OAuth (PKCE) sign-in: loopback callback server on `:1455` with a stdin paste fallback, code exchange, token save. |

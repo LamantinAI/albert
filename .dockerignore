@@ -10,3 +10,8 @@ kaeru/
 *.log
 .env
 .DS_Store
+
+# Frontend dependencies and local browser reports are not embedded inputs.
+**/node_modules/
+**/playwright-report/
+**/test-results/

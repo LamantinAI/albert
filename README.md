@@ -23,6 +23,14 @@ whole team. Three things set the shape of it:
 You talk to it; it remembers, it reminds, and it keeps a verifiable scratchpad for
 multi-step work.
 
+## Web workspace
+
+Open `http://127.0.0.1:9877/ui/` after starting Albert. Sign in with `owner` /
+`owner`, replace the initial credentials, and connect a model. The embedded React
+workspace supports private and temporary chats, model priorities, skills, users,
+configuration and SQL approvals. Telegram is optional. See the
+[web panel guide](docs/web-panel.md) for setup, permissions and frontend builds.
+
 ## Why Albert
 
 Most assistants built on a coding-agent loop re-read a memory file and a wall of

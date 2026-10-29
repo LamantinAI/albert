@@ -12,7 +12,7 @@ use crate::{
     acl::is_owner,
     cogitator::session_runtime::{FrozenActions, FrozenInput},
     history::{journal_messages, tool_trace, Turn},
-    sessions::SessionContext,
+    sessions::{actor::ActorToolPolicy, SessionContext},
 };
 
 impl AlbertCogitator {
@@ -52,6 +52,22 @@ impl AlbertCogitator {
             None
         };
         let interrupted = locked.interrupt().await;
+        let tool_policy = incoming
+            .context
+            .get::<SessionContext>()
+            .map(SessionContext::tool_policy)
+            .unwrap_or(ActorToolPolicy::ExistingHost);
+        let tool_policy = interrupted
+            .as_ref()
+            .map(|previous| previous.tool_policy.intersect(tool_policy))
+            .unwrap_or(tool_policy);
+        let incoming = if let Some(context) = incoming.context.get::<SessionContext>() {
+            let mut context = context.clone();
+            context.actor_tools = Some(tool_policy);
+            Arc::new((*incoming).clone().with_context(context))
+        } else {
+            incoming
+        };
         let mut records = Vec::new();
         if let Some(previous) = &interrupted {
             self.end_feedback(&previous.feedback, ctx).await;
@@ -170,6 +186,7 @@ impl AlbertCogitator {
         // Insert before releasing the gate; a fast completion cannot clear its
         // slot before registration (the old spawn/insert race).
         locked.active = Some(ActiveTurn {
+            tool_policy,
             feedback,
             continuation,
             compact_id,

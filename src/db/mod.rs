@@ -1,6 +1,7 @@
 //! Internal application metadata. Session catalogs and journals belong to
 //! octo-history; user-created SQL stores belong to the isolated SQL connector.
 
+pub(crate) mod account;
 pub(crate) mod entity;
 pub(crate) mod error;
 pub(crate) mod repo;
@@ -13,8 +14,13 @@ use crate::db::error::{DatabaseError, DatabaseResult};
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("../../migrations/0001_session_control.sql")),
     (2, include_str!("../../migrations/0002_native_sessions.sql")),
+    (3, include_str!("../../migrations/0003_web_accounts.sql")),
+    (
+        4,
+        include_str!("../../migrations/0004_control_applications.sql"),
+    ),
 ];
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Clone)]
 pub(crate) struct Database {
@@ -110,7 +116,7 @@ mod tests {
             .fetch_one(db.pool())
             .await
             .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, Database::schema_version());
         let history_registry: i64 =
             query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = '_sqlx_migrations'")
                 .fetch_one(db.pool())

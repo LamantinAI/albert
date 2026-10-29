@@ -225,7 +225,7 @@ mod tests {
     fn resolution_and_scoping_keep_the_same_frozen_selection() {
         let pool = ModelPool {
             state: Arc::new(RwLock::new(snapshot())),
-            path: None,
+            path: Arc::new(RwLock::new(None)),
         };
         let old = pool.snapshot();
         pool.command("worker", true);

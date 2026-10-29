@@ -1,5 +1,7 @@
 //! Host-authenticated session policy. These admission types are deliberately not
 //! deserializable: an actor or model cannot submit its own owner or reply route.
+pub(crate) mod acceptance;
+pub(crate) mod actor;
 pub(crate) mod error;
 pub(crate) mod ingress;
 pub(crate) mod lease;
@@ -15,6 +17,7 @@ use octo_history::{Session, SessionAccess, SessionId, SessionJournal, SessionOri
 use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 
+use actor::ActorToolPolicy;
 use error::{SessionError, SessionResult};
 use lease::SessionLease;
 
@@ -159,6 +162,7 @@ impl Admission {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SessionContext {
+    pub(crate) actor_tools: Option<ActorToolPolicy>,
     pub(crate) lease: Arc<SessionLease>,
     pub(crate) cleanup_scope: Option<String>,
     pub(crate) user: Option<UserId>,
@@ -171,6 +175,12 @@ pub(crate) struct SessionContext {
 }
 
 impl SessionContext {
+    pub fn chat_only(&self) -> bool {
+        self.actor_tools == Some(ActorToolPolicy::ChatOnly)
+    }
+    pub fn tool_policy(&self) -> ActorToolPolicy {
+        self.actor_tools.unwrap_or(ActorToolPolicy::ExistingHost)
+    }
     pub fn is_live(&self) -> bool {
         self.lease.is_live()
     }

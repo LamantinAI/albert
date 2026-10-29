@@ -25,16 +25,14 @@ use async_trait::async_trait;
 use octo_approval::Authority;
 use octo_core::{Cogitator, CogitatorContext, ConnectorId, Filter, OctoResult, Subscription};
 use octo_openai_auth::SubscriptionAuth;
-use tokio::{select, spawn, sync::Mutex as AsyncMutex, task::JoinSet};
+use tokio::{select, sync::Mutex as AsyncMutex, task::JoinSet};
 
 use crate::{
-    commands::{menu, publish_menu, SET_COMMANDS},
     config::Config,
     history::{sessions::SessionHistory, HistoryStore},
     memory::Memory,
     models::ModelPool,
     prompt::PromptFiles,
-    routines::seed_base_routine,
     scratchpad::ScratchpadStore,
     service::session::SessionService,
     skills::SkillStore,
@@ -47,6 +45,7 @@ mod build;
 mod child;
 mod compaction;
 mod context;
+pub(crate) mod control;
 mod errors;
 mod feedback;
 mod inbound;
@@ -114,32 +113,7 @@ impl Cogitator for AlbertCogitator {
         ctx: CogitatorContext,
         mut subscription: Subscription,
     ) -> OctoResult<()> {
-        // Seed Albert's base routines (memory reflection) once the scheduler is up.
-        spawn(seed_base_routine(
-            ctx.bus(),
-            self.self_source.clone(),
-            self.config.reflection_secs,
-        ));
-        // Publish the command menu on every channel that takes one.
-        let channels: Vec<ConnectorId> = ctx
-            .connectors()
-            .iter()
-            .filter(|c| {
-                c.capabilities
-                    .event_kinds_accept
-                    .iter()
-                    .any(|k| k.as_str() == SET_COMMANDS)
-            })
-            .map(|c| c.id.clone())
-            .collect();
-        if !channels.is_empty() {
-            spawn(publish_menu(
-                ctx.bus(),
-                self.self_source.clone(),
-                channels,
-                menu(&self.skills.commands()),
-            ));
-        }
+        self.panel_initialize(&ctx);
         let mut maintenance = JoinSet::new();
         loop {
             select! {

@@ -92,14 +92,28 @@ impl AlbertCogitator {
         } else {
             self.visible_turns(&channel).await.unwrap_or_default()
         };
+        let restricted = incoming
+            .context
+            .get::<SessionContext>()
+            .is_some_and(SessionContext::chat_only);
+        let soul = if restricted {
+            "You are Albert, a helpful assistant. Reply in the user's language. Use only this conversation and its scoped scratchpad; you have no global memory, filesystem or connector access.".into()
+        } else {
+            self.prompt.base()
+        };
+        let skills = if restricted {
+            String::new()
+        } else {
+            self.skills.catalog()
+        };
         let preamble = format!(
             "{}\n\n{}\n\nCurrent time: {}\n\n{}\n\n{}\n\n{}{}",
-            self.prompt.base(),
+            soul,
             incoming_context(&incoming, &channel),
             now_rfc3339(&self.config.timezone),
             active,
             pad,
-            self.skills.catalog(),
+            skills,
             action_context(&stored)
         );
         let hearing_error = if let Some(path) = voice {

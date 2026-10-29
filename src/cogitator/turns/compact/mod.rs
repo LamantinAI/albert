@@ -13,6 +13,7 @@ use crate::{
         AlbertCogitator,
     },
     history::tool_trace,
+    sessions::{actor::ActorToolPolicy, SessionContext},
     status::StatusFeed,
 };
 
@@ -35,7 +36,27 @@ impl AlbertCogitator {
             .clone();
         let mut locked = state.lock().await;
         let interrupted = locked.interrupt().await;
-        let continuation = interrupted.as_ref().and_then(|p| p.continuation.clone());
+        let current_policy = incoming
+            .context
+            .get::<SessionContext>()
+            .map(SessionContext::tool_policy)
+            .unwrap_or(ActorToolPolicy::ExistingHost);
+        let tool_policy = interrupted
+            .as_ref()
+            .map(|previous| previous.tool_policy.intersect(current_policy))
+            .unwrap_or(current_policy);
+        let continuation = interrupted
+            .as_ref()
+            .and_then(|p| p.continuation.clone())
+            .map(|original| {
+                if let Some(context) = original.context.get::<SessionContext>() {
+                    let mut context = context.clone();
+                    context.actor_tools = Some(context.tool_policy().intersect(tool_policy));
+                    Arc::new((*original).clone().with_context(context))
+                } else {
+                    original
+                }
+            });
         let owner = interrupted.as_ref().is_none_or(|p| p.owner);
         if let Some(previous) = interrupted {
             self.end_feedback(&previous.feedback, ctx).await;
@@ -106,6 +127,7 @@ impl AlbertCogitator {
                 .await;
         });
         locked.active = Some(ActiveTurn {
+            tool_policy,
             feedback,
             continuation,
             compact_id,

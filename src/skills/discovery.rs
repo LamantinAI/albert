@@ -30,7 +30,10 @@ pub(super) fn scan(dir: &Path, capabilities: &[&str]) -> Vec<SkillMeta> {
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let p = entry.path();
-        if !p.is_dir() {
+        if !p.is_dir()
+            || p.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+        {
             continue;
         }
         let skill_md = p.join("SKILL.md");
@@ -160,8 +163,8 @@ pub(super) fn meta_of(text: &str) -> SkillFront {
 /// A skill's parsed frontmatter.
 #[derive(Default)]
 pub(super) struct SkillFront {
-    name: Option<String>,
-    description: Option<String>,
+    pub(super) name: Option<String>,
+    pub(super) description: Option<String>,
     /// A capability the runtime must have for the skill to exist at all (today:
     /// `subscription`). Absent → always available.
     requires: Option<String>,
@@ -169,9 +172,9 @@ pub(super) struct SkillFront {
     /// rides in the preamble every turn instead of waiting for `skill_apply`.
     pub(super) always: bool,
     /// `command: <name>` — a chat command (`/<name> args`) that runs this skill.
-    command: Option<String>,
+    pub(super) command: Option<String>,
     /// `command_owner: true` — that command is the owner's only.
-    command_owner: bool,
+    pub(super) command_owner: bool,
     /// `command_about:` — one line on the command for `/help` and the menu.
     command_about: Option<String>,
 }

@@ -73,7 +73,7 @@ impl Snapshot {
 #[derive(Clone)]
 pub struct ModelPool {
     state: Arc<RwLock<Snapshot>>,
-    path: Option<PathBuf>,
+    path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl ModelPool {
@@ -87,8 +87,25 @@ impl ModelPool {
                 selected: pool.default.clone(),
                 config: pool,
             })),
-            path: config.model_pool.clone(),
+            path: Arc::new(RwLock::new(config.model_pool.clone())),
         }
+    }
+
+    pub(crate) fn apply_panel(&self, config: PoolConfig, path: Option<PathBuf>) {
+        let mut state = self.state.write().unwrap();
+        let selected = if state.config.default == config.default
+            && config.models.iter().any(|model| model.id == state.selected)
+        {
+            state.selected.clone()
+        } else {
+            config.default.clone()
+        };
+        *state = Snapshot { config, selected };
+        *self.path.write().unwrap() = path;
+    }
+
+    pub(crate) fn panel_prefer(&self, id: &str) -> Result<(), String> {
+        self.select(id).map(|_| ())
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -135,10 +152,11 @@ impl ModelPool {
                 format!("Preferred model: {}\n{list}\n/model <id> selects for new turns; /model reload reloads the pool.", state.selected)
             }
             "reload" => {
-                let Some(path) = &self.path else {
+                let path = self.path.read().unwrap().clone();
+                let Some(path) = path else {
                     return "No model_pool file is configured.".into();
                 };
-                let pool = match PoolConfig::read(path) {
+                let pool = match PoolConfig::read(&path) {
                     Ok(p) => p,
                     Err(e) => return format!("Pool unchanged: {e}"),
                 };
@@ -367,7 +385,7 @@ mod tests {
         let path = dir.path().join("models.toml");
         let pool = ModelPool {
             state: Arc::new(RwLock::new(pool())),
-            path: Some(path.clone()),
+            path: Arc::new(RwLock::new(Some(path.clone()))),
         };
         let old = pool.snapshot();
         assert!(pool.command("second", false).contains("Only the owner"));
@@ -439,7 +457,7 @@ mod tests {
         use rig::tool::Tool;
         let pool = ModelPool {
             state: Arc::new(RwLock::new(pool())),
-            path: None,
+            path: Arc::new(RwLock::new(None)),
         };
         let tool = pool.select_tool();
         let listing = tool.call(SelectArgs { model_id: None }).await.unwrap();
@@ -464,5 +482,27 @@ mod tests {
         assert_eq!(switched["current_turn_unchanged"], true);
         assert_eq!(pool.snapshot().selected, "second");
         assert_eq!(old.selected, "first");
+    }
+    #[test]
+    fn panel_reload_preserves_live_selection_until_default_or_members_change() {
+        let pool = ModelPool {
+            state: Arc::new(RwLock::new(pool())),
+            path: Arc::new(RwLock::new(None)),
+        };
+        pool.panel_prefer("second").unwrap();
+        let config = pool.snapshot().config;
+        pool.apply_panel(config.clone(), None);
+        assert_eq!(pool.snapshot().selected, "second");
+        let mut changed = config.clone();
+        changed.default = "second".into();
+        pool.panel_prefer("first").unwrap();
+        pool.apply_panel(changed, None);
+        assert_eq!(pool.snapshot().selected, "second");
+        pool.panel_prefer("first").unwrap();
+        let mut changed = config;
+        changed.default = "second".into();
+        changed.models.retain(|model| model.id == "second");
+        pool.apply_panel(changed, None);
+        assert_eq!(pool.snapshot().selected, "second");
     }
 }

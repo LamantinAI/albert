@@ -1,6 +1,6 @@
 //! Albert config, loaded from a TOML file (config-as-data, like Octo's connector
 //! manifests). The file's path comes from `ALBERT_CONFIG` (default: next to the
-//! binary, else this crate dir). Secrets stay in the environment, named in the
+//! binary, else the working directory). Secrets stay in the environment, named in the
 //! TOML by their env-var name — so the file is safe to commit.
 //!
 //! This is *Albert-level* config (model, prompts, memory reflection, history).
@@ -18,7 +18,7 @@ use std::{
 };
 
 use octo_approval::AuthoritySettings;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use toml::{from_str, Table, Value};
 
 use crate::{
@@ -31,11 +31,15 @@ use crate::{
     subagents::Limits,
 };
 
+pub(crate) mod control;
 pub(crate) mod history;
+mod secrets;
 use self::history::default_backup_dir;
 
+use self::secrets::read_secret;
+
 /// How Albert authenticates to the model backend.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMode {
     /// An API key against OpenRouter or any OpenAI-compatible endpoint. The default.
@@ -71,6 +75,7 @@ pub struct Config {
     /// The LLM API key — present only in [`AuthMode::ApiKey`]; `None` under a
     /// subscription (where the bearer comes from the OAuth token store instead).
     pub api_key: Option<String>,
+    pub openai_key_env: String,
     /// Subscription mode: the codex-style `auth.json` to read tokens from, and the
     /// Codex backend base URL model calls hit (`.../responses` is appended by rig).
     pub subscription_auth_json: PathBuf,
@@ -122,10 +127,17 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let path = config_path();
-        let text =
-            read_to_string(&path).map_err(|e| Error::Config(format!("{}: {e}", path.display())))?;
-        let mut raw: Raw = from_str(&text)?;
+        Self::load_from(&config_path())
+    }
+
+    pub(crate) fn load_from(path: &Path) -> Result<Self> {
+        let text = read_to_string(path)
+            .map_err(|_| Error::Config("Agent configuration could not be read.".into()))?;
+        Self::parse_text(&text, path)
+    }
+
+    pub(crate) fn parse_text(text: &str, path: &Path) -> Result<Self> {
+        let mut raw: Raw = from_str(text)?;
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
@@ -140,12 +152,7 @@ impl Config {
         };
         // The API key is required only for the api-key path; a subscription reads
         // its bearer from the OAuth token store, so the env var may be unset.
-        let api_key = match auth {
-            AuthMode::ApiKey if raw.model_pool.is_none() => Some(
-                var(key_var).map_err(|_| Error::Config(format!("missing secret env {key_var}")))?,
-            ),
-            _ => var(key_var).ok(),
-        };
+        let api_key = read_secret(dir, key_var).filter(|value| !value.is_empty());
 
         let timezone = raw
             .timezone
@@ -216,6 +223,7 @@ impl Config {
             auth,
             base_url: raw.base_url,
             api_key,
+            openai_key_env: key_var.to_owned(),
             subscription_auth_json: resolve_path(dir, &raw.subscription.auth_json),
             subscription_base_url: raw.subscription.base_url,
             history: Some(raw.history.backend),
@@ -260,10 +268,10 @@ fn default_multimodal(auth: AuthMode, model: &str) -> bool {
 }
 
 /// Locate the config: `ALBERT_CONFIG`, else `albert.toml` next to the binary, else
-/// this crate's `albert.toml`.
-fn config_path() -> PathBuf {
-    if let Ok(p) = var("ALBERT_CONFIG") {
-        return PathBuf::from(p);
+/// `albert.toml` in the working directory.
+pub(crate) fn config_path() -> PathBuf {
+    if let Ok(path) = var("ALBERT_CONFIG") {
+        return PathBuf::from(path);
     }
     if let Ok(exe) = current_exe() {
         if let Some(dir) = exe.parent() {
@@ -273,7 +281,7 @@ fn config_path() -> PathBuf {
             }
         }
     }
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/albert.toml"))
+    PathBuf::from("albert.toml")
 }
 
 /// A relative path in the TOML resolves against the config file's directory.
@@ -321,6 +329,7 @@ struct Raw {
     model_pool: Option<String>,
     #[serde(default)]
     memory: MemoryConfig,
+    #[serde(default)]
     model: String,
     /// `"api_key"` (default) or `"subscription"`.
     #[serde(default)]

@@ -33,6 +33,7 @@ impl SessionService {
             .await?
             .ok_or(SessionError::Denied)?;
         let mut context = SessionContext {
+            actor_tools: None,
             lease: self.lease_for_in(&mut tx, bound_id).await?,
             cleanup_scope: None,
             user,

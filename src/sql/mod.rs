@@ -1,7 +1,6 @@
 //! SQL assembly wiring; internal storage remains owned by its existing services.
 use std::{fs::read_to_string, path::PathBuf, sync::Arc};
 
-use kaeru_core::KaeruConfig;
 use octo_approval::Authority;
 use octo_connector_sql::factory;
 use octo_core::{Connector, ConnectorId, FactoryContext};
@@ -19,9 +18,7 @@ pub fn protected_paths(config: &Config) -> Result<Vec<PathBuf>> {
     paths.push(sqlite_path(config.history.as_deref(), &config.deploy_dir)?);
     paths.push(config.history_backup_dir.clone());
     if matches!(&config.memory, MemoryConfig::Embedded) {
-        let vault =
-            KaeruConfig::from_env().map_err(|e| Error::Config(format!("memory path: {e}")))?;
-        paths.push(vault.vault_path);
+        paths.push(config.embedded_vault_path());
     }
     Ok(paths)
 }

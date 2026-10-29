@@ -22,7 +22,7 @@ use super::{
 use crate::{
     context::window_messages,
     history::{assistant_turn, sessions::Backend, to_messages, Turn},
-    sessions::SessionContext,
+    sessions::{acceptance::SourceReceipt, SessionContext},
     sessions::{
         error::{SessionError, SessionResult},
         ingress::for_message,
@@ -100,6 +100,13 @@ impl AlbertCogitator {
             return Ok(incoming);
         };
         let stamped = incoming.context.get::<SessionContext>().cloned();
+        if incoming.source.as_str() == "web"
+            && stamped
+                .as_ref()
+                .is_none_or(|context| context.actor_tools.is_none())
+        {
+            return Err(SessionError::Denied);
+        }
         if let Some(session) = &stamped {
             if session.reply_route().connector() != incoming.source.as_str()
                 || incoming.channel.as_ref().map(|channel| channel.as_str())
@@ -213,6 +220,9 @@ impl AlbertCogitator {
                 Err("Native aliases require a session journal.".into())
             }
         };
+        if let Some(receipt) = incoming.context.get::<SourceReceipt>() {
+            receipt.complete(result.clone());
+        }
         if let Some(permit) = incoming.context.get::<RequestPermit>() {
             permit.lifecycle.lock().unwrap().take();
             permit.request.lock().unwrap().take();

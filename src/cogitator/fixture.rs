@@ -35,6 +35,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         auth: AuthMode::ApiKey,
         base_url: String::new(),
         api_key: None,
+        openai_key_env: "ALBERT_OPENAI_KEY".into(),
         subscription_auth_json: path.join("auth.json"),
         subscription_base_url: String::new(),
         multimodal: true,

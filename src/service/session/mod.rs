@@ -12,6 +12,7 @@ mod migration;
 mod reminders;
 mod replay;
 mod temporary;
+pub(crate) mod web;
 
 use std::sync::Arc;
 

@@ -7,7 +7,7 @@ mod migration;
 
 mod tool;
 
-use std::{collections::HashMap, env::var, sync::Arc};
+use std::{collections::HashMap, env::var, path::PathBuf, sync::Arc};
 
 use kaeru_core::{KaeruConfig, Store};
 use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
@@ -39,6 +39,7 @@ pub enum MemoryError {
     Task(#[from] JoinError),
 }
 
+#[derive(Clone)]
 pub enum Memory {
     Embedded { memory: KaeruMemory, clouds: bool },
     Mcp(Arc<McpMemory>),
@@ -46,6 +47,13 @@ pub enum Memory {
 
 impl Memory {
     pub async fn open(config: &Config) -> Result<Self, MemoryError> {
+        Self::open_at(config, None).await
+    }
+
+    pub(crate) async fn open_at(
+        config: &Config,
+        vault: Option<PathBuf>,
+    ) -> Result<Self, MemoryError> {
         if let MemoryConfig::Mcp {
             timeout_secs,
             transport,
@@ -58,9 +66,12 @@ impl Memory {
             );
             return Ok(Self::Mcp(memory));
         }
-        let store = spawn_blocking(|| {
-            let config =
+        let store = spawn_blocking(move || {
+            let mut config =
                 KaeruConfig::from_env().map_err(|e| MemoryError::Embedded(e.to_string()))?;
+            if let Some(path) = vault {
+                config.vault_path = path;
+            }
             let store = Store::open_with_config(config)
                 .map_err(|e| MemoryError::Embedded(e.to_string()))?;
             Ok::<_, MemoryError>(Arc::new(store))

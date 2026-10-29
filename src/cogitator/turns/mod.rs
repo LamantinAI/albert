@@ -14,7 +14,11 @@ use rig::completion::Message;
 use tokio::task::JoinHandle;
 
 use super::{channel_of, feedback::close_feedback};
-use crate::{history::journal_messages, sessions::SessionContext, status::StatusFeed};
+use crate::{
+    history::journal_messages,
+    sessions::{actor::ActorToolPolicy, SessionContext},
+    status::StatusFeed,
+};
 
 #[derive(Default)]
 pub(super) struct ChannelState {
@@ -22,6 +26,7 @@ pub(super) struct ChannelState {
 }
 
 struct ActiveTurn {
+    tool_policy: ActorToolPolicy,
     /// Actual live feedback target, including idle compaction without a task.
     feedback: Arc<Envelope>,
     /// Original task envelope; absent for a compact started while idle.
@@ -37,6 +42,7 @@ struct ActiveTurn {
 }
 
 struct Interrupted {
+    tool_policy: ActorToolPolicy,
     feedback: Arc<Envelope>,
     /// Original task envelope; absent for a compact started while idle.
     continuation: Option<Arc<Envelope>>,
@@ -66,6 +72,7 @@ impl ChannelState {
         let mut messages = active.messages;
         messages.extend(journal_messages(&checkpoint));
         Some(Interrupted {
+            tool_policy: active.tool_policy,
             feedback: active.feedback,
             continuation: active.continuation,
             compact_id: active.compact_id,
@@ -87,6 +94,7 @@ pub(super) fn turn_key(env: &Envelope) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::{ActiveTurn, ChannelState};
+    use crate::sessions::actor::ActorToolPolicy;
     use crate::status::StatusFeed;
     use octo_connector_telegram::TurnFeedback;
     use octo_core::{ConnectorId, Envelope, EventKind};
@@ -109,6 +117,7 @@ mod tests {
         }
         let guard = DropNotice(Some(dropped));
         ActiveTurn {
+            tool_policy: ActorToolPolicy::ExistingHost,
             feedback: Arc::new(
                 Envelope::new(
                     ConnectorId::new("telegram"),
@@ -184,6 +193,7 @@ mod tests {
             state.active = None;
         });
         gate.active = Some(ActiveTurn {
+            tool_policy: ActorToolPolicy::ExistingHost,
             feedback: Arc::new(
                 Envelope::new(
                     ConnectorId::new("telegram"),

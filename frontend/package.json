@@ -1,0 +1,45 @@
+{
+  "name": "albert-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "generate": "node scripts/generate-api.mjs",
+    "build": "npm run typecheck && vite build",
+    "build:embedded": "npm run check:api && npm run typecheck && node scripts/build-embedded.mjs",
+    "check:embedded": "npm run check:api && npm run typecheck && node scripts/build-embedded.mjs --check",
+    "test": "vitest run",
+    "test:browser": "playwright test --project=browser-components",
+    "test:backend": "playwright test --project=real-backend",
+    "check:api": "node scripts/generate-api.mjs --check",
+    "preview": "vite preview",
+    "format": "prettier --write src tests *.ts *.json index.html",
+    "check:format": "prettier --check src tests *.ts *.json index.html"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "react-router-dom": "7.18.4",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "26.1.0",
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.9.10",
+    "swagger-ui-dist": "5.34.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
