@@ -23,6 +23,13 @@ deeper reference.
 - **[sql-connector.md](sql-connector.md)** — dedicated SQLite purpose stores, schema metadata, native SQL and authenticated human approval.
 - **[sessions.md](sessions.md)** — private chats across transports, channel-bound groups,
   temporary chats, retained history, startup backups and automatic legacy import.
+- **[session-messaging.md](session-messaging.md)** — accepted design for addressed
+  messages and context exchange between sessions, result delivery through channels,
+  and execution on different devices; implementation pending.
+- **[device-daemons.md](device-daemons.md)** — a dedicated local daemon and thin
+  Ratatui `albert.cli`, server-side cognition/history, sandboxed execution,
+  HTTP/WebSocket communication, CBOR over platform-specific local IPC, and
+  skill/credential delivery; implementation pending.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.

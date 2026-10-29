@@ -30,6 +30,20 @@ Octo is the environment an agent lives in, not the agent. It provides:
 Albert is a userland `Cogitator` — "you bring the brain." It never reimplements the
 bus, supervision, or connector lifecycle.
 
+The agreed next extension is [session messaging](session-messaging.md): Albert
+sessions become logical recipients over Octo's existing transport, exchanging
+messages and selected context while execution and physical delivery remain
+independent. This design covers results from another device arriving in Telegram
+and one session asking another about its work. Implementation is pending.
+
+The [device-daemon baseline](device-daemons.md) keeps cognition and canonical
+history on the server while authorized devices provide sandboxed execution.
+The device daemon is a separate reusable process; `albert.cli` is its first
+Ratatui client. Axum serves the server adapter, with reqwest and Tungstenite
+providing the daemon's HTTP/WebSocket link.
+Direct script/resource delivery is sufficient initially; synchronized packages
+and lazy skill caching remain optional extensions.
+
 ## The cogitator loop
 
 `AlbertCogitator` (`src/cogitator/`) subscribes to `chat.message` and `alarm.fired`

@@ -5,6 +5,11 @@ scratchpad and work scope. Its identity is independent of Telegram connector and
 physical chat IDs. The executor is currently `host`: the existing Albert server,
 workspace, files and tools. Other executor references require a later adapter.
 
+The accepted [session messaging design](session-messaging.md) extends this
+foundation with addressed inter-session messages, deliberate context transfer and
+explicit result destinations. It is not implemented yet; the captured reply-route
+behavior described below remains the current default.
+
 A private Session belongs to one canonical User. Verified external identities
 can be linked by trusted configuration; sharing a role such as `owner` does not
 link two people or grant access to someone else's Session. Each Telegram group
