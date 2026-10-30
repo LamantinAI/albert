@@ -26,7 +26,7 @@ Three independent references describe a typical operation:
 | Reference | Meaning | Example |
 | --- | --- | --- |
 | Working session | The conversation owning the work and its context | `Kaeru` |
-| Executor | The environment providing execution and local resources | A Mac and its daemon |
+| Execution target | The machine and connector instance providing execution and local resources | The Mac's sandboxed process connector, reached through its daemon |
 | Delivery destination | Where a result or another message should appear | The user's Telegram private channel |
 
 A result can therefore come from work using a Mac executor and arrive in
@@ -34,6 +34,38 @@ Telegram. The initial device-daemon design keeps the cogitator and canonical
 session history on the server. Another session can ask that working session for
 information without moving its execution, changing its identity, or opening it
 in the user's current channel.
+
+## Execution location and conversation transport
+
+A session records its default execution location: **a machine and an execution
+connector instance**. This is independent of the connector/channel through which
+the user is currently talking to Albert. A Telegram conversation can request
+work through a process connector on a Mac; opening that session in the web UI
+does not move its workspace or execution.
+
+The machine is the reserved server-local `host` or a stable registered device ID
+within the selected Albert server. The execution connector identifies the
+configured capability on that machine. Connector names and hostnames alone are
+not globally unique: two devices can expose a connector with the same name.
+User-facing labels can say “forkd · MacBook”; routing retains the resolved device
+and connector identities. A server-side device adapter supplies the bridge to a
+remote connector, rather than making the local Octo bus span machines.
+
+The user can select a location in the interface or say “inspect the project on
+my Mac.” Albert resolves the named machine and an appropriate available
+connector under the user's permissions. Ambiguous names or an unavailable target
+are surfaced, rather than executing on a different machine silently.
+
+Session metadata describes the default; each admitted operation records its
+actual resolved target. A request can explicitly use another machine for that
+work without changing the session default. Changing the default applies to
+future work and does not retarget an already admitted job or migrate its files.
+
+Placement does not force every tool call in a turn onto one machine or connector.
+The same request can inspect files on a Mac and use a server-side tracker
+connector. Each operation retains its actual execution location and outcome;
+artifacts and paths retain their machine association. The cogitator and canonical
+session history remain server-side in this baseline.
 
 ## Current foundation and the extension
 
@@ -137,9 +169,20 @@ This linked delivery neither switches the recipient's conversation implicitly
 nor merges the two histories. Delivering an already generated result does not
 require another model invocation solely to forward it.
 
-Progress, typing and intermediate tool output have a separate delivery policy.
-Requesting a final result in Telegram does not subscribe that channel to every
-event from the executor or move an existing typing/status lifetime to it.
+The user can select destinations for **intermediate reports and final results**
+independently, conversationally or in the interface. Each selection identifies
+an authorized connector/channel and a fixed-session or channel-active recipient,
+with the resolution and retry rules described above. The two report classes may
+share a destination or use different ones; both remain scoped to the selected
+work. For example, a Mac job can send stage summaries to the web conversation
+and its final answer to the user's Telegram conversation.
+
+An intermediate report is a deliberate progress message or stage summary, not
+an implicit subscription to raw tool output. Typing, transport status and raw
+executor events have their own feedback policy. Requesting a final result in
+Telegram does not subscribe that channel to every event from the executor or
+move an existing typing/status lifetime to it. Explicitly routing progress also
+does not change where the work runs or where unrelated work replies.
 
 ## Communication between sessions
 

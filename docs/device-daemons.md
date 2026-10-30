@@ -95,6 +95,14 @@ remaining unchanged. A renamed computer remains the same enrolled executor.
 The existing reserved `host` reference continues to identify server-local
 execution; device-backed sessions display the device's name instead.
 
+The session's execution location combines that machine reference with the
+execution connector instance on it, as defined in
+[session messaging](session-messaging.md#execution-location-and-conversation-transport).
+The connector used to reach the conversation is a separate reference. A daemon's
+advertised capabilities let the server resolve the appropriate connector on the
+selected machine; registering a device does not expose every local capability
+or make equal connector names on different devices interchangeable.
+
 New sessions created for the connected device default to that device as their
 execution environment. Opening an existing session from a different client does
 not silently move its workspace, change its executor or retarget running work.
@@ -385,6 +393,13 @@ requirements, data location, allowed capabilities, credential availability and
 node reachability. The model can select or propose a node based on advertised
 capabilities; the selected executor enforces actual permission and availability.
 
+An instruction such as “inspect this on my Mac” selects the machine and a
+permitted connector for that operation. The resolved pair is retained with the
+work, independently of the session's default placement and conversation
+transport. A session-default change affects later operations, not a job already
+accepted by a daemon. A request can still combine device-local execution with
+server-only integrations; each operation records its actual target.
+
 “Server execution is impossible” is not a general fallback condition. It can
 mean a known placement requirement, such as a Mac-only application or files that
 are deliberately available only on a device. A timeout, missing dependency or
@@ -530,10 +545,13 @@ Reconnect uses stable work IDs and observed outcomes before submitting another
 execution. Status distinguishes offline or last observed information from live
 progress, and unknown outcomes from success.
 
-Result destinations follow the [session messaging design](session-messaging.md).
+Report destinations follow the [session messaging design](session-messaging.md).
 A job on a Mac can produce a result for its server-side working session and
-notify the currently selected authorized Telegram session. The execution node
-and final delivery channel remain independent.
+notify an authorized Telegram session. The user can independently select where
+intermediate reports and the final result are delivered, including different
+connector/channel destinations. Fixed-session and channel-active delivery use
+the resolution rules in that design. The machine/connector executing the work,
+the conversation transport and report destinations remain independent.
 
 ## Open implementation details
 

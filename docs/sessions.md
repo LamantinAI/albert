@@ -10,6 +10,13 @@ foundation with addressed inter-session messages, deliberate context transfer an
 explicit result destinations. It is not implemented yet; the captured reply-route
 behavior described below remains the current default.
 
+That design records a default machine/connector execution location for each
+session and the actual resolved target for each operation. The user's current
+conversation transport and chosen intermediate/final report destinations remain
+independent of execution placement. These remote-placement and report-routing
+extensions are planned; the implementation described here still supports `host`
+and captured ingress reply routes.
+
 A private Session belongs to one canonical User. Verified external identities
 can be linked by trusted configuration; sharing a role such as `owner` does not
 link two people or grant access to someone else's Session. Each Telegram group
