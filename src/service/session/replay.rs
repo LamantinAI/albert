@@ -45,8 +45,14 @@ impl SessionService {
         };
         context.check(&original)?;
         context.check(context.session())?;
+        let mut current = None;
         if context.is_private() {
             if let Some(route) = find_in(&mut tx, &route_key(&context)?).await? {
+                current = Some((
+                    route_key(&context)?,
+                    SessionId::parse(&route.session_id)?,
+                    route.revision,
+                ));
                 context.selector_revision = Some(route.revision);
                 if context.session.kind == SessionKind::Temporary
                     || (route.session_id == bound_id.as_str() && route.return_session_id.is_some())
@@ -57,6 +63,9 @@ impl SessionService {
             }
         }
         tx.commit().await.map_err(DatabaseError::from)?;
+        if let Some((key, id, revision)) = current {
+            self.presentations.observe(&key, &id, revision);
+        }
         Ok(context)
     }
 }

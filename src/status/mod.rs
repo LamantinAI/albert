@@ -2,7 +2,7 @@
 //! into the chat while a turn runs: each tool call (and, when the provider
 //! returns them, reasoning summaries) becomes a `chat.status` envelope aimed at
 //! the source connector. The Telegram connector renders those as one in-place
-//! edited italic status message per turn (openclaw-style); the console just
+//! edited italic status message per presentation; the console just
 //! prints them.
 //!
 //! The feed is deliberately fire-and-forget: a failed publish is logged and the
@@ -24,13 +24,16 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tracing::warn;
 
-use crate::history::sessions::Backend;
-use crate::sessions::{telegram::output_scope, SessionContext};
+use crate::{history::sessions::Backend, sessions::SessionContext};
 
 mod feedback;
 mod hooks;
+mod metrics;
+mod presentation;
+pub(crate) use presentation::PresentationBinding;
+use presentation::{shared_state, PresentationState};
 mod trace;
-use self::trace::Trace;
+use self::{metrics::ToolMetrics, trace::Trace};
 
 /// The Responses-API identity for a host-made tool call: a `fc_…` item id and a
 /// `call_…` call id, both derived from the host's own id. Used when journaling an
@@ -60,8 +63,9 @@ pub struct StatusFeed {
     result_observer: Option<Arc<ResultObserver>>,
     session_context: Option<SessionContext>,
     discarded: Arc<AtomicBool>,
-    attempt_id: Option<String>,
-    feedback: Option<TurnFeedback>,
+    presentation: Arc<Mutex<PresentationState>>,
+    reattachable: bool,
+    metrics: Arc<ToolMetrics>,
 }
 
 #[derive(Clone)]
@@ -95,8 +99,9 @@ impl StatusFeed {
             result_observer: None,
             session_context: None,
             discarded: Arc::new(AtomicBool::new(false)),
-            attempt_id: None,
-            feedback: None,
+            presentation: shared_state(),
+            reattachable: true,
+            metrics: Arc::new(ToolMetrics::default()),
         }
     }
 
@@ -124,17 +129,19 @@ impl StatusFeed {
             result_observer: None,
             session_context: None,
             discarded: Arc::new(AtomicBool::new(false)),
-            attempt_id: None,
-            feedback: None,
+            presentation: shared_state(),
+            reattachable: true,
+            metrics: Arc::new(ToolMetrics::default()),
         }
     }
 
     pub(crate) fn with_session_context(mut self, context: Option<SessionContext>) -> Self {
+        self.edit_binding(|binding| binding.context = context.clone());
         self.session_context = context;
         self
     }
     pub(crate) fn with_attempt(mut self, attempt_id: String) -> Self {
-        self.attempt_id = Some(attempt_id);
+        self.edit_binding(|binding| binding.attempt = Some(attempt_id.clone()));
         self
     }
 
@@ -149,11 +156,13 @@ impl StatusFeed {
         let mut feed = Self::silent();
         feed.session_context = self.session_context.clone();
         feed.discarded = self.discarded.clone();
+        feed.set_diagnostics(self.diagnostics());
         feed
     }
 
     pub(crate) fn discard(&self) -> Result<(), &'static str> {
         self.discarded.store(true, Ordering::Release);
+        self.metrics.clear();
         let mut poisoned = false;
         let mut trace = self.trace.lock().unwrap_or_else(|error| {
             poisoned = true;
@@ -233,9 +242,11 @@ impl StatusFeed {
         }
         trace.response(None, OneOrMany::one(AssistantContent::ToolCall(call)));
         trace.start(name, Some(&call_id), id, &args);
+        self.start_tool_metric(id, name, true);
     }
 
     pub fn finish_external(&self, id: &str, result: &str) {
+        self.metrics.finish(id, result.len());
         let mut trace = self.trace.lock().unwrap();
         if self.is_live() {
             trace.result(id, result);
@@ -254,7 +265,10 @@ impl StatusFeed {
     }
 
     async fn emit(&self, line: String) {
-        if !self.is_live() || !self.feedback_open() {
+        let Some(binding) = self.presentation_binding() else {
+            return;
+        };
+        if !self.is_live() || !binding.feedback.as_ref().is_none_or(TurnFeedback::is_open) {
             return;
         }
         let Some(feed) = &self.feed else { return };
@@ -280,14 +294,7 @@ impl StatusFeed {
         if let Some(session) = &feed.session {
             env = env.with_tag("session_id", session);
         }
-        if let Some(session) = &self.session_context {
-            env = env
-                .with_context(session.clone())
-                .with_context(output_scope(session, self.attempt_id.clone()));
-        }
-        if let Some(feedback) = &self.feedback {
-            env = env.with_context(feedback.clone());
-        }
+        let env = binding.output(env);
         if let Err(e) = feed.bus.publish(env).await {
             warn!(error = %e, "failed to publish chat.status");
         }

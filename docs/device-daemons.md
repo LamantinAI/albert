@@ -553,6 +553,10 @@ connector/channel destinations. Fixed-session and channel-active delivery use
 the resolution rules in that design. The machine/connector executing the work,
 the conversation transport and report destinations remain independent.
 
+The host-only session messaging and report-routing layer exists independently
+of this device transport. Device registration, sandboxed remote execution and
+remote artifact transfer remain to be implemented.
+
 ## Open implementation details
 
 - The server-device handshake, message schema, enrollment and revocation protocol.

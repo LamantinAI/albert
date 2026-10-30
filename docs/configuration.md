@@ -137,9 +137,13 @@ the directory is mode 700 and completed snapshots are mode 600. A backup failure
 stops startup before either migration owner opens the database. Both the actual
 history database and backup directory are protected from user SQL stores.
 
-See [sessions.md](sessions.md) for private/group access, temporary chats, limits,
-identity links and automatic legacy import. No web server or browser login is
+See [sessions.md](sessions.md) for private/group access, temporary chats, title
+settings, limits, identity links and automatic legacy import. No browser login is
 enabled by this Session foundation.
+
+`[sessions.messaging]` controls host-only private session requests, inspection
+byte budgets, report delivery and retention. See [session-messaging.md](session-messaging.md)
+for the model tool, defaults and transport outcome semantics.
 
 ### Prompt files (`soul.md`, `system.md`)
 

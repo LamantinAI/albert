@@ -7,19 +7,21 @@ use std::{
 use async_trait::async_trait;
 use octo_approval::{Authority, Ingress, ScopeBinding};
 use octo_connector_telegram::{
-    IngressDecision, IngressScope, NativeFrame, TelegramHostPolicy, TelegramOutputScope,
-    TrackingLimits,
+    CallbackDecision, CallbackFrame, DeliveryReport, IngressDecision, IngressScope, NativeFrame,
+    TelegramHostPolicy, TelegramOutputScope, TrackingLimits, TurnFeedback,
 };
 use octo_core::Envelope;
 use tokio::sync::Mutex;
 
-use super::{commands::control, output_scope};
+use super::{commands::control, output_scope, picker::Picker};
 use crate::{
     commands::parse,
+    messaging::transport::ReportAttempt,
     service::session::{NativeRoute, SessionService},
     sessions::{
         error::{SessionError, SessionResult},
         native::request_alias,
+        presentation::{NavigationNotice, OrdinarySessionOutput},
         Admission, AdmissionScope, ExternalIdentity, ReplyRoute, SessionContext,
     },
 };
@@ -28,13 +30,55 @@ use crate::{
 pub(crate) struct SessionTelegramPolicy {
     pub(super) service: Arc<SessionService>,
     pub(super) authority: Authority,
-    admission: Mutex<()>,
+    pub(super) admission: Mutex<()>,
+    pub(super) picker: Picker,
     pub(super) saved_ended: SyncMutex<HashSet<(String, String)>>,
 }
 
 impl SessionTelegramPolicy {
+    fn navigation_visible(&self, envelope: &Envelope) -> bool {
+        envelope.context.get::<NavigationNotice>().is_none()
+            || envelope
+                .context
+                .get::<SessionContext>()
+                .is_some_and(|context| !self.service.presentations().detached(context))
+    }
+
+    fn progress_visible(&self, envelope: &Envelope) -> bool {
+        if !matches!(envelope.kind.as_str(), "chat.typing" | "chat.status") {
+            return true;
+        }
+        let Some(token) = envelope.context.get::<TurnFeedback>() else {
+            return true;
+        };
+        token.is_open()
+            && envelope
+                .context
+                .get::<SessionContext>()
+                .is_none_or(|context| {
+                    self.service.presentations().active(context)
+                        && !self.service.presentations().detached(context)
+                })
+    }
+    fn ordinary_visible(&self, envelope: &Envelope) -> bool {
+        if envelope.context.get::<OrdinarySessionOutput>().is_none() {
+            return true;
+        }
+        let active = envelope
+            .context
+            .get::<SessionContext>()
+            .is_some_and(|context| self.service.presentations().active(context));
+        if !active {
+            if let Some(attempt) = envelope.context.get::<ReportAttempt>() {
+                attempt.view_suppressed();
+            }
+        }
+        active
+    }
     pub fn new(service: Arc<SessionService>, authority: Authority) -> Self {
+        let picker = Picker::new(service.settings().picker.clone());
         Self {
+            picker,
             service,
             authority,
             admission: Mutex::new(()),
@@ -69,7 +113,7 @@ impl SessionTelegramPolicy {
             .filter(|command| {
                 matches!(
                     command.name.as_str(),
-                    "sessions" | "new" | "open" | "tmp" | "save" | "end"
+                    "sessions" | "new" | "open" | "rename" | "tmp" | "save" | "end"
                 )
             });
         let native_route = if admission.scope == AdmissionScope::Private {
@@ -174,11 +218,31 @@ impl TelegramHostPolicy for SessionTelegramPolicy {
             },
         })
     }
+    async fn callback(&self, frame: CallbackFrame) -> Result<CallbackDecision, String> {
+        self.picker_callback(frame).await
+    }
     fn allow_publish(&self, envelope: &Envelope) -> bool {
         live(envelope)
+            && self.navigation_visible(envelope)
+            && self.ordinary_visible(envelope)
+            && self.progress_visible(envelope)
     }
     fn allow_delivery(&self, envelope: &Envelope) -> bool {
         live(envelope)
+            && self.navigation_visible(envelope)
+            && self.ordinary_visible(envelope)
+            && self.progress_visible(envelope)
+    }
+    fn delivered(&self, envelope: &Envelope, report: &DeliveryReport) {
+        if let Some(attempt) = envelope.context.get::<ReportAttempt>() {
+            if envelope
+                .target
+                .as_ref()
+                .is_some_and(|target| target.as_str() == attempt.connector)
+            {
+                attempt.telegram(report);
+            }
+        }
     }
     fn tracking_limits(&self) -> TrackingLimits {
         let limits = &self.service.settings().limits;

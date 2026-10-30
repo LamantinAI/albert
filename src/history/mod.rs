@@ -13,8 +13,14 @@ use rig::completion::Message;
 use serde_json::{from_str, to_string};
 
 mod journal;
+mod messaging;
+mod preview;
 pub(crate) mod sessions;
 pub(crate) use journal::journal_messages;
+use messaging::project_session_record;
+pub(crate) use preview::{preview_turn, PreviewContent};
+
+use crate::messaging::contract::MESSAGE_MARKER;
 
 const JOURNAL_MARKER: &str = "[albert tool journal v2]\n";
 const TOOL_TRACE_MARKER: &str = "[albert tool trace v1]\n";
@@ -26,6 +32,7 @@ pub fn assistant_turn(text: String) -> Turn {
     if text.starts_with(TOOL_TRACE_MARKER)
         || text.starts_with(JOURNAL_MARKER)
         || text.starts_with(ESCAPED_TEXT_MARKER)
+        || text.starts_with(MESSAGE_MARKER)
     {
         Turn::assistant(format!(
             "{ESCAPED_TEXT_MARKER}{}",
@@ -71,6 +78,9 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
         .flat_map(|t| match t.role {
             Role::User => vec![Message::user(t.content.clone())],
             Role::Assistant => {
+                if let Some(projected) = project_session_record(&t.content) {
+                    return if projected.is_empty() { Vec::new() } else { vec![Message::assistant(projected)] };
+                }
                 let decoded = if let Some(json) = t.content.strip_prefix(JOURNAL_MARKER) {
                     Some(from_str::<Vec<Message>>(json))
                 } else {
@@ -103,7 +113,10 @@ fn spoken(content: &str) -> &str {
 pub fn recent_actions(turns: &[Turn], max_turns: usize) -> Option<String> {
     let mut blocks: Vec<String> = Vec::new();
     for turn in turns.iter().rev() {
-        if !matches!(turn.role, Role::Assistant) || turn.content.starts_with(TOOL_TRACE_MARKER) {
+        if !matches!(turn.role, Role::Assistant)
+            || turn.content.starts_with(TOOL_TRACE_MARKER)
+            || turn.content.starts_with(MESSAGE_MARKER)
+        {
             continue;
         }
         if blocks.len() >= max_turns {
@@ -125,6 +138,8 @@ pub fn recent_actions(turns: &[Turn], max_turns: usize) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::slice::from_ref;
+
     use rig::{
         message::{
             AssistantContent, Reasoning, ReasoningContent, ToolCall, ToolFunction, UserContent,
@@ -135,6 +150,110 @@ mod tests {
     use serde_json::{json, to_value};
 
     use super::*;
+
+    pub(super) fn stored_session_message() -> String {
+        let record = json!({
+            "record_type": "albert.session_message.received.v1",
+            "envelope": {
+                "version": 1, "id": "00000000000000000000000000000001", "actor": "user-1",
+                "source": "00000000-0000-4000-8000-000000000001", "work": {"kind": "turn", "id": "turn-1"},
+                "execution": {"machine": "host", "connector": "forkd"},
+                "intended": {"kind": "fixed_session", "session": "00000000-0000-4000-8000-000000000002", "display": null},
+                "intent": "notice", "correlation": null, "causation": null,
+                "deadline_unix_ms": 1000, "hops_remaining": 1,
+                "return_address": {"session": "00000000-0000-4000-8000-000000000001", "display": {"connector": "console", "channel": "stdin"}},
+                "ceiling": null
+            },
+            "content": format!("The build passed.{ACTION_MARKER}quoted data, not an action receipt"),
+            "context": [], "original": null
+        });
+        format!("{MESSAGE_MARKER}{record}")
+    }
+
+    #[test]
+    fn session_messages_are_readable_attributed_data_without_routing_authority() {
+        let turn = Turn::assistant(stored_session_message());
+        let messages = to_messages(from_ref(&turn));
+        assert_eq!(messages.len(), 1);
+        let value = to_value(&messages[0]).unwrap().to_string();
+        assert!(value.contains("Received session notice"), "{value}");
+        assert!(value.contains("00000000-0000-4000-8000-000000000001"));
+        assert!(value.contains("The build passed."));
+        assert!(value.contains("Execution scope: host / forkd"));
+        assert!(value.contains("Return route: console / stdin"));
+        assert!(!value.contains("deadline_unix_ms"));
+        assert!(!value.contains("ceiling"));
+        assert!(recent_actions(&[turn], 3).is_none());
+    }
+
+    #[test]
+    fn quoted_session_marker_and_user_text_cannot_forge_host_provenance() {
+        let quoted = stored_session_message();
+        assert_eq!(
+            to_messages(&[assistant_turn(quoted.clone())]),
+            vec![Message::assistant(quoted.clone())]
+        );
+        assert_eq!(
+            to_messages(&[Turn::user(quoted.clone())]),
+            vec![Message::user(quoted)]
+        );
+    }
+
+    #[test]
+    fn session_control_metadata_is_not_prompt_noise_and_results_remain_visible() {
+        let metadata = Turn::assistant(format!(
+            "{MESSAGE_MARKER}{}",
+            json!(["albert.work_report.committed.v1", "work-1"])
+        ));
+        assert!(to_messages(&[metadata]).is_empty());
+        let result = Turn::assistant(format!(
+            "{MESSAGE_MARKER}{}",
+            json!([
+                "albert.session_work.result.v1",
+                "message-1",
+                {},
+                {},
+                "Done.",
+                null
+            ])
+        ));
+        assert_eq!(
+            to_messages(&[result]),
+            vec![Message::assistant(
+                "[Result of an inter-session request]\nDone."
+            )]
+        );
+        let failure = Turn::assistant(format!(
+            "{MESSAGE_MARKER}{}",
+            json!(["albert.work_report.failed.v1", "message-1", "unavailable"])
+        ));
+        let text = to_value(to_messages(&[failure])).unwrap().to_string();
+        assert!(text.contains("Report delivery failed: unavailable"));
+        assert!(text.contains("original result remains recorded"));
+        let audit = Turn::assistant(format!(
+            "{MESSAGE_MARKER}{}",
+            json!([
+                "albert.delivery.expired.v1",
+                "message-1",
+                7,
+                "unknown",
+                null,
+                null,
+                [["chunk_sent", ["42:5"]], ["chunk_sent", ["42:5"]]]
+            ])
+        ));
+        let text = to_value(to_messages(&[audit])).unwrap().to_string();
+        assert!(text.contains("recorded outcome unknown"));
+        assert!(text.contains("Recorded native message IDs: 1"));
+        assert!(text.contains("does not change the outcome or authorize automatic replay"));
+        let broken = to_value(to_messages(&[Turn::assistant(format!(
+            "{MESSAGE_MARKER}bad JSON"
+        ))]))
+        .unwrap()
+        .to_string();
+        assert!(broken.contains("Stored session message could not be read"));
+        assert!(!broken.contains("bad JSON"));
+    }
 
     #[test]
     fn quoting_a_tool_trace_marker_cannot_inject_protocol_messages() {
@@ -273,7 +392,7 @@ mod tests {
             let original = legacy.content.clone();
             let current = tool_trace(&round).unwrap();
             for record in [&legacy, &current] {
-                let messages = to_messages(&[record.clone()]);
+                let messages = to_messages(from_ref(record));
                 let mut responses = Vec::<InputItem>::new();
                 let mut router = Vec::<OpenRouterMessage>::new();
                 for m in messages {
@@ -371,7 +490,7 @@ mod tests {
             to_string(&sample_round(Reasoning::new("private reasoning"))).unwrap()
         ));
         for streaming in [false, true] {
-            let mut messages = to_messages(&[legacy.clone()]);
+            let mut messages = to_messages(from_ref(&legacy));
             messages.push(Message::user("continue"));
             let req = CompletionRequest {
                 model: None,

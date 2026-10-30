@@ -2,12 +2,19 @@ use octo_history::MAX_PAGE_SIZE;
 use serde::{Deserialize, Serialize};
 
 use super::{error::SessionResult, ExternalIdentity, UserId};
-use crate::sessions::error::SessionError;
+use crate::{
+    messaging::settings::MessagingSettings,
+    service::session::titles::TitleSettings,
+    sessions::{error::SessionError, telegram::picker::PickerSettings},
+};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SessionSettings {
     pub limits: SessionLimits,
+    pub messaging: MessagingSettings,
+    pub titles: TitleSettings,
+    pub picker: PickerSettings,
     /// Trusted host configuration, never inferred from an ACL role.
     pub identity_links: Vec<IdentityLink>,
 }
@@ -19,6 +26,8 @@ pub(crate) struct SessionLimits {
     pub temporary_max_turns: usize,
     pub temporary_max_bytes: usize,
     pub max_page_size: u32,
+    pub open_preview_max_records: usize,
+    pub open_preview_max_bytes: usize,
     pub telegram_tracking_max_scopes: usize,
     pub telegram_tracking_max_ids: usize,
     pub telegram_cleanup_batches: usize,
@@ -32,6 +41,8 @@ impl Default for SessionLimits {
             temporary_max_turns: 10_000,
             temporary_max_bytes: 32 * 1024 * 1024,
             max_page_size: 100,
+            open_preview_max_records: 32,
+            open_preview_max_bytes: 2048,
             telegram_tracking_max_scopes: 256,
             telegram_tracking_max_ids: 10_000,
             telegram_cleanup_batches: 4,
@@ -50,10 +61,17 @@ pub(crate) struct IdentityLink {
 
 impl SessionSettings {
     pub(crate) fn validate(&self) -> SessionResult<()> {
+        self.titles.validate()?;
+        self.picker.validate()?;
+        self.messaging
+            .validate()
+            .map_err(|_| SessionError::InvalidInput("invalid messaging settings"))?;
         let limits = &self.limits;
         if limits.temporary_max_sessions == 0
             || limits.temporary_max_turns == 0
             || limits.temporary_max_bytes == 0
+            || !(1..=100).contains(&limits.open_preview_max_records)
+            || !(256..=8192).contains(&limits.open_preview_max_bytes)
             || limits.max_page_size == 0
             || limits.max_page_size as usize > MAX_PAGE_SIZE
             || limits.telegram_tracking_max_scopes == 0

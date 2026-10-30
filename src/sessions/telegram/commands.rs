@@ -1,9 +1,14 @@
 use octo_connector_telegram::{CleanupRequest, IngressDecision, NativeFrame};
 use octo_core::{ConnectorId, Envelope, EventKind};
-use octo_history::{PageRequest, SessionId};
+use octo_history::SessionId;
 use serde_json::json;
 
-use super::{output_scope, policy::SessionTelegramPolicy};
+use super::{
+    navigation::{navigation_notice, transition_events},
+    output_scope,
+    picker::registry::{Binding, Cursor},
+    policy::SessionTelegramPolicy,
+};
 use crate::sessions::{
     error::{SessionError, SessionResult},
     SessionContext, SessionEnded,
@@ -16,6 +21,7 @@ pub(super) async fn control(
     name: &str,
     args: &str,
 ) -> SessionResult<IngressDecision> {
+    let previous = context.clone();
     let mut cleanup = None;
     let mut post_events = Vec::new();
     let notice = match name {
@@ -30,38 +36,22 @@ pub(super) async fn control(
                         .ok_or(SessionError::InvalidInput("use /sessions [page-cursor]"))?,
                 )
             };
-            let page = policy
-                .service
-                .list_private(
+            let reply = policy
+                .picker_page(
                     &context,
-                    PageRequest {
-                        before_id,
-                        ..PageRequest::default()
+                    Binding::native(frame, &context)?,
+                    Cursor {
+                        before: before_id,
+                        ..Cursor::default()
                     },
                 )
                 .await?;
-            let mut text = String::from("Saved chats (use /open <id>):");
-            for session in page.sessions {
-                let title = if session.title.is_empty() {
-                    "Untitled"
-                } else {
-                    &session.title
-                };
-                text.push_str(&format!(
-                    "\n{} — {}{}",
-                    session.id,
-                    title,
-                    if session.id == *context.session_id() {
-                        " (current)"
-                    } else {
-                        ""
-                    }
-                ));
-            }
-            if let Some(cursor) = page.next_before.filter(|_| page.has_more) {
-                text.push_str(&format!("\nNext page: /sessions {cursor}"));
-            }
-            text
+            return Ok(IngressDecision::Control {
+                notice: None,
+                scope: Some(output_scope(&context, None).scope),
+                post_events: vec![reply],
+                cleanup: None,
+            });
         }
         "new" => {
             context = policy
@@ -69,6 +59,13 @@ pub(super) async fn control(
                 .create_private_native(&context, args, Some(frame))
                 .await?;
             format!("New chat opened: {}", context.session_id())
+        }
+        "rename" => {
+            context = policy
+                .service
+                .rename_private(&context, args, Some(frame))
+                .await?;
+            "Chat renamed.".into()
         }
         "open" => {
             let id = SessionId::parse(args)
@@ -80,10 +77,7 @@ pub(super) async fn control(
                 .service
                 .open_private_native(&context, &id, revision, Some(frame))
                 .await?;
-            format!(
-                "Chat opened: {}. Its history will be used for your next message.",
-                context.session_id()
-            )
+            policy.service.open_notice(&context).await
         }
         "tmp" => {
             no_args(args)?;
@@ -142,8 +136,23 @@ pub(super) async fn control(
         }
         _ => return Err(SessionError::InvalidInput("unknown session command")),
     };
+    post_events.extend(transition_events(
+        &policy.service,
+        &previous,
+        &context,
+        name == "open",
+    ));
+    // The pinned Control.notice seam carries only a retention scope, not its
+    // selector revision. Publish navigation text as a separately fenced host
+    // reply so a later navigation can suppress a stale preview/receipt.
+    let notice = if matches!(name, "new" | "open" | "tmp" | "end") {
+        post_events.push(navigation_notice(&context, notice));
+        None
+    } else {
+        Some(notice)
+    };
     Ok(IngressDecision::Control {
-        notice: Some(notice),
+        notice,
         scope: Some(output_scope(&context, None).scope),
         post_events,
         cleanup,

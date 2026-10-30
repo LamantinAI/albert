@@ -55,6 +55,9 @@ impl SessionService {
             runtime_epoch,
             leases,
             native_seen: Arc::new(NativeSeen::default()),
+            adapters: Default::default(),
+            presentations: Default::default(),
+            title_jobs: Default::default(),
         })
     }
 }

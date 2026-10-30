@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use rig::{
     completion::{
@@ -7,9 +7,9 @@ use rig::{
     streaming::StreamingCompletionResponse,
 };
 use serde_json::{json, to_string, Value};
-use tracing::info;
+use tracing::{info, Instrument};
 
-use super::{recovery::Recovery, Settings};
+use super::{diagnostics::Diagnostics, recovery::Recovery, DiagnosticScope, Settings};
 use crate::{status::StatusFeed, subagents::budget::Budget};
 
 /// Every model round is checked, including tool continuations and fallback.
@@ -21,6 +21,8 @@ pub struct BudgetedModel<M> {
     turn_budget: Option<Arc<Budget>>,
     recovery: Option<Recovery>,
     model_params: Option<Value>,
+    diagnostics: Diagnostics,
+    diagnostic_feed: Option<StatusFeed>,
 }
 impl<M> BudgetedModel<M> {
     pub fn new(inner: M, settings: Option<Settings>, api_output_cap: bool) -> Self {
@@ -31,7 +33,21 @@ impl<M> BudgetedModel<M> {
             turn_budget: None,
             recovery: None,
             model_params: None,
+            diagnostics: Diagnostics::default(),
+            diagnostic_feed: None,
         }
+    }
+    pub(crate) fn with_diagnostics(mut self, scope: Option<DiagnosticScope>) -> Self {
+        self.diagnostics.scope = scope;
+        self
+    }
+    pub(crate) fn with_diagnostic_model(mut self, model: &str) -> Self {
+        self.diagnostics.model = Some(model.into());
+        self
+    }
+    pub(crate) fn with_diagnostic_feed(mut self, feed: StatusFeed) -> Self {
+        self.diagnostic_feed = Some(feed);
+        self
     }
     pub fn with_model_params(mut self, params: Option<Value>) -> Self {
         self.model_params = params;
@@ -123,28 +139,90 @@ impl<M: CompletionModel> CompletionModel for BudgetedModel<M> {
         &self,
         mut request: CompletionRequest,
     ) -> Result<CompletionResponse<Self::Response>, CompletionError> {
-        self.guard(&mut request)?;
-        let response = match &self.recovery {
-            Some(recovery) => recovery.complete(&self.inner, request).await?,
-            None => self.inner.completion(request).await?,
-        };
-        if let Some(budget) = &self.turn_budget {
-            budget.record(&response.choice);
-        }
-        if self.settings.is_some() {
-            info!(
-                input_tokens = response.usage.input_tokens,
-                output_tokens = response.usage.output_tokens,
-                "provider context usage"
-            );
-        }
-        Ok(response)
+        let round = self.diagnostics.next("completion");
+        let request_id = round.id;
+        let span = round.span;
+        async move {
+            let started = Instant::now();
+            if let Err(error) = self.guard(&mut request) {
+                info!(guard_ms = elapsed_ms(started), provider_called = false, "model request rejected before provider");
+                return Err(error);
+            }
+            let guard_ms = elapsed_ms(started);
+            let cap = request.max_tokens;
+            if let Some(feed) = &self.diagnostic_feed {
+                feed.set_request_id(&request_id);
+            }
+            let provider_started = Instant::now();
+            // Includes client recovery/backoff, transport, provider queues and
+            // compute. This is not a measurement of pure inference or TTFB.
+            let result = match &self.recovery {
+                Some(recovery) => recovery.complete(&self.inner, request).await,
+                None => self.inner.completion(request).await,
+            };
+            let provider_round_wall_ms = elapsed_ms(provider_started);
+            match result {
+                Ok(response) => {
+                    if let Some(budget) = &self.turn_budget {
+                        budget.record(&response.choice);
+                    }
+                    if self.settings.is_some() || self.diagnostics.scope.is_some() {
+                        info!(guard_ms, provider_round_wall_ms,
+                            recovery_enabled = self.recovery.is_some(), provider_called = true,
+                            input_tokens = response.usage.input_tokens,
+                            output_tokens = response.usage.output_tokens,
+                            reported_cached_input_tokens = response.usage.cached_input_tokens,
+                            applied_output_cap = ?cap,
+                            applied_output_cap_hit = ?cap.map(|limit| response.usage.output_tokens >= limit),
+                            "provider context usage");
+                    }
+                    Ok(response)
+                }
+                Err(error) => {
+                    info!(guard_ms, provider_round_wall_ms, provider_called = true,
+                        recovery_enabled = self.recovery.is_some(), "provider completion round failed");
+                    Err(error)
+                }
+            }
+        }.instrument(span).await
     }
     async fn stream(
         &self,
         mut request: CompletionRequest,
     ) -> Result<StreamingCompletionResponse<Self::StreamingResponse>, CompletionError> {
-        self.guard(&mut request)?;
-        self.inner.stream(request).await
+        let round = self.diagnostics.next("stream_setup");
+        let request_id = round.id;
+        let span = round.span;
+        async move {
+            let started = Instant::now();
+            if let Err(error) = self.guard(&mut request) {
+                info!(
+                    guard_ms = elapsed_ms(started),
+                    provider_called = false,
+                    "model stream rejected before provider"
+                );
+                return Err(error);
+            }
+            let guard_ms = elapsed_ms(started);
+            if let Some(feed) = &self.diagnostic_feed {
+                feed.set_request_id(&request_id);
+            }
+            let setup = Instant::now();
+            let result = self.inner.stream(request).await;
+            info!(
+                guard_ms,
+                stream_setup_wall_ms = elapsed_ms(setup),
+                succeeded = result.is_ok(),
+                stream_completion_observed = false,
+                "model stream setup finished"
+            );
+            result
+        }
+        .instrument(span)
+        .await
     }
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }

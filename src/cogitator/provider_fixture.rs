@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{net::TcpListener, spawn, task::JoinHandle};
+use tokio::{net::TcpListener, spawn, task::JoinHandle, time::sleep};
 pub(super) struct Server {
     pub(super) requests: Arc<Mutex<Vec<Value>>>,
     task: JoinHandle<()>,
@@ -32,11 +32,44 @@ async fn completion(
         requests.push(body.clone());
         requests.iter().filter(|r| r["model"] == model).count()
     };
+    if model.starts_with("title-")
+        && body["messages"]
+            .to_string()
+            .contains("Create a short, meaningful conversation title")
+    {
+        if model == "title-delayed" {
+            sleep(Duration::from_millis(350)).await;
+        }
+        if model == "title-failing" {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error":{"message":"test unavailable"}})),
+            );
+        }
+        return (
+            StatusCode::OK,
+            Json(
+                json!({"id":"title-test","object":"chat.completion","created":0,"model":model,"choices":[{"index":0,"message":{"role":"assistant","content":"SQLite journal recovery"},"finish_reason":"stop"}],"usage":{"prompt_tokens":32,"completion_tokens":6,"total_tokens":38}}),
+            ),
+        );
+    }
+    if model == "message-native-policy" && count == 2 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    if model == "message-after-tool" && count > 1 {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    if model == "nav-feedback-tools" {
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+    }
     if model.starts_with("never") {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
     if model == "feedback-phases" && count == 1 {
         tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
+    if model == "visibility-native" {
+        tokio::time::sleep(Duration::from_millis(350)).await;
     }
     if model == "session-delayed" {
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -64,7 +97,35 @@ async fn completion(
             Json(json!({"error":{"code":400,"message":"This model does not support images"}})),
         );
     }
-    let (message, finish) = if matches!(model, "sql-create" | "sql-list") && count == 1 {
+    let (message, finish) = if model == "message-progress" && count == 1 {
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":"progress","type":"function","function":{"name":"report_progress","arguments":json!({"content":"Deliberate verified stage summary"}).to_string()}}]}),
+            "tool_calls",
+        )
+    } else if (model == "message-native-policy" && matches!(count, 1 | 3))
+        || (model == "message-native-delivery" && count == 1)
+    {
+        let arguments = if count == 1 {
+            let wire = body["messages"].to_string();
+            let value = wire.split_once("POLICY_TARGET:").unwrap().1;
+            let target: String = value
+                .chars()
+                .take_while(|character| character.is_ascii_hexdigit() || *character == '-')
+                .collect();
+            let display = if model == "message-native-delivery" {
+                json!({"connector":"telegram","channel":"7"})
+            } else {
+                Value::Null
+            };
+            json!({"action":"reports","policy":{"revision":1,"intermediate":null,"final_result":{"kind":"fixed_session","session":target,"display":display}}})
+        } else {
+            json!({"action":"reports"})
+        };
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[{"id":format!("reports-{count}"),"type":"function","function":{"name":"session_messaging","arguments":arguments.to_string()}}]}),
+            "tool_calls",
+        )
+    } else if matches!(model, "sql-create" | "sql-list") && count == 1 {
         let (kind, payload) = if model == "sql-create" {
             (
                 "sql.store.create",
@@ -111,7 +172,15 @@ async fn completion(
             }}]}),
             "tool_calls",
         )
-    } else if matches!(model, "child-dispatch" | "large-output" | "volatile-output") && count == 1 {
+    } else if matches!(
+        model,
+        "child-dispatch"
+            | "large-output"
+            | "volatile-output"
+            | "message-after-tool"
+            | "nav-feedback-tools"
+    ) && count == 1
+    {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"child-search","type":"function","function":{
                 "name":"dispatch_to_connector","arguments":json!({"target":"search","kind":"search.web","payload":{"query":"test"}}).to_string()
@@ -163,7 +232,7 @@ async fn completion(
         )
     } else {
         (
-            json!({"role":"assistant","content":if model == "empty" { " ".to_string() } else { format!("answer from {model}") }}),
+            json!({"role":"assistant","content":if model == "empty" { " ".to_string() } else if model == "visibility-native" { if count == 1 { "Native full report with table\n\n| Result | Evidence |\n| --- | --- |\n| Main | preserved |".to_owned() } else { "Short inter-session response".to_owned() } } else { format!("answer from {model}") }}),
             "stop",
         )
     };

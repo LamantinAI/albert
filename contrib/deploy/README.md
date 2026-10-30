@@ -5,7 +5,8 @@ no API key, no `codex` CLI on the server. All runtime state (tokens, kaeru memor
 history, alarms) lives in one named volume, so restarts and rebuilds lose nothing.
 
 > Run these commands from a machine that can reach your server over SSH.
-> Configure firewall rules and SSH access for your deployment environment.
+> Configure firewall rules and SSH access for your deployment environment before
+> starting the deployment.
 
 Files: [`Dockerfile`](Dockerfile) · [`docker-compose.yml`](docker-compose.yml) ·
 [`albert.toml`](albert.toml) (subscription config, container paths) ·

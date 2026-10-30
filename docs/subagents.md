@@ -40,10 +40,16 @@ version; parent conversation history, persona and attachments are not copied.
 Spawn returns a `run_id`. Other actions:
 
 - `list`: runs visible in this source connector and conversation.
-- `inspect`, with `run_id` and optional entry `offset`: compact state and a page
+- `inspect`, with `run_id`, optional entry `offset` and bounded `limit`: compact state and a page
   of actions, previews, extraction metadata and paths to heavy payload files.
   The full journal stays in the configured history store; completed runs are
   inspected from that store. Live/unpersisted runs use their in-memory trace.
+  The lightweight index stays within the normal inline tool-output cap so its
+  entries, read references and continuation remain directly visible. Requested
+  limits can be capped by configuration or the serialized byte budget; use the
+  returned effective limit and `next_offset`, never `offset + requested_limit`.
+  Read only selected entry fields when diagnosing a failed run; reconstructing
+  the entire journal through raw artifact slices wastes model rounds.
 - `read`, with `run_id`, `entry`, optional `part` (`result` or `arguments`),
   `field` (e.g. `["result", "html"]`), character `offset` and `limit`: read a
   bounded portion of one journal payload. It preserves the same conversation and

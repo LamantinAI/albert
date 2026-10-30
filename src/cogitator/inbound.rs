@@ -8,12 +8,26 @@ use super::{command_reply, compaction::CompactOptions, turn_key, AlbertCogitator
 use crate::{
     acl::{command as acl_command, is_acl_admin, is_owner, should_respond, tag},
     commands::{help, parse, seed},
-    sessions::SessionContext,
-    sessions::SessionEnded,
+    sessions::{
+        presentation::{PresentationDetached, PresentationOpened},
+        SessionContext, SessionEnded,
+    },
 };
 
 impl AlbertCogitator {
     pub(super) async fn handle(self: Arc<Self>, incoming: Arc<Envelope>, ctx: &CogitatorContext) {
+        if incoming.kind.as_str() == "albert.presentation.opened" {
+            if let Some(opened) = incoming.context.get::<PresentationOpened>() {
+                self.open_presentation(&opened.0, ctx).await;
+            }
+            return;
+        }
+        if incoming.kind.as_str() == "albert.presentation.detached" {
+            if let Some(detached) = incoming.context.get::<PresentationDetached>() {
+                self.detach_presentation(detached, ctx).await;
+            }
+            return;
+        }
         if incoming.kind.as_str() == "albert.session.closed" {
             if let Some(ended) = incoming.context.get::<SessionEnded>() {
                 self.on_session_ended(&ended.session_id, ctx).await;

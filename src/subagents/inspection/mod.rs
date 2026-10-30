@@ -1,17 +1,17 @@
 //! Bounded views of the database journal, with payload-only artifact files.
 mod artifacts;
+mod index;
+pub use index::{inspect_run, IndexRequest};
 mod records;
 
+#[cfg(test)]
 use std::path::Path;
 
 use rig::completion::Message;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use self::{
-    artifacts::{clip, materialize},
-    records::records,
-};
+use self::records::records;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -40,74 +40,40 @@ impl Settings {
     }
 }
 
-pub fn inspect(messages: &[Message], root: &Path, settings: &Settings, offset: usize) -> Value {
-    inspect_inner(messages, Some(root), settings, offset)
+#[cfg(test)]
+fn inspect(messages: &[Message], root: &Path, settings: &Settings, offset: usize) -> Value {
+    inspect_run(
+        messages,
+        Some(root),
+        settings,
+        IndexRequest {
+            run_id: "test-run",
+            run: json!({"run_id":"test-run","status":"failed","result_available":true}),
+            offset,
+            limit: None,
+            inline_bytes: settings.artifact_bytes.max(1024),
+        },
+    )
+    .unwrap()["journal"]
+        .clone()
 }
 
+#[cfg(test)]
 pub fn inspect_volatile(messages: &[Message], settings: &Settings, offset: usize) -> Value {
-    inspect_inner(messages, None, settings, offset)
-}
-
-fn inspect_inner(
-    messages: &[Message],
-    root: Option<&Path>,
-    settings: &Settings,
-    offset: usize,
-) -> Value {
-    let records = records(messages);
-    let entries: Vec<_> = records
-        .iter()
-        .enumerate()
-        .skip(offset)
-        .take(settings.page_size)
-        .map(|(index, record)| {
-            let output = record.output.as_ref().unwrap_or(&Value::Null).clone();
-            let status = if record.output.is_none() {
-                "pending"
-            } else if output.get("status").and_then(Value::as_str) == Some("unknown")
-                || output.as_str().is_some_and(|s| s.contains("UNKNOWN"))
-            {
-                "unknown"
-            } else if output.as_str().is_some_and(|s| s.contains("NOT executed")) {
-                "not_executed"
-            } else if output.get("error").is_some()
-                || output.get("status").and_then(Value::as_str) == Some("not_sent")
-            {
-                "error"
-            } else {
-                "returned"
-            };
-            let view = |value: &Value| match root {
-                Some(root) => materialize(value, root, settings),
-                None => json!({"preview":clip(&value.to_string(), settings.preview_chars),"note":"Temporary payload remains in the RAM journal. Use subagent read; automatic disk materialization is disabled."}),
-            };
-            let payload = view(&output);
-            let arguments = view(&record.arguments);
-            json!({"entry":index,"id":record.id,"call_id":record.call_id,"tool":record.tool,"status":status,
-            "result_metadata":result_metadata(&output, settings.preview_chars),
-            "arguments_preview":clip(&record.arguments.to_string(), settings.preview_chars),
-            "arguments_path":arguments.get("path"),
-            "result_preview":clip(&output.to_string(), settings.preview_chars),
-            "result_path":payload.get("path"),"files":payload.get("files"),
-            "artifact_error":payload.get("artifact_error"),
-            "result_bytes":output.to_string().len()})
-        })
-        .collect();
-    let next = offset.saturating_add(entries.len());
-    json!({"entries":entries,"total":records.len(),"next_offset":if next < records.len() {Some(next)} else {None},
-        "hint":"Use subagent read with run_id and entry for a bounded journal payload, or read the listed artifact paths selectively. The journal stays in the history database."})
-}
-
-fn result_metadata(output: &Value, chars: usize) -> Value {
-    let body = output.get("result").unwrap_or(output);
-    let short = |name: &str| {
-        body.get(name)
-            .and_then(Value::as_str)
-            .map(|s| clip(s, chars))
-    };
-    json!({"status":short("status"),"error":short("error"),"url":short("url"),
-        "text_chars":body.get("text").and_then(Value::as_str).map(|s| s.chars().count()),
-        "html_bytes":body.get("html").and_then(Value::as_str).map(str::len)})
+    inspect_run(
+        messages,
+        None,
+        settings,
+        IndexRequest {
+            run_id: "test-run",
+            run: json!({"run_id":"test-run","status":"failed","result_available":true}),
+            offset,
+            limit: None,
+            inline_bytes: settings.artifact_bytes.max(1024),
+        },
+    )
+    .unwrap()["journal"]
+        .clone()
 }
 
 pub fn read_entry(
@@ -280,5 +246,105 @@ mod tests {
         let view = inspect(&messages, root.path(), &Settings::default(), 0);
         assert_eq!(view["total"], 1);
         assert_eq!(view["entries"][0]["status"], "returned");
+    }
+}
+
+#[cfg(test)]
+mod bounded_index_tests {
+    use rig::completion::Message;
+    use serde_json::{json, to_string};
+
+    use super::{inspect_run, read_entry, IndexRequest, Settings};
+    use crate::{history::journal_messages, status::StatusFeed};
+    fn messages(count: usize) -> Vec<Message> {
+        let feed = StatusFeed::silent();
+        for index in 0..count {
+            let id = format!("call-{index}");
+            feed.start_external(
+                &id,
+                "dispatch_to_connector",
+                json!({"long": "argument ".repeat(1000)}),
+            );
+            if index + 1 < count {
+                feed.finish_external(&id,&json!({"kind":"browser.fetch.result","result":{"text":format!("entry-{index} {}","evidence ".repeat(5000)),"url":"https://example.test","error":null}}).to_string());
+            }
+        }
+        journal_messages(&feed.snapshot())
+    }
+    fn request(offset: usize, limit: Option<usize>, bytes: usize) -> IndexRequest<'static> {
+        IndexRequest {
+            run_id: "host/child-1",
+            run: json!({"run_id":"host/child-1","status":"failed","result_available":true,"result_metadata":{"error":"Empty answer"}}),
+            offset,
+            limit,
+            inline_bytes: bytes,
+        }
+    }
+    #[test]
+    fn requested_limit_is_explicitly_capped_and_cursor_uses_returned_entries() {
+        let messages = messages(5);
+        let settings = Settings {
+            page_size: 2,
+            ..Settings::default()
+        };
+        let one = inspect_run(&messages, None, &settings, request(0, Some(1), 16384)).unwrap();
+        assert_eq!(one["journal"]["effective_limit"], 1);
+        assert_eq!(one["journal"]["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(one["journal"]["next_offset"], 1);
+        let capped = inspect_run(&messages, None, &settings, request(1, Some(100), 16384)).unwrap();
+        assert_eq!(capped["journal"]["effective_limit"], 2);
+        assert_eq!(capped["journal"]["returned"], 2);
+        assert_eq!(capped["journal"]["next_offset"], 3);
+        assert!(inspect_run(&messages, None, &settings, request(0, Some(0), 16384)).is_err());
+    }
+    #[test]
+    fn byte_bound_progresses_through_oversized_records_without_skips_or_duplicates() {
+        let messages = messages(7);
+        let original = to_string(&messages).unwrap();
+        let settings = Settings {
+            preview_chars: 5000,
+            ..Settings::default()
+        };
+        let mut offset = 0;
+        let mut entries = Vec::new();
+        loop {
+            let page =
+                inspect_run(&messages, None, &settings, request(offset, Some(20), 1024)).unwrap();
+            assert!(page.to_string().len() <= 1024);
+            assert_eq!(page["run"]["status"], "failed");
+            let returned = page["journal"]["entries"].as_array().unwrap();
+            assert!(!returned.is_empty());
+            assert_eq!(page["journal"]["returned"], returned.len());
+            for entry in returned {
+                entries.push(entry["entry"].as_u64().unwrap() as usize);
+                assert_eq!(entry["read_ref"]["run_id"], "host/child-1");
+                assert_eq!(entry["read_ref"]["entry"], entry["entry"]);
+            }
+            let Some(next) = page["journal"]["next_offset"].as_u64() else {
+                assert_eq!(page["journal"]["has_more"], false);
+                break;
+            };
+            assert_eq!(next as usize, offset + returned.len());
+            offset = next as usize;
+        }
+        assert_eq!(entries, (0..7).collect::<Vec<_>>());
+        assert_eq!(original, to_string(&messages).unwrap());
+        let selected = read_entry(
+            &messages,
+            2,
+            "result",
+            &["result".into(), "text".into()],
+            0,
+            Some(7),
+            &settings,
+        )
+        .unwrap();
+        assert_eq!(selected["content"], "entry-2");
+        let last = inspect_run(&messages, None, &settings, request(6, Some(1), 1024)).unwrap();
+        assert_eq!(last["journal"]["entries"][0]["status"], "unknown");
+        assert!(last["journal"]["entries"][0]["read_ref"]["field"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 }

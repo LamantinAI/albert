@@ -9,7 +9,11 @@ use tracing::warn;
 use super::{AlbertCogitator, SCHEDULER_ID};
 use crate::{
     history::{assistant_turn, Turn},
-    sessions::{telegram::output_scope, SessionContext},
+    sessions::{
+        presentation::{OrdinarySessionOutput, ScheduledNotification},
+        telegram::output_scope,
+        SessionContext,
+    },
     status::StatusFeed,
 };
 
@@ -85,6 +89,23 @@ impl AlbertCogitator {
         let Ok(_delivery) = self.delivery_lease(incoming).await else {
             return;
         };
+        if let Some(feed) = incoming.context.get::<StatusFeed>() {
+            if let Some(binding) = feed.presentation_binding() {
+                if binding
+                    .feedback
+                    .as_ref()
+                    .is_none_or(|token| token.is_open())
+                {
+                    let event = binding.output(Envelope::new(
+                        self.self_source.clone(),
+                        EventKind::new("chat.typing"),
+                        json!({}),
+                    ));
+                    let _ = ctx.publish(event).await;
+                }
+            }
+            return;
+        }
         let event = self.feedback_output(
             incoming,
             Envelope::new(
@@ -177,6 +198,10 @@ impl AlbertCogitator {
         let Ok(_delivery) = self.delivery_lease(incoming).await else {
             return;
         };
+        let ordinary = incoming.context.get::<ScheduledNotification>().is_none();
+        if ordinary && !self.ordinary_output_visible(incoming).await {
+            return;
+        }
         let mut reply = self.feedback_output(
             incoming,
             Envelope::new(
@@ -186,6 +211,9 @@ impl AlbertCogitator {
             )
             .with_correlation(incoming.id),
         );
+        if ordinary {
+            reply.context.insert(OrdinarySessionOutput);
+        }
         if let Some(route) = incoming.reply_to.clone() {
             reply = reply.with_reply_to(route);
         }

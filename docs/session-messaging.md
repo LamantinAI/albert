@@ -1,6 +1,6 @@
 # Session messaging and execution across devices
 
-Status: **accepted architectural direction; implementation pending**.
+Status: **host-only implementation; remote-device extensions remain planned**.
 
 This document records the agreed direction for communication between Albert
 sessions, context exchange, and delivery through different channels while work
@@ -79,10 +79,95 @@ Current replies use a trusted `ReplyRoute` captured at admission. Selecting a
 different session does not retarget work already running. The process-local Octo
 bus also does not provide communication between separate machines by itself.
 
-The proposed extension adds explicit message destinations and result-delivery
+The host-only implementation adds explicit message destinations and result-delivery
 rules above that foundation. The captured ingress remains the default reply and
 feedback route. A deliberate delivery instruction can add or select a different
 destination; it does not mutate routing for unrelated active work.
+
+## Host-only interface
+
+The first implementation uses the current Albert server and retained private
+sessions belonging to one canonical User. Different transports must be linked
+through the existing trusted identity configuration; sharing an `owner` role
+alone does not link accounts. Group-bound conversations remain isolated.
+Temporary conversations require Save before cross-session messaging or report
+routing. None of these operations implements a remote device connection.
+
+The model-facing `session_messaging` tool is available in authenticated private
+root turns. Its source session, initiating User and work reference come from the
+host, not model-supplied identity fields.
+
+| Action | Meaning |
+| --- | --- |
+| `discover` | Find accessible private sessions and known conversation routes. A configured capability or verified binding does not prove current connectivity. |
+| `inspect` | Read a bounded page of canonical conversation evidence and available work state without starting a turn in that session. |
+| `send` | Admit a notice, question or explicitly limited work request and return its message ID immediately. |
+| `status` | Inspect acceptance, requested work, recipient admission and transport outcome separately. |
+| `cancel` / `steer` | Cancel an exact request, or replace it with a correlated request, without cancelling unrelated work or subagents. |
+| `reports` | Read or select independent intermediate/final destinations using a revision check. The default is the current work; an explicit `message_id` targets an admitted request under the same User. |
+| `report` | Emit a deliberate intermediate report using the current work's selected destination. |
+| `execution` | Read or select the session's server-local connector default using a revision check. The current machine remains `host`. |
+
+`send` accepts an optional initial `policy` with revision `1`. Its report
+destinations are validated and committed atomically with the request, so a fast
+recipient cannot finish before the policy exists. Later changes use
+`reports(message_id)` with the next revision. Steering carries the selected
+policy into the replacement request's atomic admission.
+
+Inspection defaults to the latest ten records and also has a serialized byte
+budget. Large text returns an excerpt with its exact `record_id` and a
+`next_text_offset`; continue with that `record_id` and `text_offset`. Media and
+encoded image data are omitted explicitly rather than copied into the tool
+response. Session pages, route pages and text slices retain their own continuation
+information. Activity distinguishes observed native work, addressed message work,
+idle state and an unavailable/transitioning snapshot.
+
+Questions wait for an idle recipient and use its own conversation context with
+no tools. Work requests receive only the explicitly admitted ordinary
+connector/kind subset, bounded by current capabilities and configured limits.
+Native ingress, SQL approval, owner/admin tools and recursive messaging are not
+inherited. They are session work, not independent child-agent conversations.
+An admitted work request can use the restricted `report_progress` utility for
+its already selected intermediate destination. It shares the work's tool/output
+ceiling and cannot select recipients, change policy or start another request.
+
+A native input or manual compact can preempt message work. Completed tool
+evidence is preserved, while interrupted external work is reported as unknown
+rather than replayed. A stable logical work reference retains report policy
+across native interruptions; cancellation and feedback attempts still have their
+own fresh scopes. Responses and failure notices return asynchronously to the
+stored source; passive messages do not start another model turn. A request's
+correlated response and its separately selected report destination are distinct:
+B can answer its requesting session A while also reporting its final result to C.
+An accepted question can wait while the recipient performs native work. The
+receipt reports the observed busy/idle state and the idle-boundary rule. Use
+passive inspection for available work state; send a question when the recipient's
+own reasoning is needed or explicitly requested. Acceptance is not a synchronous
+answer, and repeated polling does not make a busy recipient finish sooner.
+
+Runtime settings are nested under the existing sessions configuration:
+
+```toml
+[sessions.messaging]
+enabled = true
+poll_ms = 200
+batch_size = 16
+max_concurrent = 4
+max_work_secs = 300
+max_tool_calls = 32
+max_output_bytes = 65536
+retention_secs = 86400
+delivery_observation_timeout_ms = 30000
+unknown_retention_secs = 86400
+max_delivery_observations = 64
+inspection_output_bytes = 16384
+```
+
+Payload, context, pending-queue and retry ceilings are configurable under
+`[sessions.messaging.limits]`. The queue is durable control metadata over the
+canonical journal, not another conversation store or a persisted scratchpad.
+Retention of delivery bookkeeping does not remove retained messages/compacts or
+add a TTL to the RAM scratchpad.
 
 ## Addressing
 
@@ -165,6 +250,14 @@ reference, according to the selected delivery policy. The original session keeps
 the authoritative result. The receiving session keeps the message it actually
 received and its provenance, so a later conversation can refer to it naturally.
 
+For a native turn with an explicitly selected final destination, the ingress
+gets a short routing receipt instead of another full copy of the answer. The
+full result is retained in the working session and routed to the chosen
+destination. If admission of that optional report fails, the ingress receives
+the useful original result and an explicit report-failure notice. Without a
+final destination override, the ordinary reply stays pinned to its admitted
+Session and is displayed only while that Session is active in the channel.
+
 This linked delivery neither switches the recipient's conversation implicitly
 nor merges the two histories. Delivering an already generated result does not
 require another model invocation solely to forward it.
@@ -183,6 +276,38 @@ executor events have their own feedback policy. Requesting a final result in
 Telegram does not subscribe that channel to every event from the executor or
 move an existing typing/status lifetime to it. Explicitly routing progress also
 does not change where the work runs or where unrelated work replies.
+Navigation closes the old view's feedback without cancelling work or moving its
+final route. Reopening live work on the same verified private route attaches a
+fresh presentation; old tokens stay closed, including across compact/resume.
+Ordinary native Telegram output and implicit responses also require the recipient
+to be the channel's current Session. Canonical admission is retained when display
+is suppressed; known inactive-before-send is not an unknown external send. Explicit
+report/notification delivery is classified separately from these implicit replies.
+
+## Physical delivery evidence
+
+A canonical recipient receipt, submission to a connector and external delivery
+are separate outcomes. Physical attempts have a persisted token before
+publication. A callback for an older attempt cannot complete a newer attempt.
+
+The current Telegram adapter confirms individual rendered chunks, not completion
+of an entire text envelope. Albert retains their native message IDs as evidence.
+A confirmed first chunk never marks the complete report as delivered. Without a
+whole-report completion signal, the observation deadline or a restart leaves
+that submission's completion unknown. Late callbacks can add evidence without
+turning uncertainty into a full-delivery claim. A transport ACL refusal can also
+produce no callback, so absence of a callback is not proof that nothing was sent.
+
+These submissions are not automatically repeated. Albert-known rejection before
+publication can be a definite failure; an ambiguous outcome after publication
+cannot be treated as a safe retry. Console acknowledgement confirms a successful
+write and flush to its output stream, not that a person read it.
+
+Unknown outcomes do not retain active queue capacity forever. After the configured
+retention period and message deadline, expired control metadata can be retired
+with a canonical audit retaining its outcome and bounded native-ID evidence.
+Original conversation records and journal append receipts remain. Expiration is
+not a delivery confirmation or permission to replay an old operation.
 
 ## Communication between sessions
 
@@ -295,20 +420,32 @@ The starting processing defaults are:
 | --- | --- |
 | Result or informational notice | Record and display it; do not automatically generate another model answer. |
 | State inspection | Read available state without interrupting work or starting a model turn. |
-| Question or work request | Admit to a bounded inbox; process at a permitted scheduling boundary. |
-| Explicit steer or cancellation | Use a separately authorized control operation and the existing work-cancellation rules. |
+| Question or work request | Admit to a bounded inbox; process when the recipient's main turn is idle. |
+| Explicit steer or cancellation | Replace or cancel the exact admitted inter-session request; do not interrupt unrelated native work. |
 
-The exact scheduling boundary is an implementation detail to settle against the
-current cogitator. A question from another session must not automatically enter
-the ordinary human-input interrupt path and abort a running tool call. Existing
-human interruption behavior remains explicit. Cancelling one request does not
-implicitly cancel unrelated work or independent subagents.
+A main turn includes all model iterations, tool calls and waits for subagents
+until the agent finishes processing the request. An iteration boundary is not an
+idle boundary. Human interruption can revise and continue that work; it does not
+itself admit queued questions. An ordinary inter-session question never invokes
+the human-input interrupt path. Cancelling one request does not implicitly
+cancel unrelated work or independent subagents.
 
 Responses return asynchronously. Requesting sessions must not hold execution
 gates while waiting for each other. Cyclic requests, automatic reply loops and
 unbounded fan-out need configurable budgets, deadlines and bounded queues. Hop
 and causation information supports these limits; correlation alone is not a
 loop-prevention policy.
+
+### Discussed: cross-session steering
+
+An explicit control could eventually steer another session's busy native turn
+instead of waiting for it to finish. This is under discussion, not implemented
+or approved for implementation. The existing `steer` only replaces an admitted
+inter-session request; it does not provide this native-turn control.
+Ordinary messages should keep their non-preemptive default: interrupting another
+session merely to ask for status would be intrusive. `inspect` already reads
+available state and journal evidence without disturbing the recipient. The
+interruption boundary, authorization and continuation semantics remain open.
 
 ## Permissions and session boundaries
 
@@ -428,29 +565,27 @@ Queue, payload, context, retention and retry limits are configurable. Delivery
 bookkeeping can expire under its own retention policy without deleting the
 conversation's retained history or adding a new TTL to the RAM scratchpad.
 
-## Details to resolve during implementation
+## Remaining extensions
 
-The architectural direction above is agreed. The following contracts remain to
-be refined against the code and documented here as decisions are made:
+The host-only implementation establishes addressed messages, bounded inspection,
+idle-session admission, scoped controls and recoverable report delivery. The
+following extensions remain separate:
 
-- The typed Albert message contract, application event kinds, versioning and
-  authenticated bridge format, using existing Octo mechanisms where applicable.
-- Session discovery and project association, including ambiguous-name handling
-  and stale/offline state presentation.
-- Inbox scheduling boundaries, bounded response waits and explicit steering
-  behavior alongside current interrupts and subagent independence.
-- Transactional result/outbox integration, receipt lifecycle and recovery after
-  an unknown external send outcome.
-- The minimum daemon/runner protocol and its platform-specific execution
-  adapters, following the server-cogitator baseline; executor migration is a
-  separate extension.
-- The interface for choosing per-work destinations, changing them while work is
-  active, and distinguishing fixed-session from channel-active routing.
-- Temporary-content export policy, cross-device artifact access and optional
-  future collaboration grants.
+- Cross-session steering of native work, under discussion as an explicit control
+  rather than the default delivery of questions or status requests.
+- Authenticated remote bridges, device discovery, server-profile identities and
+  executor placement beyond `host`.
+- Richer project association and UI controls for choosing and changing per-work
+  destinations; names remain discovery labels rather than routing identities.
+- Stronger whole-report transport completion evidence and explicit user controls
+  for reconciling or deliberately repeating an unknown external send.
+- Temporary-content export policies, cross-user/group sharing and persistent
+  subscriptions.
+- Cross-device artifact transfer and executor migration.
 
-The Mac-to-Telegram result and the “ask the Kaeru session” exchange are the two
-reference scenarios for keeping these decisions coherent.
+The “ask the Kaeru session” exchange and report routing are supported on the
+current host. The Mac-to-Telegram scenario additionally requires the planned
+[device adapter](device-daemons.md).
 
 ## Related documents
 

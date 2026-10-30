@@ -13,12 +13,13 @@ use octo_core::Envelope;
 use rig::completion::Message;
 use tokio::task::JoinHandle;
 
-use super::{channel_of, feedback::close_feedback};
+use super::{channel_of, feedback::close_feedback, messaging::MessageTask};
 use crate::{history::journal_messages, sessions::SessionContext, status::StatusFeed};
 
 #[derive(Default)]
 pub(super) struct ChannelState {
     active: Option<ActiveTurn>,
+    pub(in crate::cogitator) message: Option<MessageTask>,
 }
 
 struct ActiveTurn {
@@ -48,6 +49,31 @@ struct Interrupted {
 }
 
 impl ChannelState {
+    #[cfg(test)]
+    pub(in crate::cogitator) fn feedback(&self) -> Option<&Arc<Envelope>> {
+        self.active.as_ref().map(|active| &active.feedback)
+    }
+    pub(in crate::cogitator) fn presentation_feed(&self) -> Option<StatusFeed> {
+        self.active
+            .as_ref()
+            .filter(|active| !active.task.is_finished())
+            .map(|active| active.feed.clone())
+            .or_else(|| {
+                self.message
+                    .as_ref()
+                    .filter(|task| !task.is_finished())
+                    .map(MessageTask::presentation_feed)
+            })
+    }
+    pub(in crate::cogitator) fn native_active(&self) -> bool {
+        self.active.is_some()
+    }
+    pub(in crate::cogitator) fn is_idle(&mut self) -> bool {
+        if self.message.as_ref().is_some_and(MessageTask::is_finished) {
+            self.message = None;
+        }
+        self.active.is_none() && self.message.is_none()
+    }
     pub(in crate::cogitator) fn discard_content(&mut self) -> Result<(), &'static str> {
         if let Some(active) = self.active.as_mut() {
             let result = active.feed.discard();
@@ -161,9 +187,11 @@ mod tests {
         let (tx_a, rx_a) = oneshot::channel();
         let (tx_b, mut rx_b) = oneshot::channel();
         let mut a = ChannelState {
+            message: None,
             active: Some(blocked(vec![Message::user("a")], tx_a)),
         };
         let mut b = ChannelState {
+            message: None,
             active: Some(blocked(vec![Message::user("b")], tx_b)),
         };
         a.interrupt().await.unwrap();

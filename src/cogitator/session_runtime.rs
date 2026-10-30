@@ -15,13 +15,15 @@ use tracing::warn;
 use super::{
     channel_of,
     context::UserInput,
+    messaging::LogicalWork,
     native_requests::{NativeDecision, NativeRequest},
     turns::{turn_key, ChannelState},
     AlbertCogitator,
 };
 use crate::{
-    context::window_messages,
+    context::{window_messages, DiagnosticScope},
     history::{assistant_turn, sessions::Backend, to_messages, Turn},
+    messaging::contract::WorkRef,
     sessions::SessionContext,
     sessions::{
         error::{SessionError, SessionResult},
@@ -78,10 +80,29 @@ impl AlbertCogitator {
         }
     }
     pub(super) async fn scope_feed(&self, incoming: &Envelope, feed: StatusFeed) -> StatusFeed {
-        let feed = feed.with_feedback(incoming.context.get::<TurnFeedback>().cloned());
+        let feed = feed
+            .with_feedback(incoming.context.get::<TurnFeedback>().cloned())
+            .with_reattach(self.config.stream_status)
+            .with_presentation_route(incoming.source.clone(), incoming.channel.clone());
         let Some(session) = incoming.context.get::<SessionContext>() else {
             return feed;
         };
+        let feed = feed.with_diagnostics(Some(DiagnosticScope {
+            lane: "native",
+            session_id: Some(session.session_id().as_str().into()),
+            work_id: incoming
+                .context
+                .get::<LogicalWork>()
+                .map(|work| match &work.0 {
+                    WorkRef::Turn(id) | WorkRef::Child(id) => id.clone(),
+                }),
+            attempt_id: incoming
+                .context
+                .get::<TurnFeedback>()
+                .map(|feedback| feedback.id().to_owned())
+                .unwrap_or_else(|| incoming.id.to_string()),
+            run_id: None,
+        }));
         let feed = feed
             .with_session(Some(session.session_id().as_str()))
             .with_session_context(Some(session.clone()))
@@ -156,6 +177,7 @@ impl AlbertCogitator {
             }
             (None, None) => service.admit(admission).await?,
         };
+        service.refresh_presentation(&session).await?;
         let mut admitted = (*incoming).clone();
         admitted.context.insert(session);
         admitted.context.insert(decision);

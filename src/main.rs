@@ -19,6 +19,7 @@ mod error;
 mod history;
 mod manifests;
 mod memory;
+mod messaging;
 mod models;
 mod openai_login;
 mod openrouter_http;
@@ -69,6 +70,7 @@ use crate::{
     history::HistoryStore,
     manifests::declared_types,
     memory::Memory,
+    messaging::transport::{AdapterKind, ReportFactory},
     prompt::PromptFiles,
     scratchpad::ScratchpadStore,
     sessions::telegram::SessionTelegramPolicy,
@@ -245,12 +247,16 @@ async fn main() -> Result<()> {
         builder = builder
             .register_connector_type(
                 "telegram",
-                telegram_factory(
-                    authority.clone(),
-                    Arc::new(SessionTelegramPolicy::new(
-                        sessions.clone(),
+                ReportFactory::new(
+                    telegram_factory(
                         authority.clone(),
-                    )),
+                        Arc::new(SessionTelegramPolicy::new(
+                            sessions.clone(),
+                            authority.clone(),
+                        )),
+                    ),
+                    sessions.delivery_adapters(),
+                    AdapterKind::Telegram,
                 ),
             )
             .register_connector_type(
@@ -291,6 +297,7 @@ async fn main() -> Result<()> {
         }
         builder = builder.add_connector(
             ConsoleConnector::new("console")
+                .with_reports(sessions.delivery_adapters())
                 .with_authority(authority, config.authorization.decision_timeout()),
         );
     }

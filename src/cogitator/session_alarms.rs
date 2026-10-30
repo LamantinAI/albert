@@ -6,7 +6,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use super::{AlbertCogitator, UserInput, SCHEDULER_ID};
-use crate::sessions::{error::SessionError, ReplyRoute};
+use crate::sessions::{error::SessionError, presentation::ScheduledNotification, ReplyRoute};
 
 impl AlbertCogitator {
     pub(super) async fn on_session_alarm(
@@ -45,6 +45,7 @@ impl AlbertCogitator {
             envelope.channel_metadata = None;
             envelope.tags.clear();
             envelope.context.insert(session);
+            envelope.context.insert(ScheduledNotification);
             self.clone().spawn_turn(Arc::new(envelope), UserInput { text, images: Vec::new(), seed: None, voice: None }, ctx).await;
             Ok::<(), SessionError>(())
         }.await;

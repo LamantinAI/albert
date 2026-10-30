@@ -13,8 +13,20 @@ use crate::db::error::{DatabaseError, DatabaseResult};
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("../../migrations/0001_session_control.sql")),
     (2, include_str!("../../migrations/0002_native_sessions.sql")),
+    (
+        3,
+        include_str!("../../migrations/0003_session_messaging.sql"),
+    ),
+    (
+        4,
+        include_str!("../../migrations/0004_message_failure_notices.sql"),
+    ),
+    (
+        5,
+        include_str!("../../migrations/0005_message_delivery_evidence.sql"),
+    ),
 ];
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Clone)]
 pub(crate) struct Database {
@@ -110,7 +122,7 @@ mod tests {
             .fetch_one(db.pool())
             .await
             .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 5);
         let history_registry: i64 =
             query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = '_sqlx_migrations'")
                 .fetch_one(db.pool())
