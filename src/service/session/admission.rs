@@ -78,6 +78,15 @@ impl SessionService {
             }
         }
         tx.commit().await.map_err(DatabaseError::from)?;
+        if context.is_private() {
+            self.presentations.observe(
+                &route_key(&context)?,
+                context.session_id(),
+                context
+                    .selector_revision()
+                    .ok_or(SessionError::Unavailable)?,
+            );
+        }
         Ok(context)
     }
 

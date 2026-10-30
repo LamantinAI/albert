@@ -13,8 +13,9 @@ use super::super::{
 };
 use super::ChannelState;
 use crate::{
-    cogitator::session_runtime::FrozenActions,
+    cogitator::{messaging::LogicalWork, session_runtime::FrozenActions},
     history::{assistant_turn, journal_messages, tool_trace},
+    messaging::store::ReportAdmission,
     sessions::SessionContext,
     status::StatusFeed,
 };
@@ -45,7 +46,8 @@ impl AlbertCogitator {
                     incoming.channel.clone(),
                 ),
             )
-            .await;
+            .await
+            .share_presentation(&feed);
         if self.session_history.is_none() {
             match self.compact_history(&channel, false, true, &progress).await {
                 Ok(true) => match self.visible_snapshot(&channel).await {
@@ -144,6 +146,10 @@ impl AlbertCogitator {
                 Some(scope),
                 incoming.context.get::<Ingress>().cloned(),
                 session,
+                incoming
+                    .context
+                    .get::<LogicalWork>()
+                    .map(|work| work.0.clone()),
             )
             .await
         };
@@ -174,7 +180,10 @@ impl AlbertCogitator {
             &answer,
             &feed.drain_actions(),
         )));
-        if let Err(error) = self.append_host(&channel, scope, "final", records).await {
+        let report = self
+            .commit_native_report(&incoming, scope, records, &answer, ctx)
+            .await;
+        if let Err(error) = &report {
             warn!(%error, "failed to save completed turn");
             self.emit_reply(&incoming, "I couldn't record the completed turn. Check the recorded tool outcomes before retrying actions.".into(), ctx).await;
             locked.active = None;
@@ -185,9 +194,15 @@ impl AlbertCogitator {
         } else {
             info!("→ {answer}");
         }
+        let answer = match report.ok().flatten() {
+            Some(ReportAdmission::Queued(message)) => format!("Final result recorded and queued for the selected destination. Message {}. Physical delivery is not yet confirmed.", message.as_str()),
+            Some(ReportAdmission::Failed { code, .. }) => format!("{answer}\n\nReport delivery could not be queued ({code}); the result remains recorded in this session."),
+            _ => answer,
+        };
         self.emit_reply(&incoming, answer, ctx).await;
         locked.active = None;
         drop(locked);
+        self.schedule_title(&incoming);
         if let Some(target) = restart {
             self.apply_restart(target, ctx).await;
         }

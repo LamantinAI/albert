@@ -1,3 +1,4 @@
+mod inspection;
 mod launch;
 mod native;
 mod planning;
@@ -12,10 +13,7 @@ use serde_json::{from_str, json, Value};
 use super::AlbertCogitator;
 use crate::{
     history::{journal_messages, to_messages},
-    subagents::{
-        inspection::{inspect, inspect_volatile, read_entry},
-        Args, Conversation, Run, SubagentTool,
-    },
+    subagents::{inspection::read_entry, Args, Conversation, Run, SubagentTool},
 };
 
 impl AlbertCogitator {
@@ -51,21 +49,11 @@ impl AlbertCogitator {
                 json!({"runs":self.children.visible(&tool.conversation, tool.owner)
                 .iter().map(|run| run.summary()).collect::<Vec<_>>()}),
             ),
-            Args::Inspect { run_id, offset } => {
-                let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
-                let messages = self.inspection_messages(&run).await?;
-                let index = if super::retention::temporary(run.session.as_ref()) {
-                    inspect_volatile(&messages, &self.config.subagents.inspection, offset)
-                } else {
-                    inspect(
-                        &messages,
-                        &self.config.code_workspace.join("tool-results"),
-                        &self.config.subagents.inspection,
-                        offset,
-                    )
-                };
-                Ok(json!({"run":run.summary(),"journal":index}))
-            }
+            Args::Inspect {
+                run_id,
+                offset,
+                limit,
+            } => self.inspect_child(tool, &run_id, offset, limit).await,
             Args::Read {
                 run_id,
                 entry,
@@ -394,6 +382,7 @@ mod tests {
                 Args::Inspect {
                     run_id: run.id.clone(),
                     offset: 0,
+                    limit: None,
                 },
             )
             .await
@@ -491,6 +480,7 @@ mod tests {
                 Args::Inspect {
                     run_id: id.clone(),
                     offset: 0,
+                    limit: None,
                 },
             )
             .await

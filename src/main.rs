@@ -17,6 +17,7 @@ mod error;
 mod history;
 mod manifests;
 mod memory;
+mod messaging;
 mod models;
 mod openai_login;
 mod openrouter_http;

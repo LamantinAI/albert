@@ -22,6 +22,7 @@ use crate::{
     config::Config,
     console::ConsoleConnector,
     error::Result,
+    messaging::transport::{AdapterKind, AdapterRegistry, ReportFactory},
     service::session::SessionService,
     sessions::telegram::SessionTelegramPolicy,
     sql::{console_sql_connectors, protected_paths},
@@ -34,13 +35,22 @@ pub(super) fn channels(
     auth: Arc<SubscriptionAuth>,
     has_telegram: bool,
 ) -> Result<OctoBuilder> {
+    let adapters = sessions.delivery_adapters();
     if has_telegram || config.connectors_manifest.exists() {
+        let configured_adapters = AdapterRegistry::default();
         let configured = Octo::builder()
             .register_connector_type(
                 "telegram",
-                telegram_factory(
-                    authority.clone(),
-                    Arc::new(SessionTelegramPolicy::new(sessions, authority.clone())),
+                ReportFactory::new(
+                    telegram_factory(
+                        authority.clone(),
+                        Arc::new(SessionTelegramPolicy::new(
+                            sessions.clone(),
+                            authority.clone(),
+                        )),
+                    ),
+                    configured_adapters.clone(),
+                    AdapterKind::Telegram,
                 ),
             )
             .register_connector_type(
@@ -60,16 +70,19 @@ pub(super) fn channels(
             .from_config_file(&config.connectors_manifest);
         match configured {
             Ok(builder) => {
+                adapters.merge_verified(&configured_adapters);
                 return Ok(if has_telegram {
                     builder
                 } else {
                     builder.add_connector(
-                        ConsoleConnector::new("console").with_authority(
-                            authority.clone(),
-                            config.authorization.decision_timeout(),
-                        ),
+                        ConsoleConnector::new("console")
+                            .with_authority(
+                                authority.clone(),
+                                config.authorization.decision_timeout(),
+                            )
+                            .with_reports(adapters.clone()),
                     )
-                })
+                });
             }
             Err(_) => {
                 warn!("Connector configuration could not be loaded; use web settings to repair it.")
@@ -87,6 +100,7 @@ pub(super) fn channels(
     }
     Ok(builder.add_connector(
         ConsoleConnector::new("console")
-            .with_authority(authority, config.authorization.decision_timeout()),
+            .with_authority(authority, config.authorization.decision_timeout())
+            .with_reports(adapters),
     ))
 }

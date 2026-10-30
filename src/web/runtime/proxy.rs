@@ -1,10 +1,14 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use octo_core::{
     Cogitator, CogitatorContext, ConnectorId, Envelope, EventKind, Filter, OctoResult, Subscription,
 };
-use tokio::{select, task::JoinSet};
+use tokio::{
+    select,
+    task::JoinSet,
+    time::{interval, MissedTickBehavior},
+};
 
 use super::AgentRuntime;
 
@@ -19,6 +23,8 @@ impl Cogitator for RuntimeCogitator {
         Filter::by_kind("chat.message")
             .with_kind("alarm.fired")
             .with_kind("albert.session.closed")
+            .with_kind("albert.presentation.detached")
+            .with_kind("albert.presentation.opened")
     }
 
     async fn run(
@@ -29,12 +35,17 @@ impl Cogitator for RuntimeCogitator {
         *self.0.context.write().unwrap() = Some(context.clone());
         let _ = self.0.activate().await;
         let mut maintenance = JoinSet::new();
+        let mut messaging = interval(Duration::from_millis(
+            self.0.base.sessions.messaging.poll_ms,
+        ));
+        messaging.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             select! {
+                _ = messaging.tick() => { if let Some(agent)=self.0.current() { agent.panel_maintenance(&context).await; } },
                 event = events.next() => match event {
                     Some(event) => {
                         if let Some(agent) = self.0.current() {
-                            if matches!(event.kind.as_str(), "alarm.fired" | "albert.session.closed") {
+                            if matches!(event.kind.as_str(), "alarm.fired" | "albert.session.closed" | "albert.presentation.detached" | "albert.presentation.opened") {
                                 let ctx = context.clone();
                                 maintenance.spawn(async move { agent.panel_handle(event, &ctx).await; });
                             } else { agent.panel_handle(event, &context).await; }

@@ -6,6 +6,7 @@ mod compact;
 mod run;
 mod run_context;
 mod spawn;
+mod state;
 
 use std::sync::Arc;
 
@@ -13,9 +14,8 @@ use octo_core::Envelope;
 use rig::completion::Message;
 use tokio::task::JoinHandle;
 
-use super::{channel_of, feedback::close_feedback};
+use super::{channel_of, messaging::MessageTask};
 use crate::{
-    history::journal_messages,
     sessions::{actor::ActorToolPolicy, SessionContext},
     status::StatusFeed,
 };
@@ -23,6 +23,7 @@ use crate::{
 #[derive(Default)]
 pub(super) struct ChannelState {
     active: Option<ActiveTurn>,
+    pub(in crate::cogitator) message: Option<MessageTask>,
 }
 
 struct ActiveTurn {
@@ -51,37 +52,6 @@ struct Interrupted {
     messages: Vec<Message>,
     checkpoint: Vec<Message>,
     owner: bool,
-}
-
-impl ChannelState {
-    pub(in crate::cogitator) fn discard_content(&mut self) -> Result<(), &'static str> {
-        if let Some(active) = self.active.as_mut() {
-            let result = active.feed.discard();
-            active.messages.clear();
-            active.continuation = None;
-            return result;
-        }
-        Ok(())
-    }
-    async fn interrupt(&mut self) -> Option<Interrupted> {
-        let active = self.active.take()?;
-        close_feedback(&active.feedback);
-        active.task.abort();
-        let _ = active.task.await; // no old hooks/replies may race the checkpoint
-        let checkpoint = active.feed.checkpoint();
-        let mut messages = active.messages;
-        messages.extend(journal_messages(&checkpoint));
-        Some(Interrupted {
-            tool_policy: active.tool_policy,
-            feedback: active.feedback,
-            continuation: active.continuation,
-            compact_id: active.compact_id,
-            scope: active.scope,
-            messages,
-            checkpoint,
-            owner: active.owner,
-        })
-    }
 }
 
 pub(super) fn turn_key(env: &Envelope) -> (String, String) {
@@ -170,9 +140,11 @@ mod tests {
         let (tx_a, rx_a) = oneshot::channel();
         let (tx_b, mut rx_b) = oneshot::channel();
         let mut a = ChannelState {
+            message: None,
             active: Some(blocked(vec![Message::user("a")], tx_a)),
         };
         let mut b = ChannelState {
+            message: None,
             active: Some(blocked(vec![Message::user("b")], tx_b)),
         };
         a.interrupt().await.unwrap();

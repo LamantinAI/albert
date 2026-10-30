@@ -66,6 +66,13 @@ bytes with `tokenizer = "bytes"`. Cross-provider counts and wire framing remain
 estimates; an OpenAI tokenizer is not a claim of exact DeepSeek tokenization.
 Images use a configurable allowance rather than counting their base64 as text.
 Logs distinguish estimated request budgets from provider-reported usage.
+Host diagnostics correlate model rounds and tool calls with trusted session,
+work, attempt, run and request identities. A completion round records local guard
+time, provider-round wall time and reported usage; tools record elapsed time and
+model-visible output bytes. Prompt text, arguments, results and raw provider
+payloads are excluded. Provider-round wall time includes client recovery/backoff,
+network, provider queueing and compute; it is not pure inference time. Stream
+setup is labelled separately and does not claim full-stream completion or TTFB.
 
 ## Automatic and manual compaction
 

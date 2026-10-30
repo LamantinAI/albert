@@ -167,6 +167,17 @@ impl Run {
             .unwrap_or(json!("running"))
     }
 
+    pub(crate) fn inspection_summary(&self) -> Value {
+        let result = self.result.borrow();
+        let outcome = result.get("outcome");
+        let error = outcome
+            .and_then(|outcome| outcome.get("error"))
+            .and_then(Value::as_str)
+            .map(|text| text.chars().take(96).collect::<String>());
+        json!({"run_id":self.id,"status":self.status(),"tool_calls":self.feed.tool_call_count(),"result_available":!result.is_null(),"journal_saved":result.get("journal_saved"),
+            "result_metadata":{"error":error,"tool_rounds":outcome.and_then(|value|value.get("tool_rounds")),"tool_round_limit":outcome.and_then(|value|value.get("tool_round_limit")),"budget_exhausted":outcome.and_then(|value|value.get("budget_exhausted"))},
+            "result_ref":{"action":"wait","run_id":self.id,"seconds":0}})
+    }
     pub fn summary(&self) -> Value {
         let result = self.result.borrow().clone();
         json!({"run_id":self.id,"parent_run_id":self.parent,"status":self.status(),

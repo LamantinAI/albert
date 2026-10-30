@@ -3,20 +3,26 @@
 mod admission;
 mod init;
 mod lifecycle;
+mod messaging;
 mod native_routes;
 mod navigation;
+mod picker;
+mod presentation;
+mod preview;
 pub(crate) use native_routes::NativeRoute;
 #[cfg(test)]
 mod legacy;
 mod migration;
 mod reminders;
+mod rename;
 mod replay;
 mod temporary;
+pub(crate) mod titles;
 pub(crate) mod web;
 
 use std::sync::Arc;
 
-use self::native_routes::NativeSeen;
+use self::{native_routes::NativeSeen, titles::TitleJobs};
 
 use octo_history::{
     PageRequest, Session, SessionFilter, SessionId, SessionPage, SessionStore, SqliteHistory,
@@ -25,9 +31,11 @@ use octo_history::{
 use crate::{
     db::{entity::PrivateRouteKey, error::DatabaseError, Database},
     history::sessions::SessionHistory,
+    messaging::transport::AdapterRegistry,
     sessions::{
         error::{SessionError, SessionResult},
         lease::{ScopeRegistry, SessionLease},
+        presentation::PresentationRegistry,
         settings::SessionSettings,
         SessionContext,
     },
@@ -42,9 +50,18 @@ pub(crate) struct SessionService {
     runtime_epoch: String,
     leases: Arc<ScopeRegistry>,
     native_seen: Arc<NativeSeen>,
+    adapters: AdapterRegistry,
+    presentations: Arc<PresentationRegistry>,
+    title_jobs: Arc<TitleJobs>,
 }
 
 impl SessionService {
+    pub fn presentations(&self) -> &PresentationRegistry {
+        &self.presentations
+    }
+    pub fn delivery_adapters(&self) -> AdapterRegistry {
+        self.adapters.clone()
+    }
     pub fn history(&self) -> &Arc<SqliteHistory> {
         &self.history
     }

@@ -30,6 +30,20 @@ Octo is the environment an agent lives in, not the agent. It provides:
 Albert is a userland `Cogitator` — "you bring the brain." It never reimplements the
 bus, supervision, or connector lifecycle.
 
+The [session messaging layer](session-messaging.md) makes Albert sessions logical
+recipients over Octo's existing transport. The host-only implementation provides
+addressed messages, bounded context inspection, idle-session requests and
+independent intermediate/final report routing. Execution, ingress and delivery
+remain separate references. Remote-device execution is a later adapter.
+
+The [device-daemon baseline](device-daemons.md) keeps cognition and canonical
+history on the server while authorized devices provide sandboxed execution.
+The device daemon is a separate reusable process; `albert.cli` is its first
+Ratatui client. Axum serves the server adapter, with reqwest and Tungstenite
+providing the daemon's HTTP/WebSocket link.
+Direct script/resource delivery is sufficient initially; synchronized packages
+and lazy skill caching remain optional extensions.
+
 ## The cogitator loop
 
 `AlbertCogitator` (`src/cogitator/`) subscribes to `chat.message` and `alarm.fired`
@@ -51,8 +65,10 @@ and, per event:
    (`skill_list/apply/file`), and — **only on an owner turn** — the `restart` tool.
 5. **React** — reply as a `chat.reply` envelope back to the source connector/channel;
    persist the exchange to history. If `stream_status` is on, the agent's tool calls
-   and thoughts stream into one in-place-edited status message while it runs, deleted
-   at end-of-turn (a typing indicator is always on).
+   and thoughts stream into one in-place-edited status message for the visible view.
+   Navigation closes that presentation; reopening the running Session on the same
+   source route creates a fresh one without restarting work. Completion removes
+   it. The typing indicator follows the live presentation.
 
 An `alarm.fired` is routed by its payload: a **user reminder** (`{task, channel,
 reply_via}`) drives a recall-and-remind turn; a **system routine** (`{routine}`) runs

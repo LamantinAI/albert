@@ -9,10 +9,10 @@ use crate::{
     cogitator::{
         channel_of,
         compaction::{CompactOptions, CompactOutcome},
-        feedback::fresh_feedback,
         AlbertCogitator,
     },
     history::tool_trace,
+    messaging::store::WorkTerminal,
     sessions::{actor::ActorToolPolicy, SessionContext},
     status::StatusFeed,
 };
@@ -35,6 +35,9 @@ impl AlbertCogitator {
             .or_insert_with(|| Arc::new(Mutex::new(ChannelState::default())))
             .clone();
         let mut locked = state.lock().await;
+        if let Some(message) = locked.message.take() {
+            message.stop(&self, ctx, WorkTerminal::Interrupted).await;
+        }
         let interrupted = locked.interrupt().await;
         let current_policy = incoming
             .context
@@ -85,8 +88,7 @@ impl AlbertCogitator {
             self.id,
             self.turn_seq.fetch_add(1, Ordering::Relaxed)
         );
-        let incoming = fresh_feedback(&incoming, &format!("{scope}/compact"));
-        let feedback = incoming.clone();
+        let incoming = self.fresh_feedback(&incoming, &format!("{scope}/compact"));
         let me = self.clone();
         let owned_ctx = ctx.clone();
         let owned_state = state.clone();
@@ -102,6 +104,9 @@ impl AlbertCogitator {
                 ),
             )
             .await;
+        let incoming = Arc::new((*incoming).clone().with_context(progress.clone()));
+        let feedback = incoming.clone();
+        let registered_feed = progress.clone();
         let resume = continuation.clone();
         let task = spawn(async move {
             me.emit_typing_for(&incoming, &owned_ctx).await;
@@ -135,7 +140,7 @@ impl AlbertCogitator {
             task,
             messages,
             owner,
-            feed: StatusFeed::silent(),
+            feed: registered_feed,
         });
     }
 
@@ -158,25 +163,54 @@ impl AlbertCogitator {
             }
         };
         let prompt = Message::user("[Runtime continuation after manual compaction] Continue the interrupted task from the conversation context. Preserve completed actions; verify UNKNOWN outcomes before repeating any action. Check existing subagents and collect their results instead of launching replacements. This is a continuation, not a new user request.");
-        let incoming = fresh_feedback(&incoming, &format!("{scope}/resume"));
+        let incoming = self.fresh_feedback(&incoming, &format!("{scope}/resume"));
         let feed = self
             .scope_feed(
                 &incoming,
                 self.feed(ctx, incoming.source.clone(), incoming.channel.clone()),
             )
             .await;
-        {
+        let incoming = Arc::new((*incoming).clone().with_context(feed.clone()));
+        let previous = {
             let mut locked = state.lock().await;
             let Some(active) = locked.active.as_mut().filter(|a| a.scope == scope) else {
                 return;
             };
-            self.end_feedback(&active.feedback, ctx).await;
+            let presentation = active.feed.presentation_binding();
+            let previous = active.feed.finish_presentation();
+            // Preserve the normal fresh phase token when its original view is
+            // still current. A reattached view transfers only presentation data.
+            if let Some(original) = incoming.context.get::<SessionContext>() {
+                let context = presentation
+                    .and_then(|binding| binding.context)
+                    .filter(|context| {
+                        self.session_service.as_ref().is_some_and(|service| {
+                            service.presentations().active(context)
+                                && !service.presentations().detached(context)
+                        })
+                    });
+                match context {
+                    Some(context)
+                        if context.selector_revision() == original.selector_revision() => {}
+                    Some(context) => {
+                        feed.detach_presentation(|_| true);
+                        feed.attach_presentation(&context);
+                    }
+                    None => {
+                        feed.detach_presentation(|_| true);
+                    }
+                }
+            }
             active.feedback = incoming.clone();
             active.continuation = Some(incoming.clone());
             active.compact_id = revision;
             active.messages = history.clone();
             active.messages.push(prompt.clone());
             active.feed = feed.clone();
+            previous
+        };
+        if let Some(previous) = previous {
+            self.end_binding(previous, ctx).await;
         }
         feed.progress("Compaction finished. Continuing the interrupted task...")
             .await;

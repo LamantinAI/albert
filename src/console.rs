@@ -2,21 +2,26 @@
 //! Telegram stand-in. Each stdin line becomes a `chat.message`; every `chat.reply`
 //! targeted at us is printed. Same envelope shapes as the real Telegram connector.
 
+mod output;
+
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use octo_approval::{Access, Authority, Origin};
 use octo_core::{
-    Blob, ChannelId, ChannelMetadata, Connector, ConnectorCapabilities, ConnectorContext,
-    ConnectorId, Envelope, EventKind, Filter, OctoError, OctoResult, ReplyChannel,
-    SubscribeOptions,
+    ChannelId, ChannelMetadata, Connector, ConnectorCapabilities, ConnectorContext, ConnectorId,
+    Envelope, EventKind, Filter, OctoError, OctoResult, ReplyChannel, SubscribeOptions,
 };
 use serde_json::{json, Value};
 use tokio::{
-    io::{stdin, AsyncBufReadExt, BufReader},
+    io::{stdin, stdout, AsyncBufReadExt, BufReader},
     select,
 };
 use tracing::warn;
+
+use self::output::write_reply;
+
+use crate::messaging::transport::{AdapterKind, AdapterRegistry};
 
 const CHANNEL: &str = "stdin";
 
@@ -27,6 +32,10 @@ pub struct ConsoleConnector {
 }
 
 impl ConsoleConnector {
+    pub fn with_reports(self: Arc<Self>, registry: AdapterRegistry) -> Arc<Self> {
+        registry.register(self.id.as_str(), AdapterKind::Console);
+        self
+    }
     pub fn new(id: impl Into<String>) -> Arc<Self> {
         let capabilities = ConnectorCapabilities::bidirectional()
             .with_emit_kinds([EventKind::from_static("chat.message")])
@@ -128,10 +137,8 @@ impl Connector for ConsoleConnector {
                 },
                 reply = replies.next() => match reply {
                     Some(env) => {
-                        if let Some(blob) = env.payload_as::<Blob>() {
-                            println!("[media: {}, {} bytes]", blob.content_type(), blob.len());
-                        } else if let Some(text) = env.payload_as::<String>() {
-                            println!("bot: {text}");
+                        if let Err(error) = write_reply(&mut stdout(), &env, self.id.as_str()).await {
+                            warn!(%error, "console output completion is uncertain");
                         }
                     }
                     None => return Ok(()),

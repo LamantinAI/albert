@@ -2,6 +2,8 @@
 //! SessionService, independently of this transport's cleanup lifecycle.
 
 mod commands;
+mod navigation;
+pub(crate) mod picker;
 mod policy;
 
 pub(crate) use policy::SessionTelegramPolicy;
@@ -35,7 +37,9 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use octo_approval::Authority;
-    use octo_connector_telegram::{IngressDecision, NativeFrame, TelegramHostPolicy};
+    use octo_connector_telegram::{
+        ClassicMarkdown, IngressDecision, NativeFrame, TelegramHostPolicy,
+    };
     use octo_core::{ChannelId, ConnectorId, Envelope, EventKind};
     use octo_history::{
         AppendRequest, HistoryStore, PageRequest, SessionStore, SqliteHistory, Turn,
@@ -43,6 +47,9 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::{output_scope, SessionTelegramPolicy};
+    use crate::sessions::presentation::{
+        NavigationNotice, PresentationDetached, PresentationOpened,
+    };
     use crate::{
         service::session::SessionService,
         sessions::{
@@ -50,7 +57,7 @@ mod tests {
         },
     };
 
-    async fn fixture() -> (TempDir, SessionTelegramPolicy) {
+    pub(super) async fn fixture() -> (TempDir, SessionTelegramPolicy) {
         let dir = tempdir().unwrap();
         let history = Arc::new(
             SqliteHistory::open_retained(dir.path().join("history.db"))
@@ -92,7 +99,7 @@ mod tests {
         .with_channel(ChannelId::new(frame.chat_id.to_string()))
     }
 
-    async fn admit(
+    pub(super) async fn admit(
         policy: &SessionTelegramPolicy,
         index: u32,
         command: Option<&str>,
@@ -101,7 +108,7 @@ mod tests {
         policy.admit(frame.clone(), envelope(&frame)).await.unwrap()
     }
 
-    fn accepted(decision: IngressDecision) -> Envelope {
+    pub(super) fn accepted(decision: IngressDecision) -> Envelope {
         match decision {
             IngressDecision::Accept { envelope, .. } => envelope,
             _ => panic!("expected accepted input"),
@@ -113,12 +120,20 @@ mod tests {
             IngressDecision::Control {
                 notice: Some(text), ..
             } => text,
+            IngressDecision::Control { post_events, .. } => post_events
+                .into_iter()
+                .find_map(|event| {
+                    (event.kind.as_str() == "chat.reply")
+                        .then(|| event.payload_as::<String>().cloned())
+                        .flatten()
+                })
+                .expect("host navigation notice"),
             _ => panic!("expected control notice"),
         }
     }
 
     #[tokio::test]
-    async fn private_controls_switch_before_next_input_and_never_echo_transcript() {
+    async fn private_controls_switch_and_preview_latest_text_without_dumping_transcript() {
         let (_dir, policy) = fixture().await;
         let original = accepted(admit(&policy, 1, None).await);
         let original = original.context.get::<SessionContext>().unwrap().clone();
@@ -127,7 +142,10 @@ mod tests {
             .journal_router()
             .append(
                 &original.root_history_key(),
-                &[Turn::user("private old history")],
+                &[
+                    Turn::user("private old history"),
+                    Turn::assistant("latest visible reply"),
+                ],
             )
             .await
             .unwrap();
@@ -152,6 +170,7 @@ mod tests {
             .await,
         );
         assert!(!response.contains("private old history"));
+        assert!(response.contains("latest visible reply"));
         let selected = accepted(admit(&policy, 5, None).await);
         assert_eq!(
             selected
@@ -187,13 +206,12 @@ mod tests {
                 cleanup: Some(_),
                 ..
             } => {
-                assert_eq!(post_events.len(), 1);
+                let closed = post_events
+                    .iter()
+                    .find(|event| event.kind.as_str() == "albert.session.closed")
+                    .unwrap();
                 assert_eq!(
-                    post_events[0]
-                        .context
-                        .get::<SessionEnded>()
-                        .unwrap()
-                        .session_id,
+                    closed.context.get::<SessionEnded>().unwrap().session_id,
                     *context.session_id()
                 );
             }
@@ -245,7 +263,9 @@ mod tests {
                 post_events,
                 cleanup: Some(_),
                 ..
-            } => assert!(post_events.is_empty()),
+            } => assert!(!post_events
+                .iter()
+                .any(|event| event.kind.as_str() == "albert.session.closed")),
             _ => panic!("expected navigation end"),
         }
         assert!(policy.allow_delivery(&output));
@@ -373,5 +393,149 @@ mod tests {
         );
         assert!(notice(admit(&policy, 40, Some("/end")).await).contains("discarded"));
         assert!(notice(admit(&policy, 30, None).await).contains("ended"));
+    }
+    #[tokio::test]
+    async fn navigation_has_trusted_detach_and_stale_preview_is_fenced_at_delivery() {
+        let (_dir, policy) = fixture().await;
+        let original = accepted(admit(&policy, 1, None).await);
+        let a = original.context.get::<SessionContext>().unwrap().clone();
+        policy
+            .service
+            .journal_router()
+            .append(
+                &a.root_history_key(),
+                &[
+                    Turn::user("older private text"),
+                    Turn::assistant("last visible text"),
+                ],
+            )
+            .await
+            .unwrap();
+        let decision = admit(&policy, 2, Some("/new B")).await;
+        let events = match decision {
+            IngressDecision::Control {
+                notice: None,
+                post_events,
+                ..
+            } => post_events,
+            _ => panic!("expected fenced nav output"),
+        };
+        assert!(events.iter().any(|event| event
+            .context
+            .get::<PresentationDetached>()
+            .is_some_and(|change| change.matches(&a))));
+        assert!(!events
+            .iter()
+            .any(|event| event.context.get::<SessionEnded>().is_some()));
+        assert!(a.is_live());
+        assert!(policy.allow_delivery(&original));
+        let decision = admit(&policy, 3, Some(&format!("/open {}", a.session_id()))).await;
+        let preview = match decision {
+            IngressDecision::Control { post_events, .. } => {
+                assert!(post_events.iter().any(|event| event
+                    .context
+                    .get::<PresentationOpened>()
+                    .is_some_and(|opened| opened.0.session_id() == a.session_id())));
+                post_events
+                    .into_iter()
+                    .find(|event| event.context.get::<NavigationNotice>().is_some())
+                    .unwrap()
+            }
+            _ => panic!("preview"),
+        };
+        assert!(preview
+            .payload_as::<String>()
+            .unwrap()
+            .contains("last visible text"));
+        assert!(preview.context.get::<ClassicMarkdown>().is_some());
+        assert!(!preview
+            .payload_as::<String>()
+            .unwrap()
+            .contains("older private text"));
+        assert!(policy.allow_delivery(&preview));
+        let _ = admit(&policy, 4, Some("/new C")).await;
+        assert!(!policy.allow_publish(&preview));
+        assert!(!policy.allow_delivery(&preview));
+        assert!(policy.allow_delivery(&original));
+        assert!(a.is_live());
+        assert_eq!(
+            policy
+                .service
+                .history()
+                .load_session(&a.journal())
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_open_sessions_and_save_have_no_detach_transition() {
+        let (_dir, policy) = fixture().await;
+        let input = accepted(admit(&policy, 1, None).await);
+        let a = input.context.get::<SessionContext>().unwrap();
+        for (index, command) in [
+            (2, format!("/open {}", a.session_id())),
+            (3, "/sessions".into()),
+        ] {
+            let decision = admit(&policy, index, Some(&command)).await;
+            if let IngressDecision::Control { post_events, .. } = decision {
+                assert!(!post_events
+                    .iter()
+                    .any(|event| event.context.get::<PresentationDetached>().is_some()));
+            } else {
+                panic!("control");
+            }
+        }
+        assert!(!policy.service.presentations().detached(a));
+        let _ = admit(&policy, 4, Some("/tmp")).await;
+        let tmp = accepted(admit(&policy, 5, None).await);
+        let context = tmp.context.get::<SessionContext>().unwrap();
+        if let IngressDecision::Control { post_events, .. } = admit(&policy, 6, Some("/save")).await
+        {
+            assert!(!post_events
+                .iter()
+                .any(|event| event.context.get::<PresentationDetached>().is_some()));
+        } else {
+            panic!("save");
+        }
+        assert!(!policy.service.presentations().detached(context));
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::tests::{accepted, admit, fixture};
+    use crate::sessions::SessionContext;
+    use octo_connector_telegram::IngressDecision;
+
+    #[tokio::test]
+    async fn rename_is_a_control_and_replayed_update_cannot_undo_new_name() {
+        let (_dir, policy) = fixture().await;
+        let original = accepted(admit(&policy, 1, None).await);
+        let original = original.context.get::<SessionContext>().unwrap().clone();
+        let renamed = admit(&policy, 2, Some("/rename Untitled")).await;
+        match renamed {
+            IngressDecision::Control {
+                notice: Some(notice),
+                post_events,
+                ..
+            } => {
+                assert_eq!(notice, "Chat renamed.");
+                assert!(post_events.is_empty());
+            }
+            _ => panic!("rename must not become a conversation turn"),
+        }
+        let next = admit(&policy, 3, Some("/rename Исследование SQLite")).await;
+        assert!(matches!(next, IngressDecision::Control { .. }));
+        assert!(matches!(
+            admit(&policy, 2, Some("/rename Untitled")).await,
+            IngressDecision::Ignore
+        ));
+        let latest = accepted(admit(&policy, 4, None).await);
+        let latest = latest.context.get::<SessionContext>().unwrap();
+        assert_eq!(latest.session().title, "Исследование SQLite");
+        assert_eq!(latest.selector_revision(), original.selector_revision());
     }
 }

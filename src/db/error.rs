@@ -11,6 +11,8 @@ pub(crate) enum DatabaseError {
     MigrationChecksum(i64),
     #[error("internal database schema version {0} is newer than this binary")]
     SchemaVersion(i64),
+    #[error("internal database migration ledger is not a supported lineage")]
+    MigrationLedger,
     #[error("external identity is already bound to a different user")]
     IdentityConflict,
     #[error("internal metadata changed; reload and retry")]

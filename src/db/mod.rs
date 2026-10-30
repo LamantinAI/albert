@@ -6,21 +6,10 @@ pub(crate) mod entity;
 pub(crate) mod error;
 pub(crate) mod repo;
 
-use sha2::{Digest, Sha256};
-use sqlx::{query, query_scalar, raw_sql, SqlitePool};
-
-use crate::db::error::{DatabaseError, DatabaseResult};
-
-const MIGRATIONS: &[(i64, &str)] = &[
-    (1, include_str!("../../migrations/0001_session_control.sql")),
-    (2, include_str!("../../migrations/0002_native_sessions.sql")),
-    (3, include_str!("../../migrations/0003_web_accounts.sql")),
-    (
-        4,
-        include_str!("../../migrations/0004_control_applications.sql"),
-    ),
-];
-const SCHEMA_VERSION: i64 = 4;
+mod migrations;
+use self::migrations::{migrate, SCHEMA_VERSION};
+use crate::db::error::DatabaseResult;
+use sqlx::SqlitePool;
 
 #[derive(Clone)]
 pub(crate) struct Database {
@@ -43,45 +32,7 @@ impl Database {
     }
 
     async fn migrate(&self) -> DatabaseResult<()> {
-        // Use our own registry, never octo-history's `_sqlx_migrations`. All
-        // schema changes and their checksum record commit or roll back together.
-        let mut tx = self.pool.begin().await?;
-        query(
-            "CREATE TABLE IF NOT EXISTS albert_schema_migrations \
-             (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL)",
-        )
-        .execute(&mut *tx)
-        .await?;
-        let latest: Option<i64> = query_scalar("SELECT MAX(version) FROM albert_schema_migrations")
-            .fetch_one(&mut *tx)
-            .await?;
-        if latest.is_some_and(|version| version > SCHEMA_VERSION) {
-            return Err(DatabaseError::SchemaVersion(latest.unwrap()));
-        }
-        for &(version, sql) in MIGRATIONS {
-            let checksum = format!("{:x}", Sha256::digest(sql.as_bytes()));
-            let previous: Option<String> =
-                query_scalar("SELECT checksum FROM albert_schema_migrations WHERE version = ?")
-                    .bind(version)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            match previous {
-                Some(previous) if previous != checksum => {
-                    return Err(DatabaseError::MigrationChecksum(version));
-                }
-                Some(_) => {}
-                None => {
-                    raw_sql(sql).execute(&mut *tx).await?;
-                    query("INSERT INTO albert_schema_migrations (version, checksum) VALUES (?, ?)")
-                        .bind(version)
-                        .bind(checksum)
-                        .execute(&mut *tx)
-                        .await?;
-                }
-            }
-        }
-        tx.commit().await?;
-        Ok(())
+        migrate(&self.pool).await
     }
 }
 

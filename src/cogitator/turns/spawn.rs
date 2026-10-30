@@ -4,14 +4,17 @@ use octo_core::{CogitatorContext, Envelope};
 use tokio::{spawn, sync::Mutex};
 use tracing::{info, warn};
 
-use super::super::feedback::fresh_feedback;
 use super::super::retention::temporary;
 use super::super::{channel_of, AlbertCogitator, UserInput};
 use super::{turn_key, ActiveTurn, ChannelState};
 use crate::{
     acl::is_owner,
-    cogitator::session_runtime::{FrozenActions, FrozenInput},
+    cogitator::{
+        messaging::LogicalWork,
+        session_runtime::{FrozenActions, FrozenInput},
+    },
     history::{journal_messages, tool_trace, Turn},
+    messaging::{contract::WorkRef, store::WorkTerminal},
     sessions::{actor::ActorToolPolicy, SessionContext},
 };
 
@@ -50,6 +53,11 @@ impl AlbertCogitator {
             }
         } else {
             None
+        };
+        let message_checkpoint = if let Some(message) = locked.message.take() {
+            message.stop(&self, ctx, WorkTerminal::Interrupted).await
+        } else {
+            Vec::new()
         };
         let interrupted = locked.interrupt().await;
         let tool_policy = incoming
@@ -101,12 +109,24 @@ impl AlbertCogitator {
                 checkpoint: interrupted
                     .as_ref()
                     .map(|previous| journal_messages(&previous.checkpoint))
-                    .unwrap_or_default(),
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(message_checkpoint.clone())
+                    .collect(),
             });
             Arc::new(envelope)
         } else {
             incoming
         };
+        let work = interrupted
+            .as_ref()
+            .and_then(|previous| previous.continuation.as_ref())
+            .and_then(|original| original.context.get::<LogicalWork>())
+            .cloned()
+            .unwrap_or_else(|| LogicalWork(WorkRef::Turn(incoming.id.to_string())));
+        let mut contextual = (*incoming).clone();
+        contextual.context.insert(work);
+        let incoming = Arc::new(contextual);
         let (mut messages, owner) = if let Some(previous) = interrupted {
             let messages = if previous.compact_id == compact_id {
                 previous.messages
@@ -118,6 +138,7 @@ impl AlbertCogitator {
         } else {
             (visible, is_owner(&incoming))
         };
+        messages.extend(message_checkpoint);
         if boundary.is_none() {
             records.push(Turn::user(input.transcript_with_source(&incoming)));
         }
@@ -152,13 +173,14 @@ impl AlbertCogitator {
             incoming.id,
             self.turn_seq.fetch_add(1, Ordering::Relaxed)
         );
-        let incoming = fresh_feedback(&incoming, &scope);
+        let incoming = self.fresh_feedback(&incoming, &scope);
         let feed = self
             .scope_feed(
                 &incoming,
                 self.feed(ctx, incoming.source.clone(), incoming.channel.clone()),
             )
             .await;
+        let incoming = Arc::new((*incoming).clone().with_context(feed.clone()));
         let me = self.clone();
         let owned_ctx = ctx.clone();
         let owned_state = state.clone();

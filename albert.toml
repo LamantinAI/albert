@@ -69,6 +69,29 @@ telegram_tracking_max_ids = 10000
 telegram_cleanup_batches = 4         # at most 100 exact message IDs per API call
 telegram_cleanup_timeout_ms = 3000
 
+# Session-message requests run only when the recipient session is idle.
+# These limits do not change normal chat replies or temporary RAM scratchpads.
+[sessions.messaging]
+enabled = true
+poll_ms = 200
+batch_size = 16
+max_concurrent = 4
+max_work_secs = 300
+max_tool_calls = 32
+max_output_bytes = 65536
+retention_secs = 86400
+
+[sessions.messaging.limits]
+max_payload_bytes = 65536
+max_metadata_bytes = 16384
+max_context_items = 8
+max_messages = 100000
+max_inbox_pending = 64
+max_outbox_pending = 256
+max_attempts = 3
+max_work_policies = 128
+max_hops = 8
+
 [scheduler]
 state_path = "state/scheduler.json"
 

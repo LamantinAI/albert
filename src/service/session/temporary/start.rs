@@ -118,6 +118,8 @@ impl SessionService {
         };
         tx.commit().await.map_err(DatabaseError::from)?;
         *backend = Backend::Temporary;
+        self.presentations
+            .record(&key, &previous_id, route.revision, &id, revision);
         let lease = self.leases.issue(&id, Some(&self.runtime_epoch))?;
         Ok(selected(
             context,

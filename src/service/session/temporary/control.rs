@@ -45,6 +45,7 @@ impl SessionService {
             .await?
             .map(|route| route.revision);
         tx.commit().await.map_err(DatabaseError::from)?;
+        self.refresh_presentation(&context).await?;
         Ok(context)
     }
 }

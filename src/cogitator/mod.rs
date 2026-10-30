@@ -19,13 +19,19 @@ mod sql;
 use std::{
     collections::HashMap,
     sync::{atomic::AtomicU64, Arc, Mutex},
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use octo_approval::Authority;
 use octo_core::{Cogitator, CogitatorContext, ConnectorId, Filter, OctoResult, Subscription};
 use octo_openai_auth::SubscriptionAuth;
-use tokio::{select, sync::Mutex as AsyncMutex, task::JoinSet};
+use tokio::{
+    select,
+    sync::Mutex as AsyncMutex,
+    task::JoinSet,
+    time::{interval, MissedTickBehavior},
+};
 
 use crate::{
     config::Config,
@@ -50,7 +56,9 @@ mod errors;
 mod feedback;
 mod inbound;
 mod output;
+mod output_visibility;
 
+mod messaging;
 mod native_requests;
 mod retention;
 mod session_alarms;
@@ -58,6 +66,7 @@ pub(crate) mod session_dispatch;
 mod session_runtime;
 #[cfg(test)]
 mod session_runtime_tests;
+mod titles;
 mod turns;
 use self::{
     context::{
@@ -82,6 +91,7 @@ pub struct AlbertCogitator {
     session_service: Option<Arc<SessionService>>,
     session_history: Option<Arc<SessionHistory>>,
     request_gates: session_runtime::RequestGates,
+    messaging: Option<Arc<messaging::MessagingRuntime>>,
     memory: Memory,
     scratchpad: Arc<ScratchpadStore>,
     skills: Arc<SkillStore>,
@@ -106,6 +116,8 @@ impl Cogitator for AlbertCogitator {
         Filter::by_kind("chat.message")
             .with_kind("alarm.fired")
             .with_kind("albert.session.closed")
+            .with_kind("albert.presentation.detached")
+            .with_kind("albert.presentation.opened")
     }
 
     async fn run(
@@ -115,10 +127,15 @@ impl Cogitator for AlbertCogitator {
     ) -> OctoResult<()> {
         self.panel_initialize(&ctx);
         let mut maintenance = JoinSet::new();
+        let mut messaging = interval(Duration::from_millis(
+            self.config.sessions.messaging.poll_ms,
+        ));
+        messaging.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             select! {
+                _ = messaging.tick(), if self.messaging.is_some() => { self.messaging_tick(&ctx).await; },
                 next = subscription.next() => match next {
-                    Some(envelope) if envelope.kind.as_str() == "albert.session.closed" => {
+                    Some(envelope) if matches!(envelope.kind.as_str(), "albert.session.closed" | "albert.presentation.detached" | "albert.presentation.opened") => {
                         let me = self.clone(); let context = ctx.clone();
                         maintenance.spawn(async move { me.handle(envelope, &context).await; });
                     }

@@ -4,11 +4,16 @@ use octo_rig::{DispatchArgs, OctoDispatchTool};
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde_json::{json, Value};
 
-use crate::sessions::SessionContext;
+use super::messaging::tools::SessionMessagingTool;
+use crate::{
+    messaging::contract::{ExecutionLocation, Machine},
+    sessions::SessionContext,
+};
 
 pub(super) struct SessionDispatch {
     pub inner: OctoDispatchTool,
     pub session: Option<SessionContext>,
+    pub messaging: Option<SessionMessagingTool>,
 }
 
 impl Tool for SessionDispatch {
@@ -23,7 +28,14 @@ impl Tool for SessionDispatch {
         if let Err(error) = pin_alarm(&mut args, self.session.as_ref()) {
             return Ok(error);
         }
-        self.inner.call(args).await
+        self.inner
+            .clone()
+            .with_context(ExecutionLocation {
+                machine: Machine::Host,
+                connector: Some(args.target.clone()),
+            })
+            .call(args)
+            .await
     }
 }
 

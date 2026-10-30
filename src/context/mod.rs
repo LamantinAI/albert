@@ -1,8 +1,10 @@
 //! Model-context budgets are independent of retained conversation storage.
 mod chunks;
+mod diagnostics;
 mod guard;
 mod recovery;
 pub(crate) use chunks::batches;
+pub(crate) use diagnostics::DiagnosticScope;
 pub use guard::BudgetedModel;
 
 use rig::{
@@ -178,7 +180,203 @@ pub fn window_messages(window: &ContextWindow) -> Vec<Message> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Result as IoResult, Write},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
+        time::Duration,
+    };
+
+    use rig::{
+        completion::{
+            CompletionError, CompletionModel, CompletionRequest, CompletionResponse, Usage,
+        },
+        message::AssistantContent,
+        streaming::StreamingCompletionResponse,
+        OneOrMany,
+    };
+    use tokio::time::sleep;
+    use tracing::{instrument::WithSubscriber, subscriber::NoSubscriber, Dispatch, Level};
+    use tracing_subscriber::fmt;
+
     use super::*;
+    use crate::status::StatusFeed;
+
+    #[derive(Clone, Default)]
+    struct TimingModel {
+        calls: Arc<AtomicUsize>,
+    }
+    impl CompletionModel for TimingModel {
+        type Response = ();
+        type StreamingResponse = ();
+        type Client = Self;
+        fn make(client: &Self, _: impl Into<String>) -> Self {
+            client.clone()
+        }
+        async fn completion(
+            &self,
+            request: CompletionRequest,
+        ) -> Result<CompletionResponse<()>, CompletionError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            sleep(Duration::from_millis(2)).await;
+            Ok(CompletionResponse {
+                choice: OneOrMany::one(AssistantContent::text("PRIVATE_RESPONSE_BODY")),
+                usage: Usage {
+                    input_tokens: 7,
+                    output_tokens: request.max_tokens.unwrap_or(9),
+                    ..Usage::default()
+                },
+                raw_response: (),
+                message_id: None,
+            })
+        }
+        async fn stream(
+            &self,
+            _: CompletionRequest,
+        ) -> Result<StreamingCompletionResponse<()>, CompletionError> {
+            Err(CompletionError::ProviderError(
+                "PRIVATE_PROVIDER_ERROR".into(),
+            ))
+        }
+    }
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> IoResult<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
+    fn diagnostic_scope() -> DiagnosticScope {
+        DiagnosticScope {
+            lane: "test",
+            session_id: Some("session-test".into()),
+            work_id: Some("work-test".into()),
+            attempt_id: "attempt-test".into(),
+            run_id: None,
+        }
+    }
+
+    fn isolate_callsite_interest() -> Dispatch {
+        // With only one registered dispatcher, tracing's shared callsite cache
+        // may use another test thread's default subscriber. Keep a second,
+        // uninstalled dispatcher alive throughout each local capture instead.
+        Dispatch::new(NoSubscriber::default())
+    }
+
+    #[tokio::test]
+    async fn diagnostic_rounds_are_scoped_content_free_and_stream_setup_is_not_completion() {
+        let _interest_isolation = isolate_callsite_interest();
+        let logs = LogBuffer::default();
+        let writer = logs.clone();
+        let subscriber = fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(Level::INFO)
+            .with_writer(move || writer.clone())
+            .finish();
+        let raw = TimingModel::default();
+        let calls = raw.calls.clone();
+        let feed = StatusFeed::silent().with_diagnostics(Some(diagnostic_scope()));
+        let model = BudgetedModel::new(raw, None, true)
+            .with_diagnostics(Some(diagnostic_scope()))
+            .with_diagnostic_model("trusted-model")
+            .with_diagnostic_feed(feed.clone());
+        async {
+            for _ in 0..2 {
+                let mut request = model
+                    .completion_request(Message::user("PRIVATE_USER_BODY"))
+                    .preamble("PRIVATE_PREAMBLE".into())
+                    .build();
+                request.max_tokens = Some(4);
+                model.clone().completion(request).await.unwrap();
+            }
+            let request = model
+                .completion_request(Message::user("PRIVATE_STREAM_BODY"))
+                .build();
+            assert!(model.stream(request).await.is_err());
+        }
+        .with_subscriber(subscriber)
+        .await;
+        let text = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(text.contains(
+            &feed
+                .request_id()
+                .expect("trusted request ID reached tool feed")
+        ));
+        for expected in [
+            "attempt-test",
+            "session-test",
+            "work-test",
+            "trusted-model",
+            "round=1",
+            "round=2",
+            "guard_ms=",
+            "provider_round_wall_ms=",
+            "input_tokens=7",
+            "applied_output_cap_hit=Some(true)",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        assert!(!text.contains("PRIVATE_"), "payload in metrics: {text}");
+        let stream = text
+            .lines()
+            .find(|line| line.contains("model stream setup finished"))
+            .unwrap();
+        assert!(stream.contains("stream_completion_observed=false"));
+        assert!(stream.contains("stream_setup_wall_ms="));
+        assert!(!stream.contains("provider_round_wall_ms="));
+    }
+
+    #[tokio::test]
+    async fn diagnostic_guard_rejection_does_not_call_or_log_provider_payload() {
+        let _interest_isolation = isolate_callsite_interest();
+        let settings = Settings {
+            window_tokens: 4096,
+            reserve_tokens: 512,
+            response_tokens: 64,
+            compact_output_tokens: 128,
+            image_tokens: 32,
+            tokenizer: Tokenizer::Bytes,
+            ..Settings::default()
+        };
+        settings.validate().unwrap();
+        let logs = LogBuffer::default();
+        let writer = logs.clone();
+        let subscriber = fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_max_level(Level::INFO)
+            .with_writer(move || writer.clone())
+            .finish();
+        let raw = TimingModel::default();
+        let calls = raw.calls.clone();
+        let model = BudgetedModel::new(raw, Some(settings), true)
+            .with_diagnostics(Some(diagnostic_scope()));
+        async {
+            let request = model
+                .completion_request(Message::user("PRIVATE_USER"))
+                .preamble("PRIVATE_PREAMBLE ".repeat(500))
+                .build();
+            assert!(model.completion(request).await.is_err());
+        }
+        .with_subscriber(subscriber)
+        .await;
+        let text = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(text.contains("provider_called=false"));
+        assert!(text.contains("guard_ms="));
+        assert!(!text.contains("PRIVATE_"));
+        assert!(!text.contains("provider_round_wall_ms="));
+    }
 
     #[test]
     fn fixed_reserve_is_outside_the_seventy_thirty_dialogue_partition() {

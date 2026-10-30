@@ -1,7 +1,8 @@
+mod attempt;
 mod chat;
 mod entry;
 mod types;
-use self::chat::chat_tools;
+use self::entry::root_diagnostics;
 pub(super) use self::types::AttemptTools;
 use std::{
     sync::{Arc, Mutex},
@@ -38,6 +39,7 @@ use crate::{
     config::AuthMode,
     connector_catalog::ConnectorCatalog,
     context::BudgetedModel,
+    messaging::contract::WorkRef,
     models::{needs_vision, Failure, FailureKind, ModelSpec},
     openrouter_http::OpenRouterHttp,
     scratchpad::PadScope,
@@ -61,6 +63,7 @@ impl AlbertCogitator {
         scope: Option<&str>,
         ingress: Option<Ingress>,
         session: Option<SessionContext>,
+        logical_work: Option<WorkRef>,
     ) -> (String, Option<String>) {
         if session.as_ref().is_some_and(|session| !session.is_live()) {
             return ("Session ended.".into(), None);
@@ -74,6 +77,12 @@ impl AlbertCogitator {
                 Err(_) => return ("Session authority is unavailable.".into(), None),
             }
         };
+        let feed = feed.with_diagnostics(Some(root_diagnostics(
+            session.as_ref(),
+            logical_work.as_ref(),
+            scope,
+            reply_target.is_some(),
+        )));
         let host = Arc::downgrade(self);
         let conversation = Self::logical_conversation(
             channel,
@@ -106,6 +115,7 @@ impl AlbertCogitator {
             )
             .with_ingress(ingress.clone())
             .with_session(session.clone())
+            .with_diagnostics(feed.diagnostics())
         });
         let make_tools = || {
             if chat_only {
@@ -114,14 +124,9 @@ impl AlbertCogitator {
                     pad: scratchpad_scope(&conversation, false),
                 };
             }
-            // How long the rig tool waits for a connector's reply. octo-rig defaults to 20s,
-            // which is BELOW what a skill may legitimately run: forkd's ceiling is 300s
-            // (max_timeout_secs), and the imagegen / transcribe skills request up to it — so
-            // at the default the rig would abort the await while the script was still running
-            // and the model would report a phantom "response timeout". The invariant is
-            // script < forkd < rig: this ceiling must sit ABOVE forkd's max (300s), so forkd
-            // (which knows the job) owns the kill. 360s = 300 + margin. Fast connectors
-            // (calendar/jira/storage/search/browser) answer far under it and never come near.
+            // Keep the tool RPC ceiling above forkd's 300-second skill limit.
+            // The connector owns termination; 360 seconds leaves response margin
+            // and avoids reporting a phantom timeout while scripts still run.
             let mut dispatch =
                 OctoDispatchTool::new(ctx.bus(), self.self_source.clone(), catalog(ctx))
                     .with_timeout(Duration::from_secs(360));
@@ -190,6 +195,13 @@ impl AlbertCogitator {
                 SessionDispatch {
                     inner: dispatch,
                     session: session.clone(),
+                    messaging: self.messaging_tools(
+                        ctx,
+                        session.as_ref(),
+                        logical_work
+                            .clone()
+                            .or_else(|| scope.map(|scope| WorkRef::Turn(scope.into()))),
+                    ),
                 },
                 send_file,
                 restart,
@@ -288,6 +300,9 @@ impl AlbertCogitator {
             _ => None,
         };
         let compact = matches!(&tools, AttemptTools::Compact { .. });
+        let metadata = matches!(&tools, AttemptTools::Metadata { .. });
+        let diagnostics = feed.diagnostics_for(compact);
+        let diagnostic_model_id = model.id.as_str();
         let timeout_ms = if compact {
             self.config.context.request_timeout_ms
         } else {
@@ -300,7 +315,8 @@ impl AlbertCogitator {
             .map_err(|_| unavailable("Could not construct HTTP client."))?;
 
         let mut budget = self.config.context.for_model(model);
-        if let AttemptTools::Compact { max_tokens } = &tools {
+        if let AttemptTools::Compact { max_tokens } | AttemptTools::Metadata { max_tokens } = &tools
+        {
             budget.response_tokens = *max_tokens;
         }
         let budget = budget.enabled.then_some(budget);
@@ -324,10 +340,17 @@ impl AlbertCogitator {
                 self.drive_attempt(
                     AgentBuilder::new(
                         BudgetedModel::new(client.completion_model(&model.model), budget, true)
+                            .with_diagnostics(diagnostics)
+                            .with_diagnostic_model(diagnostic_model_id)
+                            .with_diagnostic_feed(feed.clone())
                             .with_model_params(reasoning_params)
                             .with_turn_budget(turn_budget)
                             .with_recovery(
-                                self.config.context.continuation_retries,
+                                if metadata {
+                                    0
+                                } else {
+                                    self.config.context.continuation_retries
+                                },
                                 self.config.context.continuation_retry_delay_ms,
                                 feed.clone(),
                             ),
@@ -364,10 +387,17 @@ impl AlbertCogitator {
                 self.drive_attempt(
                     AgentBuilder::new(
                         BudgetedModel::new(model, budget, false)
+                            .with_diagnostics(diagnostics)
+                            .with_diagnostic_model(diagnostic_model_id)
+                            .with_diagnostic_feed(feed.clone())
                             .with_model_params(reasoning_params)
                             .with_turn_budget(turn_budget)
                             .with_recovery(
-                                self.config.context.continuation_retries,
+                                if metadata {
+                                    0
+                                } else {
+                                    self.config.context.continuation_retries
+                                },
                                 self.config.context.continuation_retry_delay_ms,
                                 feed.clone(),
                             ),
@@ -395,63 +425,6 @@ impl AlbertCogitator {
             });
         }
         Ok(result)
-    }
-
-    async fn drive_attempt<M: CompletionModel + 'static>(
-        &self,
-        base: AgentBuilder<M, (), NoToolConfig>,
-        tools: AttemptTools,
-        channel: &str,
-        prompt: Message,
-        history: Vec<Message>,
-        feed: StatusFeed,
-    ) -> Result<String, PromptError> {
-        match tools {
-            AttemptTools::Root((
-                dispatch,
-                send_file,
-                restart,
-                selfconfig,
-                discovery,
-                children,
-                artifacts,
-                pad_scope,
-            )) => {
-                self.drive(
-                    base, dispatch, send_file, restart, selfconfig, discovery, children, channel,
-                    prompt, history, feed, artifacts, pad_scope,
-                )
-                .await
-            }
-            AttemptTools::ChatOnly { session, pad } => {
-                base.tools(chat_tools(&self.scratchpad, pad, session))
-                    .build()
-                    .prompt(prompt)
-                    .with_hook(feed)
-                    .max_turns(self.config.max_tool_turns)
-                    .with_history(history)
-                    .await
-            }
-            AttemptTools::Compact { max_tokens } => {
-                base.max_tokens(max_tokens as u64)
-                    .build()
-                    .prompt(prompt)
-                    .with_history(history)
-                    .max_turns(1)
-                    .await
-            }
-            AttemptTools::Child {
-                tools, max_turns, ..
-            } => {
-                base.tools(tools)
-                    .build()
-                    .prompt(prompt)
-                    .with_history(history)
-                    .with_hook(feed)
-                    .max_turns(max_turns)
-                    .await
-            }
-        }
     }
 
     /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
@@ -490,7 +463,7 @@ impl AlbertCogitator {
     pub(super) async fn drive<M>(
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
-        dispatch: SessionDispatch,
+        mut dispatch: SessionDispatch,
         send_file: Option<SendFileTool>,
         restart: Option<RestartTool>,
         selfconfig: Option<SelfConfig>,
@@ -513,6 +486,7 @@ impl AlbertCogitator {
             max_turns = self.config.max_tool_turns,
             "building agent + running tool-loop"
         );
+        let messaging = dispatch.messaging.take();
         let session = dispatch.session.clone();
         let volatile = temporary(session.as_ref());
         let mut tools = permitted_memory(self.memory.delegation_tools(), volatile);
@@ -536,6 +510,9 @@ impl AlbertCogitator {
             Box::new(GlobTool),
             Box::new(GrepTool),
         ]);
+        if let Some(tool) = messaging {
+            tools.push(Box::new(tool));
+        }
         if let Some(tool) = send_file {
             tools.push(Box::new(tool));
         }
@@ -561,9 +538,9 @@ impl AlbertCogitator {
         } else {
             artifacts
         };
-        let agent = base
-            .tools(fence_tools(artifacts.wrap(tools), session))
-            .build();
+        let tools = fence_tools(artifacts.wrap(tools), session);
+        feed.register_tool_names(tools.iter().map(|tool| tool.name()));
+        let agent = base.tools(tools).build();
         agent
             .prompt(prompt)
             .with_hook(feed)

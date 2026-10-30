@@ -21,6 +21,7 @@ use super::{
 };
 use crate::{
     connector_catalog::ConnectorCatalog,
+    context::DiagnosticScope,
     history::{tool_trace, Turn},
     scratchpad::Reservation,
     sessions::telegram::output_scope,
@@ -146,6 +147,19 @@ impl AlbertCogitator {
                 return Err(error);
             }
         };
+        run.feed.set_diagnostics(Some(DiagnosticScope {
+            lane: "child",
+            session_id: run
+                .session
+                .as_ref()
+                .map(|session| session.session_id().as_str().into()),
+            work_id: tool
+                .diagnostics
+                .as_ref()
+                .and_then(|scope| scope.work_id.clone()),
+            attempt_id: run.id.clone(),
+            run_id: Some(run.id.clone()),
+        }));
         if create_dir_all(&workspace).is_err() {
             self.children.release_unstarted(&run);
             tool.spawned.fetch_sub(1, Ordering::SeqCst);

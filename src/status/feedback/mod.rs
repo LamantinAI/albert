@@ -4,12 +4,8 @@ use super::StatusFeed;
 
 impl StatusFeed {
     pub(crate) fn with_feedback(mut self, feedback: Option<TurnFeedback>) -> Self {
-        self.feedback = feedback;
+        self.edit_binding(|binding| binding.feedback = feedback);
         self
-    }
-
-    pub(super) fn feedback_open(&self) -> bool {
-        self.feedback.as_ref().is_none_or(TurnFeedback::is_open)
     }
 }
 

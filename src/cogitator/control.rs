@@ -47,6 +47,11 @@ impl AlbertCogitator {
     ) {
         self.handle(event, ctx).await;
     }
+    pub(crate) async fn panel_maintenance(self: &Arc<Self>, ctx: &CogitatorContext) {
+        if self.messaging.is_some() {
+            self.messaging_tick(ctx).await;
+        }
+    }
     pub(crate) async fn panel_stop(&self, ctx: &CogitatorContext) {
         self.stop_turns(ctx).await;
     }

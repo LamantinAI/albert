@@ -30,6 +30,9 @@ pub(in crate::cogitator) enum AttemptTools {
         session: Option<SessionContext>,
         pad: PadScope,
     },
+    Metadata {
+        max_tokens: usize,
+    },
     Compact {
         max_tokens: usize,
     },

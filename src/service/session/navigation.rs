@@ -1,5 +1,5 @@
 use octo_connector_telegram::NativeFrame;
-use octo_history::{CreateSession, SessionId, SessionKind};
+use octo_history::{CreateSession, SessionId, SessionKind, SessionState};
 
 use super::{route_key, selected, SessionService};
 use crate::{
@@ -108,6 +108,9 @@ impl SessionService {
             }
         };
         context.check(&session)?;
+        if session.state != SessionState::Active {
+            return Err(SessionError::InvalidInput("this chat is archived"));
+        }
         let return_id = if session.kind == SessionKind::Temporary {
             let original = route
                 .return_session_id
@@ -130,6 +133,8 @@ impl SessionService {
         let lease = self.lease_for_in(&mut tx, &session.id).await?;
         let cleanup = return_id.map(|_| cleanup_scope_for(context.reply_route(), &session.id));
         tx.commit().await.map_err(DatabaseError::from)?;
+        self.presentations
+            .record(&key, &old_id, route.revision, &session.id, revision);
         Ok(selected(context, session, revision, lease, cleanup))
     }
 }

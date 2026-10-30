@@ -24,6 +24,13 @@ deeper reference.
 - **[sessions.md](sessions.md)** — private chats across transports, channel-bound groups,
   temporary chats, retained history, startup backups and automatic legacy import.
 - **[web-panel.md](web-panel.md)** — embedded React workspace, first setup, owner/user accounts, private chats, configuration and API.
+- **[session-messaging.md](session-messaging.md)** — host-only addressed messages,
+  bounded context exchange, asynchronous session work and separate report routing;
+  remote-device execution remains a planned extension.
+- **[device-daemons.md](device-daemons.md)** — a dedicated local daemon and thin
+  Ratatui `albert.cli`, server-side cognition/history, sandboxed execution,
+  HTTP/WebSocket communication, CBOR over platform-specific local IPC, and
+  skill/credential delivery; implementation pending.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.

@@ -19,7 +19,7 @@ use crate::{
 pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemoryHistory>) {
     let dir = tempdir().unwrap();
     let path = dir.path().to_path_buf();
-    let config = Config {
+    let mut config = Config {
         sessions: Default::default(),
         authorization: Default::default(),
         context: crate::context::Settings {
@@ -57,6 +57,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         code_workspace: path.clone(),
         deploy_dir: path.clone(),
     };
+    config.sessions.titles.enabled = false;
     let history = Arc::new(InMemoryHistory::new(30));
     let memory = Memory::Embedded {
         memory: KaeruMemory::with_initiative(Arc::new(Store::open_in_memory().unwrap()), "albert"),

@@ -17,6 +17,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         let mut trace = self.trace.lock().unwrap();
         if self.is_live() {
             trace.start(tool_name, tool_call_id.as_deref(), internal_call_id, args);
+            self.start_tool_metric(internal_call_id, tool_name, false);
         }
         drop(trace);
         let feed = self.clone();
@@ -44,6 +45,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         args: &str,
         result: &str,
     ) -> impl std::future::Future<Output = HookAction> + Send {
+        self.metrics.finish(internal_call_id, result.len());
         let mut trace = self.trace.lock().unwrap();
         let recorded = self.is_live() && trace.result(internal_call_id, result);
         drop(trace);

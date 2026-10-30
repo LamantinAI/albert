@@ -7,7 +7,8 @@ use crate::{
         errors::{ApiError, ApiResult},
         models::{MessageList, MessageView, PageQuery},
     },
-    history::ACTION_MARKER,
+    history::{preview_turn, project_session_record, PreviewContent, Turn, ACTION_MARKER},
+    messaging::contract::MESSAGE_MARKER,
     service::session::web::WebActor,
 };
 
@@ -105,6 +106,22 @@ fn display(role: Role, content: &str) -> (&'static str, String) {
         };
         return ("user", text.into());
     }
+    if content.starts_with(MESSAGE_MARKER) {
+        return match preview_turn(&Turn::assistant(content.to_owned())) {
+            PreviewContent::Text(text) => ("assistant", text),
+            PreviewContent::Service => (
+                "activity",
+                project_session_record(content)
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or_else(|| "Session metadata recorded.".into()),
+            ),
+            PreviewContent::MediaOnly => ("activity", "Media recorded.".into()),
+            PreviewContent::Unreadable => (
+                "activity",
+                "Stored session activity could not be read.".into(),
+            ),
+        };
+    }
     if content.starts_with("[albert tool journal v2]\n")
         || content.starts_with("[albert tool trace v1]\n")
     {
@@ -119,4 +136,64 @@ fn display(role: Role, content: &str) -> (&'static str, String) {
         .map(|(text, _)| text)
         .unwrap_or(text);
     ("assistant", spoken.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display;
+    use crate::{history::assistant_turn, messaging::contract::MESSAGE_MARKER};
+    use octo_history::Role;
+    use serde_json::json;
+
+    #[test]
+    fn linked_results_and_control_audits_never_dump_internal_tuples_or_authority() {
+        let result = format!(
+            "{MESSAGE_MARKER}{}",
+            json!(["albert.session_work.result.v1","message",{"owner":"not-user-input"},{"ceiling":"internal"},"Readable linked answer",null])
+        );
+        let (role, text) = display(Role::Assistant, &result);
+        assert_eq!(role, "assistant");
+        assert!(text.contains("Readable linked answer"));
+        assert!(
+            !text.contains("ceiling")
+                && !text.contains("not-user-input")
+                && !text.contains(MESSAGE_MARKER)
+        );
+        let rename = format!(
+            "{MESSAGE_MARKER}{}",
+            json!([
+                "albert.session_title.renamed.v1",
+                "session",
+                "Literal title"
+            ])
+        );
+        assert_eq!(
+            display(Role::Assistant, &rename),
+            ("activity", "Session metadata recorded.".into())
+        );
+        let failure = format!(
+            "{MESSAGE_MARKER}{}",
+            json!(["albert.work_report.failed.v1", "work", "revoked"])
+        );
+        let (role, text) = display(Role::Assistant, &failure);
+        assert_eq!(role, "activity");
+        assert!(text.contains("delivery failed: revoked"));
+        assert!(!text.contains("albert.work_report"));
+    }
+    #[test]
+    fn escaped_assistant_literals_and_existing_tool_activity_keep_their_meaning() {
+        let literal = format!(
+            "{MESSAGE_MARKER}{}",
+            json!(["albert.session_title.renamed.v1", "quoted", "ordinary text"])
+        );
+        let stored = assistant_turn(literal.clone());
+        assert_eq!(
+            display(Role::Assistant, &stored.content),
+            ("assistant", literal)
+        );
+        assert_eq!(
+            display(Role::Assistant, "[albert tool journal v2]\n[]"),
+            ("activity", "Tool activity recorded.".into())
+        );
+    }
 }
