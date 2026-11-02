@@ -57,6 +57,28 @@ export async function readyFixture(page: Page, context = clientContext()) {
   let oldPages = 0;
   let lastKey = "";
   let lost = false;
+  let startId = "";
+  let published = true;
+  const admit = (body: Record<string, unknown>) => {
+    if (!startId) {
+      startId = String(body.client_message_id);
+      published = false;
+      current = {
+        ...current,
+        id: "session-2",
+        title: "",
+        kind: body.temporary ? "temporary" : "permanent",
+      };
+      messages = [{ ...message(1), content: String(body.text) }];
+    }
+    return {
+      id: startId,
+      session_id: current.id,
+      state: published ? "complete" : "running",
+      published,
+      temporary: current.kind === "temporary",
+    };
+  };
   const requests: { path: string; method: string; body: unknown }[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request(),
@@ -72,8 +94,32 @@ export async function readyFixture(page: Page, context = clientContext()) {
         body: JSON.stringify(value),
       });
     if (path === "/context") return json(context);
+    if (path === "/session-starts" && method === "POST")
+      return json(admit(body!));
+    if (path === `/session-starts/${startId}` && startId)
+      return json({
+        id: startId,
+        session_id: current.id,
+        state: published ? "complete" : "running",
+        published,
+        temporary: current.kind === "temporary",
+      });
+    if (path === "/sessions" && method === "POST") {
+      current = {
+        ...current,
+        id: "session-2",
+        title: "Untitled conversation",
+        kind: body?.temporary ? "temporary" : "permanent",
+      };
+      messages = [];
+      return json(current);
+    }
     if (path === "/sessions")
-      return json({ items: [current], has_more: false, next_cursor: null });
+      return json({
+        items: published ? [current] : [session],
+        has_more: false,
+        next_cursor: null,
+      });
     if (path.endsWith("/events"))
       return route.fulfill({
         status: 200,
@@ -83,7 +129,9 @@ export async function readyFixture(page: Page, context = clientContext()) {
     if (path.endsWith("/state"))
       return json({
         session: current,
-        active_attempt: null,
+        active_attempt: published
+          ? null
+          : { id: "first-attempt", state: "running", session_id: current.id },
         runtime_epoch: "epoch-1",
         status: [],
       });
@@ -125,9 +173,12 @@ export async function readyFixture(page: Page, context = clientContext()) {
         message_ids: ["message-11"],
         duplicate: false,
       });
-    if (path === `/sessions/${session.id}` && method === "PATCH") {
+    if (path === `/sessions/${current.id}` && method === "GET")
+      return json(current);
+    if (path === `/sessions/${current.id}` && method === "PATCH") {
       current = {
         ...current,
+        title: typeof body?.title === "string" ? body.title : current.title,
         kind: body?.kind ? String(body.kind) : current.kind,
         state: body?.state ? String(body.state) : current.state,
         revision: current.revision + 1,
@@ -147,6 +198,16 @@ export async function readyFixture(page: Page, context = clientContext()) {
   });
   return {
     requests,
+    admit,
+    completeStart: () => {
+      published = true;
+      current = { ...current, title: "First conversation" };
+      messages.push({
+        ...message(2),
+        id: "first-answer",
+        content: "The first answer",
+      });
+    },
     temporary: () => {
       current = { ...current, kind: "temporary" };
     },

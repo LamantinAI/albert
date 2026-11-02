@@ -78,6 +78,36 @@ ConfigDocument: {
             redacted: boolean;
             revision: string;
         };
+ConfigDraftInput: {
+            changes?: components["schemas"]["ConfigFieldChange"][];
+            content: string;
+            revision: string;
+        };
+ConfigDraftView: {
+            content: string;
+            fields: components["schemas"]["ConfigField"][];
+            revision: string;
+        };
+ConfigField: {
+            default_value: unknown;
+            description: string;
+            group: string;
+            kind: components["schemas"]["ConfigFieldKind"];
+            label: string;
+            /** Format: int64 */
+            maximum?: number | null;
+            /** Format: int64 */
+            minimum?: number | null;
+            path: string;
+            value?: unknown;
+        };
+ConfigFieldChange: {
+            path: string;
+            /** @description Null removes the explicit setting and restores its default. */
+            value: unknown;
+        };
+/** @enum {string} */
+        ConfigFieldKind: "boolean" | "integer" | "text";
 ConfigList: {
             items: string[];
             revision: string;
@@ -184,6 +214,29 @@ ProfileView: {
             canonical_user_id?: string | null;
             display_name?: string | null;
         };
+ProgressDelta: {
+            at: string;
+            attempt_id: string;
+            items: components["schemas"]["ProgressItem"][];
+            replace_kind?: string | null;
+        };
+ProgressItem: {
+            /** Format: int64 */
+            elapsed_ms?: number | null;
+            id: string;
+            kind: string;
+            label: string;
+            started_at: string;
+            state: string;
+            updated_at: string;
+        };
+ProgressSnapshot: {
+            attempt_id: string;
+            items: components["schemas"]["ProgressItem"][];
+            started_at: string;
+            truncated: boolean;
+            updated_at: string;
+        };
 RuntimeStatus: {
             error?: string | null;
             model_ready: boolean;
@@ -213,11 +266,25 @@ SessionList: {
             items: components["schemas"]["SessionView"][];
             next_cursor?: string | null;
         };
+SessionStart: {
+            client_message_id: string;
+            temporary?: boolean;
+            text: string;
+        };
+SessionStartView: {
+            id: string;
+            published: boolean;
+            session_id: string;
+            state: string;
+            temporary: boolean;
+        };
 SessionState: {
             active_attempt?: null | components["schemas"]["AttemptView"];
+            progress?: null | components["schemas"]["ProgressSnapshot"];
             runtime_epoch: string;
             session: components["schemas"]["SessionView"];
             status: string[];
+            text?: null | components["schemas"]["TextSnapshot"];
         };
 SessionUpdate: {
             archived?: boolean | null;
@@ -270,6 +337,23 @@ SkillView: {
 SkillWrite: {
             content: string;
             revision?: string | null;
+        };
+TextDelta: {
+            attempt_id: string;
+            generation: string;
+            message_ids: string[];
+            offset: number;
+            operation: string;
+            text: string;
+        };
+TextSnapshot: {
+            attempt_id: string;
+            generation: string;
+            message_ids: string[];
+            offset: number;
+            state: string;
+            text: string;
+            truncated: boolean;
         };
 UserCreate: {
             password: string;

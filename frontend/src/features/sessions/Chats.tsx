@@ -1,188 +1,279 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Link,
+  useLocation,
   useNavigate,
-  useParams,
+  useMatch,
   useSearchParams,
 } from "react-router-dom";
 
-import { api, errorMessage } from "../../api/client";
+import { api, ApiError, errorMessage, requestId } from "../../api/client";
 import { useClientContext } from "../../app/context";
-import { Icon } from "../../components/Icon";
-import { Button, EmptyState, Notice } from "../../components/ui";
+import { Notice } from "../../components/ui";
 import { Conversation } from "./Conversation";
-import type { Session } from "./useConversation";
+import { useSessionDirectory } from "./SessionDirectory";
+import { StartingConversation } from "./StartingConversation";
+import type { components } from "../../api/schema";
+import { Welcome } from "./Welcome";
 
 export function Chats() {
-  const { id } = useParams();
-  const [query, setQuery] = useState("");
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [creating, setCreating] = useState(false);
-  const creatingRef = useRef(false);
+  const id = useMatch("/chats/:id")?.params.id;
+  const startId = useMatch("/chats/start/:startId")?.params.startId;
   const navigate = useNavigate();
-  const { context } = useClientContext();
+  const location = useLocation();
+  const welcomeKey = useRef(location.key);
+  if (!id && !startId) welcomeKey.current = location.key;
   const [search] = useSearchParams();
-  const load = useCallback(async () => {
-    try {
-      const list = await api("/sessions", "get", { query: { limit: 30 } });
-      setSessions(list.items);
-      setCursor(list.next_cursor ?? null);
-      setHasMore(list.has_more);
-      setError("");
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  async function create(temporary: boolean) {
-    if (creatingRef.current) return;
-    creatingRef.current = true;
-    setCreating(true);
-    setError("");
-    try {
-      const session = await api("/sessions", "post", {
-        body: { title: null, temporary },
-      });
-      await load();
-      navigate(`/chats/${encodeURIComponent(session.id)}`, { replace: true });
-    } catch (error) {
-      setError(errorMessage(error));
-      navigate("/chats", { replace: true });
-    } finally {
-      creatingRef.current = false;
-      setCreating(false);
-    }
-  }
-  useEffect(() => {
-    const kind = search.get("new");
-    if (kind === "temporary" || kind === "permanent")
-      void create(kind === "temporary");
-  }, [search]);
-  async function olderSessions() {
-    if (!cursor) return;
-    try {
-      const list = await api("/sessions", "get", {
-        query: { after: cursor, limit: 30 },
-      });
-      setSessions((old) => [
-        ...old,
-        ...list.items.filter(
-          (item) => !old.some((existing) => existing.id === item.id),
-        ),
-      ]);
-      setCursor(list.next_cursor ?? null);
-      setHasMore(list.has_more);
-    } catch (error) {
-      setError(errorMessage(error));
-    }
-  }
-  const filtered = sessions.filter((session) =>
-    (session.title || "Untitled conversation")
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const { context } = useClientContext();
+  const directory = useSessionDirectory();
+  const [error, setError] = useState("");
+  const [run, setRun] = useState<
+    components["schemas"]["SessionStartView"] | null
+  >(null);
+  const [request, setRequest] = useState<{
+    id: string;
+    text: string;
+    temporary: boolean;
+  } | null>(null);
+  const [canonicalReady, setCanonicalReady] = useState(false);
+  const restoreDraft = useRef(false);
+  const [entered, setEntered] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
   );
+  const inFlight = useRef(false);
+  const pending = useRef<{
+    id: string;
+    text: string;
+    temporary: boolean;
+  } | null>(null);
+  const effectiveId = id || (startId || request ? run?.session_id : undefined);
+  const provisional = !id && !!effectiveId && !run?.published;
+  const recover = async (value: string) => {
+    const result = await api("/session-starts/{id}", "get", {
+      path: { id: value },
+    });
+    return result;
+  };
+  useEffect(() => {
+    if (!startId) return;
+    let stopped = false;
+    let busy = false;
+    const poll = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const result = await api("/session-starts/{id}", "get", {
+          path: { id: startId },
+        });
+        if (stopped) return;
+        setRun(result);
+        setError("");
+        if (result.published && canonicalReady) {
+          const published = await directory.refreshSession(
+            result.session_id,
+            true,
+          );
+          if (stopped || !published) return;
+          navigate(`/chats/${encodeURIComponent(result.session_id)}`, {
+            replace: true,
+          });
+        }
+      } catch (error) {
+        if (!stopped && !inFlight.current) setError(errorMessage(error));
+      } finally {
+        busy = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [startId, canonicalReady]);
+  useEffect(() => {
+    if (id) {
+      generation.current += 1;
+      inFlight.current = false;
+      setSubmitting(false);
+      setRun(null);
+      setRequest(null);
+      pending.current = null;
+      setLeaving(false);
+    } else if (!startId) {
+      generation.current += 1;
+      inFlight.current = false;
+      setSubmitting(false);
+      setLeaving(false);
+      setEntered(false);
+      if (restoreDraft.current) {
+        restoreDraft.current = false;
+        return;
+      }
+      setRun(null);
+      setRequest(null);
+      pending.current = directory.firstDraft?.unknown
+        ? directory.firstDraft
+        : null;
+      setError("");
+      setCanonicalReady(false);
+    }
+  }, [id, startId, location.key]);
+  async function start(text: string, temporary: boolean) {
+    if (inFlight.current) return false;
+    const previous = pending.current;
+    if (
+      previous &&
+      (previous.text !== text || previous.temporary !== temporary)
+    ) {
+      setError(
+        "Confirm the previous message outcome before changing its text.",
+      );
+      return false;
+    }
+    const current = ++generation.current;
+    const value = previous || { id: requestId(), text, temporary };
+    pending.current = value;
+    directory.setFirstDraft({ ...value, unknown: true });
+    setError("");
+    setRequest(value);
+    setCanonicalReady(false);
+    setSubmitting(true);
+    setLeaving(true);
+    inFlight.current = true;
+    navigate(`/chats/start/${encodeURIComponent(value.id)}`, { replace: true });
+    const delay = new Promise<void>((resolve) =>
+      setTimeout(
+        () => {
+          if (current === generation.current) {
+            setLeaving(false);
+            setEntered(true);
+          }
+          resolve();
+        },
+        matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180,
+      ),
+    );
+    try {
+      let result: components["schemas"]["SessionStartView"];
+      try {
+        result = await api("/session-starts", "post", {
+          body: { client_message_id: value.id, text, temporary },
+        });
+      } catch (error) {
+        try {
+          result = await recover(value.id);
+        } catch {
+          throw error;
+        }
+      }
+      if (current !== generation.current) return false;
+      setRun(result);
+      directory.setFirstDraft(null);
+      await delay;
+      if (current !== generation.current) return false;
+      navigate(`/chats/start/${encodeURIComponent(value.id)}`, {
+        replace: true,
+      });
+      return true;
+    } catch (error) {
+      await delay;
+      if (current !== generation.current) return false;
+      setRequest(null);
+      setRun(null);
+      restoreDraft.current = true;
+      if (
+        error instanceof ApiError &&
+        [400, 403, 413, 422].includes(error.status)
+      )
+        pending.current = null;
+      directory.setFirstDraft({ ...value, unknown: pending.current !== null });
+      setError(errorMessage(error));
+      navigate(`/chats?new=${temporary ? "temporary" : "permanent"}`, {
+        replace: true,
+      });
+      return false;
+    } finally {
+      if (current === generation.current) {
+        inFlight.current = false;
+        setSubmitting(false);
+      }
+    }
+  }
   return (
-    <div className={`chat-layout ${!id ? "chat-layout-list" : ""}`}>
-      <aside className="chat-list" aria-label="Your conversations">
-        <div className="chat-list-search">
-          <Icon name="search" size={14} />
-          <input
-            aria-label="Search chat titles"
-            placeholder="Search chats"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-        <p className="chat-list-title">Your conversations</p>
-        {loading && <p className="mono muted">Loading…</p>}
-        {filtered.map((session) => (
-          <Link
-            key={session.id}
-            className={`chat-item ${id === session.id ? "chat-item-selected" : ""}`}
-            to={`/chats/${encodeURIComponent(session.id)}`}
-          >
-            <span className="chat-item-title">
-              {session.title || "Untitled conversation"}
-            </span>
-            <span className="chat-item-meta">
-              {session.kind === "temporary" ? (
-                <span className="badge badge-gold">Temporary</span>
-              ) : (
-                <span>Private</span>
-              )}
-              <span>host</span>
-            </span>
-          </Link>
-        ))}
-        {!loading && filtered.length === 0 && (
-          <p className="mono muted">
-            {query
-              ? "No matching titles."
-              : "Your first conversation starts here."}
-          </p>
-        )}
-        {hasMore && (
-          <Button variant="ghost" onClick={() => void olderSessions()}>
-            More conversations
-          </Button>
-        )}
-        {error && <Notice kind="error">{error}</Notice>}
-        <div className="form-actions">
-          <Button disabled={creating} onClick={() => void create(false)}>
-            <Icon name="plus" size={14} />
-            New chat
-          </Button>
-        </div>
-      </aside>
-      {id ? (
-        <Conversation
-          key={id}
-          id={id}
-          onChanged={() => void load()}
-          onEnded={() => navigate("/chats")}
-        />
-      ) : (
-        <section className="conversation session-empty">
-          <EmptyState
-            eyebrow="What thinks."
-            title="A conversation worth continuing."
-          >
-            <p>
-              One place for your questions, ideas and work. Choose a
-              conversation, or begin with a fresh page.
-            </p>
-          </EmptyState>
-          <div className="empty-actions">
-            {context?.setup.model_ready ? (
-              <>
-                <Button
-                  variant="primary"
-                  disabled={creating}
-                  onClick={() => void create(false)}
-                >
-                  <Icon name="plus" size={15} />
-                  New chat
-                </Button>
-                <Button disabled={creating} onClick={() => void create(true)}>
-                  <Icon name="temporary" size={15} />
-                  Temporary chat
-                </Button>
-              </>
-            ) : (
-              <Link to="/setup" className="button button-primary">
-                Configure a model
-              </Link>
+    <div className="chat-layout">
+      <div className="chat-stage" data-entered={entered || undefined}>
+        {effectiveId && !leaving ? (
+          <Conversation
+            key={effectiveId}
+            id={effectiveId}
+            provisional={provisional}
+            onReady={() => setCanonicalReady(true)}
+            startingText={request?.text}
+            onCancelStart={
+              startId
+                ? async () => {
+                    const observed = generation.current;
+                    await api("/session-starts/{id}/cancellations", "post", {
+                      path: { id: startId },
+                      body: {},
+                    });
+                    const result = await recover(startId);
+                    if (observed === generation.current) setRun(result);
+                  }
+                : undefined
+            }
+            inDirectory={directory.sessions.some(
+              (session) => session.id === effectiveId,
             )}
-          </div>
-        </section>
+            onSessionChange={directory.updateKnown}
+            initialText={
+              directory.initialDraft?.session === effectiveId
+                ? directory.initialDraft.text
+                : undefined
+            }
+            autoSendInitial={
+              directory.initialDraft?.session === effectiveId &&
+              !directory.initialDraft.attempted
+            }
+            onInitialStarted={() => directory.markAttempted(effectiveId)}
+            onInitialConsumed={() => directory.consumeDraft(effectiveId)}
+          />
+        ) : request && !leaving ? (
+          <StartingConversation
+            text={request.text}
+            temporary={request.temporary}
+          />
+        ) : (
+          <Welcome
+            key={welcomeKey.current}
+            initialTemporary={
+              directory.firstDraft?.temporary ??
+              search.get("new") === "temporary"
+            }
+            initialText={directory.firstDraft?.text}
+            onSend={start}
+            creating={submitting}
+            leaving={leaving}
+            ready={!!context?.setup.model_ready && !!context?.caps.chat}
+          />
+        )}
+      </div>
+      {run?.state === "expired" && (
+        <Notice>
+          This temporary request expired. Start a new conversation to continue.
+        </Notice>
+      )}
+      {error && (
+        <div className="chat-error">
+          <Notice kind="error">{error}</Notice>
+        </div>
       )}
     </div>
   );

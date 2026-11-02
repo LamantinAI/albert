@@ -1,47 +1,198 @@
 :root {
-  color-scheme: light;
-  background: #f7f4ec;
-  color: #25251f;
+  color-scheme: dark;
+  background: #151515;
+  color: #eee9dc;
   font-family: system-ui, sans-serif;
 }
 body {
   margin: 0;
 }
 .docs-header {
-  padding: 24px max(24px, calc((100vw - 1460px) / 2));
-  border-bottom: 1px solid #d9d5c9;
+  padding: 25px max(24px, calc((100vw - 1460px) / 2));
+  border-bottom: 1px solid #ffffff18;
 }
 .docs-header div {
   display: flex;
   align-items: baseline;
   gap: 24px;
+  flex-wrap: wrap;
 }
 .docs-header a {
-  color: #25251f;
+  color: #dfba63;
   font:
-    600 28px Georgia,
-    serif;
+    500 27px system-ui,
+    sans-serif;
+  letter-spacing: -0.8px;
   text-decoration: none;
 }
 .docs-header span {
-  color: #88652b;
-  font-size: 14px;
+  color: #aaa897;
+  font:
+    11px ui-monospace,
+    monospace;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 .docs-header p {
   margin-bottom: 0;
   font-size: 14px;
-  color: #65665c;
+  line-height: 1.8;
+  color: #aaa897;
 }
-.swagger-ui .info .title {
-  color: #25251f;
+#swagger-ui {
+  padding: 8px;
+}
+.swagger-ui {
+  color: #d3cebf;
+}
+.swagger-ui .info .title,
+.swagger-ui .info h1,
+.swagger-ui .info h2,
+.swagger-ui .info h3 {
+  color: #eee9dc;
+}
+.swagger-ui .info p,
+.swagger-ui .info li,
+.swagger-ui .info table,
+.swagger-ui .info a,
+.swagger-ui .opblock-description-wrapper p,
+.swagger-ui .opblock-external-docs-wrapper p,
+.swagger-ui .opblock-title_normal p {
+  color: #d3cebf;
 }
 .swagger-ui .scheme-container {
-  background: #f7f4ec;
+  background: #1b1b1b;
   box-shadow: none;
+  border-bottom: 1px solid #ffffff18;
 }
 .swagger-ui .auth-wrapper {
   display: none;
 }
-#swagger-ui {
-  padding: 8px;
+.swagger-ui .opblock .opblock-summary-description,
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock-tag,
+.swagger-ui .opblock-tag small {
+  color: #eee9dc;
+}
+.swagger-ui .opblock {
+  background: #202020;
+  border-color: #ffffff30;
+  border-radius: 5px;
+  box-shadow: none;
+}
+.swagger-ui .opblock.opblock-get {
+  border-color: #6596b566;
+  background: #6596b509;
+}
+.swagger-ui .opblock.opblock-post {
+  border-color: #92b48266;
+  background: #92b48209;
+}
+.swagger-ui .opblock.opblock-put,
+.swagger-ui .opblock.opblock-patch {
+  border-color: #caa24a66;
+  background: #caa24a09;
+}
+.swagger-ui .opblock.opblock-delete {
+  border-color: #ef998f66;
+  background: #ef998f09;
+}
+.swagger-ui .opblock .opblock-section-header {
+  background: #282828;
+  box-shadow: none;
+}
+.swagger-ui .opblock .opblock-section-header h4,
+.swagger-ui .opblock .opblock-section-header label {
+  color: #eee9dc;
+}
+.swagger-ui label,
+.swagger-ui .parameter__name,
+.swagger-ui .parameter__type,
+.swagger-ui .parameter__in,
+.swagger-ui .response-col_status,
+.swagger-ui .response-col_description {
+  color: #d3cebf;
+}
+.swagger-ui table thead tr td,
+.swagger-ui table thead tr th {
+  color: #aaa897;
+  border-color: #ffffff20;
+}
+.swagger-ui textarea,
+.swagger-ui input[type="text"],
+.swagger-ui input[type="password"],
+.swagger-ui input[type="search"],
+.swagger-ui select {
+  background: #151515;
+  color: #eee9dc;
+  border: 1px solid #727272;
+  border-radius: 4px;
+}
+.swagger-ui select {
+  background-image: none;
+}
+.swagger-ui .btn {
+  color: #eee9dc;
+  border-color: #727272;
+  box-shadow: none;
+  text-shadow: none;
+}
+.swagger-ui .btn.execute {
+  background: #caa24a;
+  border-color: #caa24a;
+  color: #201c11;
+}
+.swagger-ui .btn.cancel {
+  color: #ef998f;
+  border-color: #ef998f;
+}
+.swagger-ui .model,
+.swagger-ui .model-title,
+.swagger-ui .model-box,
+.swagger-ui section.models h4,
+.swagger-ui .prop-name,
+.swagger-ui .prop-type {
+  color: #d3cebf;
+}
+.swagger-ui section.models {
+  border-color: #ffffff30;
+}
+.swagger-ui section.models .model-container,
+.swagger-ui .model-box {
+  background: #202020;
+}
+.swagger-ui .model-toggle::after,
+.swagger-ui .expand-operation svg,
+.swagger-ui .opblock-control-arrow svg,
+.swagger-ui .arrow {
+  filter: invert(0.8);
+}
+.swagger-ui .tab li {
+  color: #aaa897;
+}
+.swagger-ui .tab li.active {
+  color: #dfba63;
+}
+.swagger-ui .renderedMarkdown code {
+  background: #282828;
+  color: #eee9dc;
+}
+.swagger-ui .highlight-code,
+.swagger-ui pre {
+  background: #101010;
+}
+.swagger-ui :focus-visible {
+  outline: 2px solid #dfba63;
+  outline-offset: 3px;
+}
+@media (max-width: 650px) {
+  .docs-header {
+    padding: 22px;
+  }
+  .docs-header div {
+    gap: 13px;
+  }
+  #swagger-ui {
+    padding: 0;
+  }
 }

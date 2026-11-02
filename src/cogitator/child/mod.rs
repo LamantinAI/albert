@@ -44,7 +44,21 @@ impl AlbertCogitator {
                     .extend(grants.as_object().expect("grants object").clone());
                 Ok(capabilities)
             }
-            Args::Spawn { task } => self.spawn_child(tool, task),
+            Args::Spawn { task } => {
+                let result = self.spawn_child(tool, task)?;
+                if let Some(id) = result.get("run_id").and_then(Value::as_str) {
+                    tool.progress
+                        .progress_child(
+                            id,
+                            result
+                                .get("status")
+                                .and_then(Value::as_str)
+                                .unwrap_or("running"),
+                        )
+                        .await;
+                }
+                Ok(result)
+            }
             Args::List => Ok(
                 json!({"runs":self.children.visible(&tool.conversation, tool.owner)
                 .iter().map(|run| run.summary()).collect::<Vec<_>>()}),
@@ -76,6 +90,7 @@ impl AlbertCogitator {
             }
             Args::Wait { run_id, seconds } => {
                 let run = self.children.get(&run_id, &tool.conversation, tool.owner)?;
+                tool.progress.progress_phase("Waiting for a subagent").await;
                 let result = run.wait(seconds).await;
                 Ok(result)
             }

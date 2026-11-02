@@ -25,6 +25,10 @@ test("owner changes model priority and preference without receiving stored keys"
   };
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
     if (path.endsWith("/model-pool/order")) {
@@ -60,6 +64,10 @@ test("skill import, validated editing and enable state are explicit server mutat
   let skill: components["schemas"]["SkillView"] | null = null;
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     const method = route.request().method();
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
@@ -131,6 +139,10 @@ test("configuration saves before applying, reconciles an unknown outcome and kee
   let names: string[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     const method = route.request().method();
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
@@ -180,6 +192,7 @@ test("configuration saves before applying, reconciles an unknown outcome and kee
     return route.fulfill({ status: 404 });
   });
   await page.goto("/ui/settings");
+  await page.getByRole("button", { name: "Raw", exact: true }).click();
   await page
     .getByRole("textbox", { name: "albert" })
     .fill('timezone = "Europe/Moscow"');
@@ -201,7 +214,14 @@ test("configuration saves before applying, reconciles an unknown outcome and kee
     document_id: "albert",
     revision: "r2",
   });
-  await page.getByRole("link", { name: "Credentials", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Settings navigation" })
+    .getByRole("link", { name: "Overview", exact: true })
+    .click();
+  await page
+    .locator(".workspace-content")
+    .getByRole("link", { name: "Credentials", exact: true })
+    .click();
   await page
     .getByLabel("Credential name", { exact: true })
     .fill("ALBERT_OPENAI_KEY");
@@ -220,6 +240,10 @@ test("account shows configured identities without an unsupported linking action"
 }) => {
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
     if (path.endsWith("/account/identities"))
@@ -247,10 +271,16 @@ test("a connector draft uses its own resource and validates before saving", asyn
   let saved: unknown;
   await page.route("**/api/v1/**", async (route) => {
     const path = decodeURIComponent(new URL(route.request().url()).pathname);
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
     if (path.endsWith("/configuration"))
-      return route.fulfill({ json: { items: ["albert"], revision: "all-1" } });
+      return route.fulfill({
+        json: { items: ["connectors"], revision: "all-1" },
+      });
     if (path.endsWith("/configuration-validations"))
       return route.fulfill({
         json: { valid: true, issues: [], requires_restart: true },
@@ -260,14 +290,14 @@ test("a connector draft uses its own resource and validates before saving", asyn
       saved = route.request().postDataJSON();
     return route.fulfill({
       json: {
-        path: connector ? "connector:telegram" : "albert",
+        path: connector ? "connector:telegram" : "connectors",
         content: saved ? (saved as { content: string }).content : "",
         revision: saved ? "new-1" : "empty-1",
         redacted: false,
       },
     });
   });
-  await page.goto("/ui/settings");
+  await page.goto("/ui/settings/connections");
   await page.getByLabel("New connector ID").fill("telegram");
   await page.getByRole("button", { name: "Add connector" }).click();
   const editor = page.getByRole("textbox", {
@@ -297,6 +327,10 @@ test("a process application keeps polling through restarting to its confirmed ou
   let applicationReads = 0;
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
     if (path.endsWith("/configuration"))
@@ -340,9 +374,13 @@ test("a process application keeps polling through restarting to its confirmed ou
     return route.fulfill({ status: 404 });
   });
   await page.goto("/ui/settings");
+  await page.getByRole("button", { name: "Raw", exact: true }).click();
   await page.getByRole("button", { name: "Apply saved configuration" }).click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Restart Albert process" }).click();
+  await page
+    .getByRole("dialog", { name: "Restart Albert?" })
+    .getByRole("button", { name: "Restart Albert", exact: true })
+    .click();
   await expect(
     page.getByText(
       "The restarted process loaded the requested configuration.",
@@ -350,4 +388,60 @@ test("a process application keeps polling through restarting to its confirmed ou
     ),
   ).toBeVisible();
   expect(applicationReads).toBeGreaterThan(0);
+});
+
+test("raw configuration cannot be edited while a save response is pending", async ({
+  page,
+}) => {
+  const document = {
+    path: "albert",
+    content: 'timezone = "UTC"',
+    revision: "r1",
+    redacted: false,
+  };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let saving = false;
+  await page.route("**/api/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/context"))
+      return route.fulfill({ json: clientContext() });
+    if (path.endsWith("/sessions"))
+      return route.fulfill({ json: { items: [], has_more: false } });
+    if (path.endsWith("/configuration"))
+      return route.fulfill({ json: { items: ["albert"], revision: "r1" } });
+    if (path.endsWith("/drafts"))
+      return route.fulfill({ json: { ...document, fields: [] } });
+    if (path.endsWith("/configuration-validations"))
+      return route.fulfill({
+        json: { valid: true, issues: [], requires_restart: false },
+      });
+    if (
+      path.endsWith("/configuration/albert") &&
+      route.request().method() === "PUT"
+    ) {
+      const submitted = route.request().postDataJSON();
+      saving = true;
+      await gate;
+      return route.fulfill({
+        json: { ...document, content: submitted.content, revision: "r2" },
+      });
+    }
+    return route.fulfill({ json: document });
+  });
+  await page.goto("/ui/settings");
+  await page.getByRole("button", { name: "Raw", exact: true }).click();
+  const raw = page.getByRole("textbox", { name: "albert", exact: true });
+  await raw.fill('timezone = "Europe/Paris"');
+  await page
+    .getByRole("button", { name: "Validate changes", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => saving).toBe(true);
+  await expect(raw).toBeDisabled();
+  release();
+  await expect(raw).toBeEnabled();
+  await expect(raw).toHaveValue('timezone = "Europe/Paris"');
 });

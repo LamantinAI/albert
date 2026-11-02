@@ -1,4 +1,8 @@
 import type { paths } from "./schema";
+import { requestId } from "./requestId";
+import { apiPath } from "./paths";
+
+export { requestId };
 
 type Method = "get" | "post" | "put" | "patch" | "delete";
 type PathFor<M extends Method> = {
@@ -72,7 +76,7 @@ export async function api<P extends PathFor<M>, M extends Method>(
   for (const [key, value] of Object.entries(options.path ?? {}))
     pathname = pathname.replace(`{${key}}`, encodeURIComponent(value));
   if (pathname.includes("{")) throw new Error("An API resource ID is missing.");
-  const url = new URL(`/api/v1${pathname}`, window.location.origin);
+  const url = new URL(apiPath(pathname), window.location.origin);
   for (const [key, value] of Object.entries(options.query ?? {}))
     if (value !== undefined) url.searchParams.set(key, String(value));
   const mutation = method !== "get";
@@ -80,7 +84,7 @@ export async function api<P extends PathFor<M>, M extends Method>(
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (mutation && csrf) headers["x-albert-csrf"] = csrf;
   if (mutation)
-    headers["Idempotency-Key"] = options.idempotencyKey ?? crypto.randomUUID();
+    headers["Idempotency-Key"] = options.idempotencyKey ?? requestId();
   if (options.revision !== undefined)
     headers["If-Match"] = String(options.revision);
   const response = await fetch(url, {

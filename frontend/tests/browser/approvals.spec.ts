@@ -36,6 +36,10 @@ test("owner reviews native approval summaries and explicitly approves or decline
   const decisions: { id: string; approve: boolean }[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({
         json: owner
@@ -79,13 +83,17 @@ test("owner reviews native approval summaries and explicitly approves or decline
     0,
   );
   expect(decisions).toHaveLength(0);
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("irreversible");
-    await dialog.accept();
-  });
+
   await page
     .getByRole("button", { name: "Approve", exact: true })
     .first()
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Approve change?" }),
+  ).toContainText("irreversible");
+  await page
+    .getByRole("dialog", { name: "Approve change?" })
+    .getByRole("button", { name: "Approve change", exact: true })
     .click();
   await expect(
     page.getByText("Approved. The change completed.", { exact: true }),
@@ -124,6 +132,10 @@ test("a refreshed empty queue preserves an unknown decision outcome", async ({
   let pending = true;
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/sessions") && route.request().method() === "GET")
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     if (path.endsWith("/context"))
       return route.fulfill({ json: clientContext() });
     if (path.endsWith("/decisions")) {
@@ -158,8 +170,11 @@ test("a refreshed empty queue preserves an unknown decision outcome", async ({
     });
   });
   await page.goto("/ui/approvals");
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Approve change?" })
+    .getByRole("button", { name: "Approve change", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", {
       name: "No changes are waiting for your decision.",

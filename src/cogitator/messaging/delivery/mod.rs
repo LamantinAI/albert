@@ -485,7 +485,7 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            outcome,
+            outcome.0,
             Some(ReportAdmission::Failed {
                 code: "unavailable",
                 ..
@@ -543,7 +543,7 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            outcome,
+            outcome.0,
             Some(ReportAdmission::Failed {
                 code: "save_required",
                 ..

@@ -3,7 +3,7 @@ use octo_history::{PageRequest, SessionFilter, SessionPage, SessionStore};
 
 use super::{
     cursor::{CatalogPosition, Cursor},
-    timestamp, view, SessionHost,
+    session_error, timestamp, view, SessionHost,
 };
 use crate::{
     api::{
@@ -97,8 +97,9 @@ impl SessionHost {
         };
         let ram = self.runtime.sessions.journal_router().temporary();
         let sql = self.runtime.sessions.history();
-        let temporary_page = page(ram.as_ref(), &filter, &mut temporary, limit).await?;
-        let durable_page = page(sql.as_ref(), &filter, &mut durable, limit).await?;
+        let temporary_page =
+            page(ram.as_ref(), &filter, &mut temporary, (limit + 8).min(100)).await?;
+        let durable_page = page(sql.as_ref(), &filter, &mut durable, (limit + 8).min(100)).await?;
         let ram_rows = temporary_page
             .as_ref()
             .map(|page| page.sessions.as_slice())
@@ -125,10 +126,26 @@ impl SessionHost {
                 (None, None) => break,
             };
             if take_ram {
-                items.push(view(&ram_rows[ram_used]));
+                if !self
+                    .runtime
+                    .sessions
+                    .web_unpublished(&ram_rows[ram_used].id)
+                    .await
+                    .map_err(session_error)?
+                {
+                    items.push(view(&ram_rows[ram_used]));
+                }
                 ram_used += 1;
             } else {
-                items.push(view(&sql_rows[sql_used]));
+                if !self
+                    .runtime
+                    .sessions
+                    .web_unpublished(&sql_rows[sql_used].id)
+                    .await
+                    .map_err(session_error)?
+                {
+                    items.push(view(&sql_rows[sql_used]));
+                }
                 sql_used += 1;
             }
         }

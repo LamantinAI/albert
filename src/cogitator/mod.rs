@@ -51,6 +51,7 @@ mod build;
 mod child;
 mod compaction;
 mod context;
+pub(crate) use context::source_context;
 pub(crate) mod control;
 mod errors;
 mod feedback;
@@ -221,8 +222,7 @@ mod tests {
     }
 
     /// The forced-refresh retry keys off the LIVE provider response. The first shape
-    /// is the real incident (2026-08-10): HTTP 401 `token_expired` while the JWT
-    /// `exp` was still eight days out.
+    /// covers HTTP 401 `token_expired` while the JWT `exp` is still in the future.
     #[test]
     fn token_rejection_is_detected_from_the_live_response() {
         use rig::completion::CompletionError;

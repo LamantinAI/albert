@@ -1,5 +1,6 @@
 //! Authenticated direct-resource inputs retain receipts and restricted tools
 //! through the same runtime used by selector-bound adapters.
+mod start;
 use std::{sync::Arc, time::Duration};
 
 use octo_connector_telegram::{TurnFeedback, TURN_END};
@@ -15,6 +16,7 @@ use crate::{
     db::repo::identity::bind,
     service::session::web::WebActor,
     sessions::{acceptance::SourceReceipt, actor::ActorToolPolicy, SessionContext, UserId},
+    status::progress::ProgressUpdate,
 };
 
 fn configure_web(fixture: &mut Fixture) {
@@ -69,6 +71,80 @@ async fn next(events: &mut Subscription, kind: &str) -> Arc<Envelope> {
 }
 fn token(event: &Envelope) -> TurnFeedback {
     event.context.get::<TurnFeedback>().unwrap().clone()
+}
+
+#[tokio::test]
+async fn progress_uses_the_active_api_attempt_identity_even_after_reattachment() {
+    let mut fixture = Fixture::with_model("never-reattach").await;
+    configure_web(&mut fixture);
+    Arc::get_mut(&mut fixture.host)
+        .unwrap()
+        .config
+        .stream_status = true;
+    let owner = actor(&fixture, "web-owner", ActorToolPolicy::ExistingHost).await;
+    let session = fixture
+        .service
+        .web_create(&owner, "Progress fixture", false)
+        .await
+        .unwrap();
+    let context = fixture
+        .service
+        .web_context(&owner, &session.id)
+        .await
+        .unwrap();
+    let mut events = fixture
+        .ctx
+        .bus()
+        .subscribe(
+            Filter::by_kind("albert.progress"),
+            SubscribeOptions::default(),
+        )
+        .await
+        .unwrap();
+    let incoming = envelope(&context, "progress-message", "Keep working");
+    let expected = incoming.id.to_string();
+    fixture
+        .host
+        .clone()
+        .handle(Arc::new(incoming), &fixture.ctx)
+        .await;
+    fixture.request_count(1).await;
+    let first = next(&mut events, "albert.progress").await;
+    assert_eq!(
+        fixture.host.panel_active(&session.id).await.as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        first.context.get::<ProgressUpdate>().unwrap().0.attempt_id,
+        expected
+    );
+    let state = fixture
+        .host
+        .turns
+        .lock()
+        .unwrap()
+        .get(&("session".into(), context.root_history_key()))
+        .unwrap()
+        .clone();
+    let feed = state.lock().await.presentation_feed().unwrap();
+    assert!(feed.detach_presentation(|_| true).is_some());
+    assert!(feed.attach_presentation(&context));
+    feed.progress_phase("Continuing").await;
+    let reopened = next(&mut events, "albert.progress").await;
+    assert_eq!(
+        reopened
+            .context
+            .get::<ProgressUpdate>()
+            .unwrap()
+            .0
+            .attempt_id,
+        expected
+    );
+    assert_ne!(
+        reopened.context.get::<TurnFeedback>().unwrap().id(),
+        expected
+    );
+    fixture.host.stop_turns(&fixture.ctx).await;
 }
 
 #[tokio::test]

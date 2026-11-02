@@ -1,11 +1,28 @@
-use super::{clip, display_args, summarize_result, StatusFeed};
+use std::future::Future;
+
 use rig::{
     agent::{HookAction, PromptHook, ToolCallHookAction},
     completion::{CompletionModel, CompletionResponse, Message},
     message::{AssistantContent, ReasoningContent},
 };
 
+use super::{clip, display_args, progress::item, summarize_result, StatusFeed};
+
 impl<M: CompletionModel> PromptHook<M> for StatusFeed {
+    fn on_completion_call(
+        &self,
+        _prompt: &Message,
+        _history: &[Message],
+    ) -> impl Future<Output = HookAction> + Send {
+        let feed = self.clone();
+        async move {
+            if !feed.is_live() {
+                return HookAction::terminate("Session ended.");
+            }
+            feed.progress_phase("Thinking").await;
+            HookAction::cont()
+        }
+    }
     /// Before each tool runs: show which one, with a clipped arg preview.
     fn on_tool_call(
         &self,
@@ -13,13 +30,24 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         tool_call_id: Option<String>,
         internal_call_id: &str,
         args: &str,
-    ) -> impl std::future::Future<Output = ToolCallHookAction> + Send {
+    ) -> impl Future<Output = ToolCallHookAction> + Send {
         let mut trace = self.trace.lock().unwrap();
         if self.is_live() {
             trace.start(tool_name, tool_call_id.as_deref(), internal_call_id, args);
             self.start_tool_metric(internal_call_id, tool_name, false);
         }
         drop(trace);
+        let progress = self
+            .metrics
+            .progress(internal_call_id)
+            .map(|(sequence, name, _)| {
+                item(
+                    format!("tool/{sequence}"),
+                    "tool",
+                    &self.progress_tool_label(&name, args),
+                    "in_progress",
+                )
+            });
         let feed = self.clone();
         let line = format!(
             "{tool_name} {}",
@@ -30,6 +58,9 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
                 return ToolCallHookAction::terminate("Session ended.");
             }
             feed.emit(line).await;
+            if let Some(progress) = progress {
+                feed.progress_items(vec![progress], None).await;
+            }
             ToolCallHookAction::cont()
         }
     }
@@ -44,7 +75,20 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         internal_call_id: &str,
         args: &str,
         result: &str,
-    ) -> impl std::future::Future<Output = HookAction> + Send {
+    ) -> impl Future<Output = HookAction> + Send {
+        let progress = self
+            .metrics
+            .progress(internal_call_id)
+            .map(|(sequence, name, elapsed)| {
+                let mut progress = item(
+                    format!("tool/{sequence}"),
+                    "tool",
+                    &self.progress_tool_label(&name, args),
+                    "returned",
+                );
+                progress.elapsed_ms = Some(elapsed);
+                progress
+            });
         self.metrics.finish(internal_call_id, result.len());
         let mut trace = self.trace.lock().unwrap();
         let recorded = self.is_live() && trace.result(internal_call_id, result);
@@ -64,8 +108,16 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
             }
         }
         let live = self.is_live();
+        let feed = self.clone();
+        let update_stages = tool_name.starts_with("scratchpad_") || tool_name == "subagent";
         async move {
             if live {
+                if let Some(progress) = progress {
+                    feed.progress_items(vec![progress], None).await;
+                }
+                if update_stages {
+                    feed.progress_stages().await;
+                }
                 HookAction::cont()
             } else {
                 HookAction::terminate("Session ended.")
@@ -79,7 +131,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         &self,
         _prompt: &Message,
         response: &CompletionResponse<M::Response>,
-    ) -> impl std::future::Future<Output = HookAction> + Send {
+    ) -> impl Future<Output = HookAction> + Send {
         let feed = self.clone();
         let mut trace = self.trace.lock().unwrap();
         if self.is_live() {

@@ -12,6 +12,8 @@ use crate::{
     service::session::web::WebActor,
 };
 
+const MAX_ACTIVITY_PAGES: usize = 8;
+
 impl SessionHost {
     pub(super) async fn messages(
         &self,
@@ -24,7 +26,7 @@ impl SessionHost {
         if !(1..=100).contains(&limit) {
             return Err(ApiError::invalid("Invalid page size."));
         }
-        let (before, through) = match query.after {
+        let (mut before, mut through) = match query.after {
             Some(value) => match Cursor::decode(&value)? {
                 Cursor::Messages {
                     owner,
@@ -44,22 +46,37 @@ impl SessionHost {
                     .map_err(|_| ApiError::invalid("Invalid page watermark."))?,
             ),
         };
-        let page = self
-            .runtime
-            .sessions
-            .journal_router()
-            .journal_page(
-                &context.root_history_key(),
-                PageRequest {
-                    before_id: before,
-                    through_id: through,
-                    limit,
-                },
-            )
-            .await
-            .map_err(|_| {
-                ApiError::conflict("Message page changed or chat ended. Reload before retrying.")
-            })?;
+        let mut scanned = 0;
+        let page = loop {
+            let page = self
+                .runtime
+                .sessions
+                .journal_router()
+                .journal_page(
+                    &context.root_history_key(),
+                    PageRequest {
+                        before_id: before,
+                        through_id: through,
+                        limit,
+                    },
+                )
+                .await
+                .map_err(|_| {
+                    ApiError::conflict(
+                        "Message page changed or chat ended. Reload before retrying.",
+                    )
+                })?;
+            scanned += 1;
+            through.get_or_insert(page.through_id);
+            let readable = page
+                .records
+                .iter()
+                .any(|record| display(record.turn.role, &record.turn.content).0 != "activity");
+            if readable || !page.has_more || scanned >= MAX_ACTIVITY_PAGES {
+                break page;
+            }
+            before = page.next_before;
+        };
         if !context.is_live() {
             return Err(ApiError::conflict("This chat has ended."));
         }
@@ -140,10 +157,153 @@ fn display(role: Role, content: &str) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::display;
-    use crate::{history::assistant_turn, messaging::contract::MESSAGE_MARKER};
-    use octo_history::Role;
+    use octo_history::{AppendRequest, HistoryStore, PageRequest, Role, Turn};
     use serde_json::json;
+
+    use super::{
+        super::{fixture::fixture, SessionHost},
+        display,
+    };
+    use crate::{
+        api::models::PageQuery, history::assistant_turn, messaging::contract::MESSAGE_MARKER,
+    };
+
+    async fn append(host: &SessionHost, journal: &str, key: &str, turns: Vec<Turn>) {
+        host.runtime
+            .sessions
+            .journal_router()
+            .append_journal(
+                journal,
+                &AppendRequest {
+                    namespace: "activity-pages".into(),
+                    idempotency_key: key.into(),
+                    digest: key.into(),
+                    turns,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn service_page_scan_is_bounded_and_continues_the_original_snapshot() {
+        let (_dir, host, caller) = fixture().await;
+        let actor = host.actor(&caller).await.unwrap();
+        let session = host
+            .runtime
+            .sessions
+            .web_create(&actor, "Paged", false)
+            .await
+            .unwrap();
+        let context = host.resource(&actor, session.id.as_str()).await.unwrap();
+        let journal = context.root_history_key();
+        let mut turns = vec![Turn::user("Readable history")];
+        turns.extend((0..20).map(|_| Turn::assistant("[albert tool journal v2]\n[]")));
+        append(&host, &journal, "initial", turns).await;
+        let mut page = host
+            .messages(
+                &actor,
+                session.id.as_str(),
+                PageQuery {
+                    limit: Some(1),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(page.items.iter().all(|item| item.role == "activity"));
+        assert!(page.has_more);
+        let watermark = page.through_id.clone();
+        append(&host, &journal, "later", vec![Turn::user("Later append")]).await;
+        let mut found = false;
+        for _ in 0..4 {
+            page = host
+                .messages(
+                    &actor,
+                    session.id.as_str(),
+                    PageQuery {
+                        limit: Some(1),
+                        after: page.next_cursor.clone(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(page.through_id, watermark);
+            assert!(page.items.iter().all(|item| item.content != "Later append"));
+            if page
+                .items
+                .iter()
+                .any(|item| item.content == "Readable history")
+            {
+                found = true;
+                break;
+            }
+            assert!(page.has_more);
+        }
+        assert!(found);
+        assert!(!page.has_more);
+        let stored = host
+            .runtime
+            .sessions
+            .journal_router()
+            .journal_page(
+                &journal,
+                PageRequest {
+                    limit: 100,
+                    before_id: None,
+                    through_id: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(stored.records.len(), 22);
+    }
+
+    #[tokio::test]
+    async fn mixed_pages_are_not_skipped_and_service_only_history_exhausts() {
+        let (_dir, host, caller) = fixture().await;
+        let actor = host.actor(&caller).await.unwrap();
+        for mixed in [false, true] {
+            let session = host
+                .runtime
+                .sessions
+                .web_create(&actor, "History", false)
+                .await
+                .unwrap();
+            let context = host.resource(&actor, session.id.as_str()).await.unwrap();
+            let journal = context.root_history_key();
+            let mut turns = vec![Turn::assistant("[albert tool journal v2]\n[]"); 3];
+            if mixed {
+                turns.push(Turn::user("Visible message"));
+            }
+            turns.push(Turn::assistant("[albert tool journal v2]\n[]"));
+            append(&host, &journal, "initial", turns).await;
+            let page = host
+                .messages(
+                    &actor,
+                    session.id.as_str(),
+                    PageQuery {
+                        limit: Some(2),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            if mixed {
+                assert_eq!(page.items.len(), 2);
+                assert!(page
+                    .items
+                    .iter()
+                    .any(|item| item.content == "Visible message"));
+                assert!(page.has_more);
+            } else {
+                assert!(page.items.iter().all(|item| item.role == "activity"));
+                assert!(!page.has_more);
+                assert!(page.next_cursor.is_none());
+            }
+        }
+    }
 
     #[test]
     fn linked_results_and_control_audits_never_dump_internal_tuples_or_authority() {

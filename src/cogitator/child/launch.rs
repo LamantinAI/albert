@@ -247,6 +247,7 @@ impl AlbertCogitator {
         let me = self.clone();
         let ctx = tool.ctx.clone();
         let owned_run = run.clone();
+        let progress = tool.progress.clone();
         let info_task = task.clone();
         let physical_origin = tool
             .session
@@ -319,6 +320,9 @@ impl AlbertCogitator {
             info!(run_id = %scope, parent_run_id = %owned_run.parent, status = %outcome["status"], "subagent finished");
             owned_run.complete(json!({"outcome":outcome,"workspace":workspace,"journal_saved":persisted,
                 "note":"Check inspect for completed tools and UNKNOWN outcomes before repeating actions."}));
+            progress
+                .progress_child(&scope, outcome["status"].as_str().unwrap_or("unknown"))
+                .await;
         });
         info!(run_id = %run.id, parent_run_id = %run.parent, "subagent spawned");
         Ok(run.view())

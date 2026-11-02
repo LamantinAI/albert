@@ -19,6 +19,7 @@ pub(super) struct ToolMetrics {
     scope: Mutex<Option<DiagnosticScope>>,
     request_id: Mutex<Option<String>>,
     names: Mutex<HashSet<String>>,
+    connectors: Mutex<HashSet<String>>,
     started: Mutex<HashMap<String, Started>>,
     sequence: AtomicU64,
 }
@@ -65,6 +66,12 @@ impl StatusFeed {
     pub(crate) fn register_tool_names(&self, names: impl IntoIterator<Item = String>) {
         self.metrics.register(names);
     }
+    pub(crate) fn register_connector_names(&self, names: impl IntoIterator<Item = String>) {
+        *self.metrics.connectors.lock().unwrap() = names.into_iter().collect();
+    }
+    pub(super) fn connector_known(&self, name: &str) -> bool {
+        self.metrics.connectors.lock().unwrap().contains(name)
+    }
 
     pub(super) fn start_tool_metric(&self, id: &str, name: &str, external: bool) {
         self.metrics.start(id, name, external, self.request_id());
@@ -72,6 +79,15 @@ impl StatusFeed {
 }
 
 impl ToolMetrics {
+    pub(super) fn progress(&self, id: &str) -> Option<(u64, String, u64)> {
+        self.started.lock().unwrap().get(id).map(|started| {
+            (
+                started.sequence,
+                started.tool.clone(),
+                started.at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            )
+        })
+    }
     pub fn scope(&self) -> Option<DiagnosticScope> {
         self.scope.lock().unwrap().clone()
     }

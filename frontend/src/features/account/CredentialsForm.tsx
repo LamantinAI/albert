@@ -43,7 +43,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
     }
   }
   return (
-    <form className="form-stack" onSubmit={submit}>
+    <form className="form-stack credentials-form" onSubmit={submit}>
       <Field
         label="Username"
         required
@@ -83,11 +83,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
         <Notice kind="success">Your credentials have been updated.</Notice>
       )}
       <Button type="submit" variant="primary" disabled={busy}>
-        {busy
-          ? "Updating…"
-          : forced
-            ? "Secure my account"
-            : "Update credentials"}
+        {busy ? "Updating…" : forced ? "Save profile" : "Update credentials"}
       </Button>
     </form>
   );

@@ -56,11 +56,7 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
         config.timezone.name(),
     ));
     if settings.web.enabled {
-        let origin = settings
-            .web
-            .public_origin
-            .clone()
-            .unwrap_or_else(|| format!("http://{}", settings.web.bind));
+        let origin = settings.web.public_origin.clone().unwrap_or_default();
         let auth = AuthService::open(
             sessions.database().pool().clone(),
             config.deploy_dir.join("state/web-signing.key"),
@@ -83,15 +79,27 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
             "chat.typing",
             "chat.turn.end",
             "albert.session.closed",
+            "albert.progress",
+            "albert.text",
+            "albert.session.updated",
         ]
         .map(EventKind::new);
         let web = WebConnector::new(
             "web",
             settings.web.bind,
-            Arc::new(HostedPanel(panel, settings.web.max_body_bytes)),
+            Arc::new(HostedPanel {
+                panel,
+                max_body_bytes: settings.web.max_body_bytes,
+            }),
         )
         .with_kinds(emits, accepts)
-        .with_event_filter(Filter::by_kind("chat.*").with_kind("albert.session.closed"))
+        .with_event_filter(
+            Filter::by_kind("chat.*")
+                .with_kind("albert.session.closed")
+                .with_kind("albert.progress")
+                .with_kind("albert.text")
+                .with_kind("albert.session.updated"),
+        )
         .with_shutdown_grace(Duration::from_secs(2));
         info!(address=%settings.web.bind,"web panel configured at /ui/");
         builder = builder.add_connector(web);

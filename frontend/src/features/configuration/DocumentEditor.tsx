@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import { api, errorMessage } from "../../api/client";
+import { api, errorMessage, requestId } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useClientContext } from "../../app/context";
 import { Button, Notice } from "../../components/ui";
+import { useDialogs } from "../../components/useDialogs";
+import { StructuredFields } from "./StructuredFields";
+import { useStructuredDraft } from "./useStructuredDraft";
 
 type Document = components["schemas"]["ConfigDocument"];
 type Validation = components["schemas"]["ValidationView"];
@@ -17,8 +20,12 @@ export function DocumentEditor({
   kind: "configuration" | "prompts";
 }) {
   const { refresh } = useClientContext();
+  const { confirm, dialog } = useDialogs(id);
   const [document, setDocument] = useState<Document | null>(null);
   const [content, setContent] = useState("");
+  const [mode, setMode] = useState<"fields" | "raw">(
+    kind === "configuration" && id === "albert" ? "fields" : "raw",
+  );
   const [validation, setValidation] = useState<Validation | null>(null);
   const [application, setApplication] = useState<Application | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +38,57 @@ export function DocumentEditor({
     revision: string;
     documentId: string;
   } | null>(null);
-  const dirty = document !== null && content !== document.content;
+  const structured = kind === "configuration" && id === "albert";
+  function invalidate() {
+    setValidation(null);
+    validated.current = null;
+    setNotice("");
+  }
+  function changeContent(text: string) {
+    setContent(text);
+    invalidate();
+  }
+  const draft = useStructuredDraft(
+    document,
+    content,
+    structured && mode === "fields",
+    changeContent,
+    invalidate,
+  );
+  useEffect(() => {
+    if (document?.redacted) setMode("raw");
+  }, [document?.redacted]);
+  const dirty =
+    document !== null && (content !== document.content || draft.hasEdits);
+  useEffect(() => {
+    if (
+      structured &&
+      mode === "fields" &&
+      draft.error &&
+      !draft.pending &&
+      !draft.fields.length &&
+      !draft.hasEdits
+    )
+      setMode("raw");
+  }, [
+    structured,
+    mode,
+    draft.error,
+    draft.pending,
+    draft.fields.length,
+    draft.hasEdits,
+  ]);
+  async function switchMode(next: "fields" | "raw") {
+    if (next === mode) {
+      if (next === "raw") draft.clearError();
+      return;
+    }
+    const result = next === "raw" ? await draft.flush() : await draft.refresh();
+    if (result !== null) {
+      setMode(next);
+      draft.clearError();
+    }
+  }
   useEffect(() => {
     let current = true;
     const request =
@@ -112,15 +169,21 @@ export function DocumentEditor({
 
   async function validate() {
     if (!document) return;
+    const candidate = structured ? await draft.flush() : content;
+    if (candidate === null) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const result = await api("/configuration-validations", "post", {
-        body: { path: document.path, content, revision: document.revision },
+        body: {
+          path: document.path,
+          content: candidate,
+          revision: document.revision,
+        },
       });
       setValidation(result);
-      validated.current = result.valid ? content : null;
+      validated.current = result.valid ? candidate : null;
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -128,7 +191,13 @@ export function DocumentEditor({
     }
   }
   async function save() {
-    if (!document || validated.current !== content) return;
+    if (
+      !document ||
+      draft.hasEdits ||
+      draft.pending ||
+      validated.current !== content
+    )
+      return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -158,17 +227,21 @@ export function DocumentEditor({
     }
   }
   async function apply(target = "runtime", retry = false) {
-    if (!document || dirty) return;
+    if (!document || dirty || draft.pending) return;
     if (
       target === "process" &&
-      !window.confirm(
-        "Restart the Albert process? Active work and this connection will be interrupted. Unsaved temporary chats do not survive a restart.",
-      )
+      !(await confirm({
+        title: "Restart Albert?",
+        description:
+          "Active work and this connection will be interrupted. Unsaved temporary chats do not survive a restart.",
+        confirmLabel: "Restart Albert",
+        danger: true,
+      }))
     )
       return;
     if (!retry || !applicationKey.current)
       applicationKey.current = {
-        id: crypto.randomUUID(),
+        id: requestId(),
         target,
         revision: document.revision,
         documentId: id,
@@ -201,15 +274,41 @@ export function DocumentEditor({
     }
   }
   return (
-    <section className="card">
+    <section className="card config-editor">
+      {dialog}
       <div className="card-heading">
-        <h2>
-          {id === "soul"
-            ? "Persona"
-            : id === "system"
-              ? "Operating instructions"
-              : "Document"}
-        </h2>
+        {structured ? (
+          <div
+            className="view-switch"
+            role="group"
+            aria-label="Configuration view"
+          >
+            <Button
+              variant="ghost"
+              aria-pressed={mode === "fields"}
+              disabled={busy || document?.redacted}
+              onClick={() => void switchMode("fields")}
+            >
+              Fields
+            </Button>
+            <Button
+              variant="ghost"
+              aria-pressed={mode === "raw"}
+              disabled={busy}
+              onClick={() => void switchMode("raw")}
+            >
+              Raw
+            </Button>
+          </div>
+        ) : (
+          <h2>
+            {id === "soul"
+              ? "Persona"
+              : id === "system"
+                ? "Operating instructions"
+                : "Document"}
+          </h2>
+        )}
         {document && (
           <span className="badge">
             {dirty ? "Unsaved changes" : "Saved revision"}
@@ -218,23 +317,41 @@ export function DocumentEditor({
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {notice && <Notice kind="success">{notice}</Notice>}
+      {draft.error && <Notice kind="error">{draft.error}</Notice>}
       {document ? (
         <div className="form-stack">
-          <label className="field">
-            <span className="field-label">{document.path}</span>
-            <textarea
-              className="editor"
-              value={content}
-              readOnly={document.redacted}
-              spellCheck={false}
-              onChange={(event) => {
-                setContent(event.target.value);
-                setValidation(null);
-                validated.current = null;
-                setNotice("");
-              }}
-            />
-          </label>
+          {structured && mode === "fields" && !document.redacted ? (
+            draft.fields.length ? (
+              <StructuredFields
+                fields={draft.fields}
+                edits={draft.edits}
+                disabled={busy}
+                onChange={draft.change}
+              />
+            ) : (
+              <p className="muted">Loading settings…</p>
+            )
+          ) : (
+            <label className="field">
+              <span className="field-label">{document.path}</span>
+              <textarea
+                className="editor"
+                disabled={busy}
+                value={content}
+                readOnly={document.redacted}
+                spellCheck={false}
+                onChange={(event) => {
+                  changeContent(event.target.value);
+                  draft.clearError();
+                }}
+              />
+            </label>
+          )}
+          {draft.pending && (
+            <small className="muted" role="status">
+              Updating draft…
+            </small>
+          )}
           {document.redacted && (
             <Notice>
               This document contains redacted values. Use the model and
@@ -253,7 +370,7 @@ export function DocumentEditor({
           )}
           <div className="form-actions">
             <Button
-              disabled={busy || document.redacted || !dirty}
+              disabled={busy || draft.pending || document.redacted || !dirty}
               onClick={() => void validate()}
             >
               {busy ? "Working…" : "Validate changes"}
@@ -262,6 +379,8 @@ export function DocumentEditor({
               variant="primary"
               disabled={
                 busy ||
+                draft.pending ||
+                draft.hasEdits ||
                 !dirty ||
                 !validation?.valid ||
                 validated.current !== content
@@ -270,7 +389,10 @@ export function DocumentEditor({
             >
               Save
             </Button>
-            <Button disabled={busy || dirty} onClick={() => void apply()}>
+            <Button
+              disabled={busy || dirty || draft.pending}
+              onClick={() => void apply()}
+            >
               Apply saved configuration
             </Button>
           </div>

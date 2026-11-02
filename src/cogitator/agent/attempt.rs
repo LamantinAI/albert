@@ -34,7 +34,13 @@ impl AlbertCogitator {
                 .await
             }
             AttemptTools::ChatOnly { session, pad } => {
-                base.tools(chat_tools(&self.scratchpad, pad, session))
+                let stage_store = self.scratchpad.clone();
+                let stage_scope = pad.clone();
+                let feed =
+                    feed.with_stage_source(move || stage_store.progress_scoped(&stage_scope));
+                let tools = chat_tools(&self.scratchpad, pad, session);
+                feed.register_tool_names(tools.iter().map(|tool| tool.name()));
+                base.tools(tools)
                     .build()
                     .prompt(prompt)
                     .with_hook(feed)

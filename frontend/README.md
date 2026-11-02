@@ -3,6 +3,22 @@
 React + TypeScript client for the Albert-owned API. Auth, ownership, history,
 model selection and configuration application stay on the server.
 
+## Visual system
+
+The workspace uses neutral graphite surfaces, golden ochre accents, local
+Space Grotesk text and IBM Plex Mono technical labels. Its dot-matrix paw and
+pixel wordmark carry the “Your helping paw” identity. Slow, low-amplitude
+brightness changes animate the large identity. Compact pixel branding and the
+favicon stay static; a separate paw in chat activity dims its pads during work.
+Reduced-motion preferences disable animations. Ordinary interface surfaces
+remain flat and neutral.
+
+One authenticated, memory-only session directory supplies sidebar navigation
+and conversation creation. The welcome composer hands its first draft to the
+new conversation in memory; only acceptance or explicit disposal clears it.
+Pagination ignores obsolete responses. Model preference remains workspace-wide,
+and all editing, validation, application and approval actions use the typed API.
+
 ## Development
 
 Use Node 24.6+ and npm. Dependencies are pinned in `package-lock.json`.
@@ -15,9 +31,10 @@ npm run dev
 
 The browser app lives under `/ui/`. The development proxy uses
 `ALBERT_API_ORIGIN` (default `http://127.0.0.1:9877`). Production uses one origin
-and the Octo web connector. For proxy development, explicitly configure the
-backend's trusted public origin to the Vite origin; the proxy preserves Host
-and Origin and does not bypass their checks. JWTs remain in an HttpOnly cookie; only the current
+and the Octo web connector. Direct HTTP and Host-preserving HTTP development
+proxies use automatic same-origin validation; no browser address setting is
+needed. TLS termination or rewritten Host headers use an explicit public origin.
+The proxy preserves Host and Origin and does not bypass their checks. JWTs remain in an HttpOnly cookie; only the current
 CSRF token lives in memory. Browser session storage can contain an account-scoped
 pending request ID for receipt recovery, never a draft or transcript.
 If the host has exhausted its native file watchers, use
@@ -62,7 +79,7 @@ npm run check:embedded
 This produces `../ui-dist/` and a manifest of source and asset SHA256 hashes.
 Cargo embeds that output and never invokes Node. The bundle includes hashed
 local fonts and their OFL notices, no runtime CDN, source maps or sample chats.
-The paper/ink/ochre palette follows Lamantin AI's Intelligence identity.
+The bundle uses the same neutral dark palette as the application and API reference.
 
 Interactive API documentation is embedded at `/ui/docs/index.html`, also linked
 from Configuration. The exact `swagger-ui-dist` version is locked in npm; Vite

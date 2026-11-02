@@ -1,10 +1,14 @@
 /* Self-hosted Swagger UI. Authentication stays in the HttpOnly browser cookie. */
 async function openReference() {
-  const response = await fetch("/api/v1/openapi.json", {
+  const relative = document.querySelector('meta[name="albert-ui-root"]')?.content;
+  const uiRoot = relative === undefined ? "" : new URL(relative, window.location.href).pathname.replace(/\/+$/, "");
+  const apiRoot = `${uiRoot}/api/v1`;
+  const response = await fetch(`${apiRoot}/openapi.json`, {
     credentials: "same-origin",
   });
   if (!response.ok) throw new Error("The OpenAPI schema could not be loaded.");
   const spec = await response.json();
+  spec.servers = [{ url: apiRoot }];
   // Swagger validates required inputs before requestInterceptor. Keep the
   // required header visible and supply a display default; every mutation below
   // replaces it with the current browser token. The downloadable schema stays exact.
@@ -35,7 +39,7 @@ async function openReference() {
       const url = new URL(request.url, window.location.origin);
       if (
         url.origin !== window.location.origin ||
-        !url.pathname.startsWith("/api/v1/")
+        !url.pathname.startsWith(`${apiRoot}/`)
       ) {
         throw new Error("API requests must use this Albert workspace.");
       }
@@ -44,9 +48,9 @@ async function openReference() {
         !["GET", "HEAD", "OPTIONS"].includes(
           (request.method || "GET").toUpperCase(),
         ) &&
-        url.pathname !== "/api/v1/auth/credentials"
+        url.pathname !== `${apiRoot}/auth/credentials`
       ) {
-        const context = await fetch("/api/v1/context", {
+        const context = await fetch(`${apiRoot}/context`, {
           credentials: "same-origin",
           cache: "no-store",
         }).then((response) => response.json());

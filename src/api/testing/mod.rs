@@ -97,6 +97,10 @@ pub(super) struct Fixture {
     pub router: Router,
 }
 pub(super) async fn fixture() -> Fixture {
+    fixture_with_origin("http://localhost:9877").await
+}
+
+pub(super) async fn fixture_with_origin(origin: &str) -> Fixture {
     let dir = tempdir().unwrap();
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -108,7 +112,8 @@ pub(super) async fn fixture() -> Fixture {
         pool,
         dir.path().join("key"),
         AuthSettings {
-            public_origin: "http://localhost:9877".into(),
+            public_origin: origin.into(),
+            secure_cookie: origin.starts_with("https://"),
             login_attempts: 40,
             ..Default::default()
         },

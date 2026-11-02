@@ -179,7 +179,7 @@ pub(super) fn now_rfc3339(tz: &chrono_tz::Tz) -> String {
     Utc::now().with_timezone(tz).to_rfc3339()
 }
 
-fn source_context(env: &Envelope) -> String {
+pub(crate) fn source_context(env: &Envelope) -> String {
     let Some(metadata) = &env.channel_metadata else {
         return String::new();
     };

@@ -42,9 +42,11 @@ async function login(
   await page.getByLabel("Username", { exact: true }).fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  const chats = page.getByRole("textbox", { name: "Search chat titles" });
+  const chats = page
+    .locator(".sidebar")
+    .getByRole("link", { name: "All conversations", exact: true });
   const rotation = page.getByRole("heading", {
-    name: "Make this workspace yours.",
+    name: "Set up your profile",
   });
   await expect(chats.or(rotation)).toBeVisible();
   if (await rotation.isVisible()) {
@@ -53,7 +55,7 @@ async function login(
       .getByLabel("New password", { exact: true })
       .fill(`${password} rotated`);
     await page.getByLabel("Confirm new password").fill(`${password} rotated`);
-    await page.getByRole("button", { name: "Secure my account" }).click();
+    await page.getByRole("button", { name: "Save profile" }).click();
   }
   await expect(chats).toBeVisible();
 }
@@ -72,7 +74,7 @@ test("embedded binary supports first login, rotation, first model, chat and temp
   await page.getByLabel("Password", { exact: true }).fill("owner");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Make this workspace yours." }),
+    page.getByRole("heading", { name: "Set up your profile" }),
   ).toBeVisible();
   await page.getByLabel("Username", { exact: true }).fill("browser-owner");
   await page.getByLabel("Current password").fill("owner");
@@ -82,25 +84,21 @@ test("embedded binary supports first login, rotation, first model, chat and temp
   await page
     .getByLabel("Confirm new password")
     .fill("isolated browser owner password 2026");
-  await page.getByRole("button", { name: "Secure my account" }).click();
+  await page.getByRole("button", { name: "Save profile" }).click();
   await expect(
-    page.getByRole("heading", { name: "Give Albert a way to think." }),
+    page.getByRole("heading", { name: "Connect a model to start" }),
   ).toBeVisible();
+  await page.getByRole("link", { name: "Use an API key", exact: true }).click();
   await page.getByLabel("Model ID", { exact: true }).fill("browser-mock");
   await page.getByLabel("Provider model ID").fill("deterministic-browser-test");
   await page
     .getByLabel("OpenAI-compatible API base URL")
     .fill(process.env.ALBERT_E2E_MODEL_ORIGIN!);
   await page.getByLabel("API key", { exact: true }).fill("isolated-test-key");
-  await page
-    .getByRole("button", { name: "Connect model", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "A place for your next thought." }),
+    page.getByRole("heading", { name: "What are we working on?" }),
   ).toBeVisible();
-  await page
-    .getByRole("link", { name: "Start a conversation", exact: true })
-    .click();
   const cookies = await context.cookies();
   expect(
     cookies.find((cookie) => cookie.name === "albert_auth")?.httpOnly,
@@ -111,9 +109,9 @@ test("embedded binary supports first login, rotation, first model, chat and temp
     .getByRole("button", { name: "New chat", exact: true })
     .first()
     .click();
-  await expect(page).toHaveURL(/\/chats\/.+/);
-  const permanentUrl = page.url();
-  permanentSessionId = new URL(permanentUrl).pathname.split("/").at(-1)!;
+  await expect(
+    page.getByRole("region", { name: "New conversation" }),
+  ).toBeVisible();
   let intercepted = false;
   await page.route("**/api/v1/sessions/*/messages", async (route) => {
     if (route.request().method() !== "POST" || intercepted)
@@ -125,6 +123,9 @@ test("embedded binary supports first login, rotation, first model, chat and temp
   const input = page.getByRole("textbox", { name: "Message Albert" });
   await input.fill("A real browser message with a lost acceptance response.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page).toHaveURL(/\/chats\/.+/);
+  const permanentUrl = page.url();
+  permanentSessionId = new URL(permanentUrl).pathname.split("/").at(-1)!;
   await expect(input).toHaveValue("");
   await expect(
     page.getByText("A real browser message with a lost acceptance response.", {
@@ -133,6 +134,7 @@ test("embedded binary supports first login, rotation, first model, chat and temp
   ).toHaveCount(1);
   await expect(
     page
+      .locator(".transcript")
       .getByText("This is Albert replying through the local test provider.", {
         exact: true,
       })
@@ -155,14 +157,18 @@ test("embedded binary supports first login, rotation, first model, chat and temp
     .getByRole("button", { name: "New temporary chat", exact: true })
     .click();
   await expect(
+    page.getByRole("region", { name: "New conversation" }),
+  ).toBeVisible();
+  await input.fill("Retain this temporary conversation only after save.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(
     page.getByRole("button", { name: "Save chat", exact: true }),
   ).toBeVisible();
   const temporaryUrl = page.url();
-  await input.fill("Retain this temporary conversation only after save.");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(input).toHaveValue("");
   await expect(
     page
+      .locator(".transcript")
       .getByText("This is Albert replying through the local test provider.", {
         exact: true,
       })
@@ -184,8 +190,25 @@ test("embedded binary supports first login, rotation, first model, chat and temp
   await page
     .getByRole("button", { name: "New temporary chat", exact: true })
     .click();
-  page.once("dialog", (dialog) => dialog.accept());
+  await expect(
+    page.getByRole("region", { name: "New conversation" }),
+  ).toBeVisible();
+  await input.fill("A temporary conversation to end.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(
+    page
+      .locator(".transcript")
+      .getByText("This is Albert replying through the local test provider.", {
+        exact: true,
+      })
+      .first(),
+  ).toBeVisible();
+  await page.getByLabel("Conversation options", { exact: true }).click();
   await page.getByRole("button", { name: "End chat", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "End temporary chat?" })
+    .getByRole("button", { name: "End chat", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/ui\/chats$/);
 });
 
@@ -484,4 +507,55 @@ test("real users have separate private chats and server-enforced owner boundarie
   } finally {
     await isolated.close();
   }
+});
+
+test("structured fields and raw TOML share a lossless draft and preserve explicit validation before save", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto("/ui/settings");
+  const timezone = page.getByLabel("Timezone", { exact: true });
+  await expect(timezone).toBeVisible();
+  await timezone.fill("Europe/Paris");
+  await page.getByRole("button", { name: "Raw", exact: true }).click();
+  const raw = page.getByRole("textbox", { name: "albert", exact: true });
+  await expect(raw).toHaveValue(/timezone\s*=\s*"Europe\/Paris"/);
+  await raw.fill(
+    `${await raw.inputValue()}\n# Keep this configuration note.\n`,
+  );
+  await page.getByRole("button", { name: "Fields", exact: true }).click();
+  await expect(timezone).toHaveValue("Europe/Paris");
+  await timezone.fill("UTC");
+  await page
+    .getByRole("button", { name: "Validate changes", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Save", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Saved on disk. Apply the saved revision to update the runtime.",
+    ),
+  ).toBeVisible();
+  const saved = await request<components["schemas"]["ConfigDocument"]>(
+    page,
+    "/configuration/albert",
+  );
+  expect(saved.status).toBe(200);
+  expect(saved.data.content).toContain("# Keep this configuration note.");
+  expect(saved.data.content).toMatch(/timezone\s*=\s*"UTC"/);
+  await page.getByRole("button", { name: "Raw", exact: true }).click();
+  await raw.fill("[invalid draft\n");
+  await page.getByRole("button", { name: "Fields", exact: true }).click();
+  await expect(raw).toHaveValue("[invalid draft\n");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "not valid TOML" }),
+  ).toBeVisible();
+  const unchanged = await request<components["schemas"]["ConfigDocument"]>(
+    page,
+    "/configuration/albert",
+  );
+  expect(unchanged.data.content).toBe(saved.data.content);
+  await raw.fill(saved.data.content);
 });

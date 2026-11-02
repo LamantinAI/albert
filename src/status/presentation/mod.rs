@@ -109,6 +109,7 @@ impl StatusFeed {
     }
     pub(crate) fn share_presentation(mut self, source: &Self) -> Self {
         self.presentation = source.presentation.clone();
+        self.execution_attempt = source.execution_attempt.clone();
         self
     }
     /// Host-only: a private saved Session may reconnect only to its original route.

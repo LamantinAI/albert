@@ -5,7 +5,7 @@ use octo_core::{ChannelId, ChannelMetadata, ConnectorId, Envelope, EventKind};
 use octo_history::{AppendReceipt, RequestBinding, SessionId};
 use serde_json::to_vec;
 use sha2::{Digest, Sha256};
-use tokio::time::timeout;
+use tokio::{sync::oneshot::Receiver, time::timeout};
 
 use super::{session_error, SessionHost};
 use crate::{
@@ -14,7 +14,11 @@ use crate::{
         models::{MessageCreate, MessageReceipt},
     },
     service::session::web::WebActor,
-    sessions::{acceptance::SourceReceipt, actor::ActorToolPolicy},
+    sessions::{
+        acceptance::{AcceptedStart, SourceReceipt},
+        actor::ActorToolPolicy,
+        SessionContext,
+    },
 };
 
 fn request_id(value: &str) -> ApiResult<String> {
@@ -111,11 +115,51 @@ impl SessionHost {
             receipt.duplicate = true;
             return Ok(response(request, receipt));
         }
+        if self
+            .runtime
+            .sessions
+            .web_waiting_for_admission(&session)
+            .await
+            .map_err(session_error)?
+        {
+            return Err(ApiError::conflict(
+                "The first message is awaiting admission. Resume it before sending another.",
+            ));
+        }
         if self.runtime.current().is_none() || !self.runtime.status().model_ready {
             return Err(ApiError::unavailable(
                 "Connect a model before sending messages.",
             ));
         }
+        let receipt = self
+            .dispatch_input(actor, &context, input.text, &request, None)
+            .await?;
+        match timeout(Duration::from_secs(10), receipt).await {
+            Ok(Ok(Ok(receipt))) => Ok(response(request, receipt)),
+            _ => {
+                if let Some(binding) = lookup
+                    .find_request(&namespace(actor), &request)
+                    .await
+                    .map_err(|_| {
+                        ApiError::unavailable("Acceptance is unknown; retry the same message ID.")
+                    })?
+                {
+                    return Ok(response(request, bound(binding, &session, Some(&digest))?));
+                }
+                Err(ApiError::unavailable(
+                    "Acceptance was not confirmed. Retry with the same client message ID and body.",
+                ))
+            }
+        }
+    }
+    pub(super) async fn dispatch_input(
+        &self,
+        actor: &WebActor,
+        context: &SessionContext,
+        text: String,
+        request: &str,
+        proof: Option<AcceptedStart>,
+    ) -> ApiResult<Receiver<Result<AppendReceipt, String>>> {
         let io = self
             .context
             .read()
@@ -125,22 +169,9 @@ impl SessionHost {
         let (accepted, receipt) = SourceReceipt::channel();
         let channel = context.reply_route().channel();
         let owner = actor.tools == ActorToolPolicy::ExistingHost;
-        let mut envelope = Envelope::new(
-            ConnectorId::new("web"),
-            EventKind::new("chat.message"),
-            input.text,
-        )
-        .with_channel(ChannelId::new(channel))
-        .with_channel_metadata(
-            ChannelMetadata::default()
-                .with_tag("chat_type", "private")
-                .with_tag("chat_id", channel)
-                .with_tag("sender_id", &actor.account_id)
-                .with_tag("message_id", &request)
-                .with_tag("role", if owner { "owner" } else { "user" }),
-        )
-        .with_context(context.clone())
-        .with_context(accepted);
+        let mut envelope = input_envelope(actor, text, request)
+            .with_context(context.clone())
+            .with_context(accepted);
         if owner {
             let principal = self
                 .runtime
@@ -171,27 +202,39 @@ impl SessionHost {
             }
             envelope = envelope.with_context(ingress);
         }
+        if let Some(proof) = proof {
+            envelope = envelope.with_context(proof);
+        }
         io.publish(envelope).await.map_err(|_| {
             ApiError::unavailable(
                 "Message could not be submitted. Retry with the same client message ID.",
             )
         })?;
-        match timeout(Duration::from_secs(10), receipt).await {
-            Ok(Ok(Ok(receipt))) => Ok(response(request, receipt)),
-            _ => {
-                if let Some(binding) = lookup
-                    .find_request(&namespace(actor), &request)
-                    .await
-                    .map_err(|_| {
-                        ApiError::unavailable("Acceptance is unknown; retry the same message ID.")
-                    })?
-                {
-                    return Ok(response(request, bound(binding, &session, Some(&digest))?));
-                }
-                Err(ApiError::unavailable(
-                    "Acceptance was not confirmed. Retry with the same client message ID and body.",
-                ))
-            }
-        }
+        Ok(receipt)
     }
+}
+
+pub(super) fn input_envelope(actor: &WebActor, text: String, request: &str) -> Envelope {
+    let channel = format!("user:{}", actor.user_id.as_str());
+    Envelope::new(
+        ConnectorId::new("web"),
+        EventKind::new("chat.message"),
+        text,
+    )
+    .with_channel(ChannelId::new(&channel))
+    .with_channel_metadata(
+        ChannelMetadata::default()
+            .with_tag("chat_type", "private")
+            .with_tag("chat_id", &channel)
+            .with_tag("sender_id", &actor.account_id)
+            .with_tag("message_id", request)
+            .with_tag(
+                "role",
+                if actor.tools == ActorToolPolicy::ExistingHost {
+                    "owner"
+                } else {
+                    "user"
+                },
+            ),
+    )
 }

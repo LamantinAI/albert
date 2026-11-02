@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
 import { Icon } from "../../components/Icon";
@@ -13,6 +13,11 @@ export function Composer({
   active,
   temporary,
   disabledReason,
+  initialText,
+  autoSendInitial = false,
+  onInitialStarted,
+  suggestion,
+  autoFocus = false,
 }: {
   onSend: (text: string) => Promise<boolean>;
   onStop: () => void;
@@ -22,16 +27,55 @@ export function Composer({
   active: boolean;
   temporary: boolean;
   disabledReason?: string;
+  initialText?: string;
+  autoSendInitial?: boolean;
+  onInitialStarted?: () => void;
+  suggestion?: { text: string; revision: number };
+  autoFocus?: boolean;
+  host?: string;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const composing = useRef(false);
+  const initialStarted = useRef(false);
+  const handedText = useRef(initialText);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!suggestion?.text) return;
+    setText(suggestion.text);
+    textarea.current?.focus();
+  }, [suggestion]);
+  useEffect(() => {
+    if (
+      !initialText ||
+      !autoSendInitial ||
+      initialStarted.current ||
+      disabled ||
+      sending
+    )
+      return;
+    initialStarted.current = true;
+    onInitialStarted?.();
+    void submit();
+  }, [initialText, autoSendInitial, disabled, sending]);
+  useEffect(() => {
+    if (handedText.current === undefined || initialText !== undefined) return;
+    const accepted = handedText.current;
+    handedText.current = undefined;
+    setText((current) => (current === accepted ? "" : current));
+  }, [initialText]);
+  useEffect(() => {
+    const node = textarea.current;
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = `${Math.min(node.scrollHeight, 200)}px`;
+  }, [text]);
   async function submit(event?: FormEvent) {
     event?.preventDefault();
     if (!text.trim() || disabled || sending || composing.current) return;
-    const accepted = await onSend(text);
+    const submitted = text;
+    const accepted = await onSend(submitted);
     if (accepted) {
-      setText("");
+      setText((current) => (current === submitted ? "" : current));
       textarea.current?.focus();
     }
   }
@@ -55,6 +99,7 @@ export function Composer({
         <textarea
           id="message-input"
           ref={textarea}
+          autoFocus={autoFocus}
           placeholder={
             disabled
               ? (disabledReason ?? "Configure a model to start a conversation…")
@@ -70,10 +115,12 @@ export function Composer({
           onCompositionEnd={() => {
             composing.current = false;
           }}
-          rows={2}
+          rows={1}
+          title="Enter to send · Shift + Enter for a new line"
+          aria-describedby="message-input-help"
         />
         <div className="composer-bottom">
-          <span className="composer-hint">
+          <span className="sr-only" id="message-input-help">
             Enter to send · Shift + Enter for a new line
           </span>
           <div className="composer-buttons">
@@ -94,14 +141,11 @@ export function Composer({
           </div>
         </div>
       </form>
-      <div className="composer-footer">
-        <span>
-          {temporary
-            ? "Temporary · held in memory until you save"
-            : "Your conversation stays with this chat"}
-        </span>
-        <span>Host: host</span>
-      </div>
+      {temporary && (
+        <div className="composer-footer">
+          Temporary · held in memory until you save
+        </div>
+      )}
     </div>
   );
 }

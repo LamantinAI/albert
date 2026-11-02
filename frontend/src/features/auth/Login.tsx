@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import { useClientContext } from "../../app/context";
-import { Brand } from "../../components/Brand";
+import { Brand, Identity } from "../../components/Brand";
 import { Icon } from "../../components/Icon";
 import { Button, Field, Notice } from "../../components/ui";
 
@@ -29,22 +29,17 @@ export function Login() {
   }
   return (
     <main className="auth-page">
-      <Brand />
+      <Brand caption={false} />
       <div className="auth-layout">
         <section className="auth-story">
-          <p className="eyebrow">What thinks.</p>
+          <Identity className="auth-identity" />
           <h1>
-            Room for
-            <br />a longer <em>thought.</em>
+            A familiar place.
+            <br />A fresh train of thought.
           </h1>
-          <div className="auth-rule" />
-          <p>
-            A conversation you can return to. Work you can follow. Your
-            assistant, on your terms.
-          </p>
         </section>
         <section className="auth-card">
-          <p className="eyebrow">Your workspace</p>
+          <p className="eyebrow">Your workspace awaits</p>
           <h2>Welcome to Albert.</h2>
           <p>
             Sign in to continue your conversations and manage your workspace.
@@ -71,15 +66,14 @@ export function Login() {
               <Icon name="arrow" size={16} />
             </Button>
             <small className="muted">
-              First launch: use owner / owner. You will choose new credentials
-              before continuing.
+              First launch: use owner / owner through localhost or the server
+              IP. You will choose new credentials before continuing.
             </small>
           </form>
         </section>
       </div>
       <footer className="auth-footer">
         <span>LAMANTIN AI</span>
-        <span>Clear by design.</span>
       </footer>
     </main>
   );

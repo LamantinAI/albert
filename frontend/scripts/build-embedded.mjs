@@ -27,7 +27,7 @@ try {
   const inputs = [...await files(join(root, 'src')), ...await files(join(root, 'public')), ...['index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'scripts/build-embedded.mjs'].map((name) => join(root, name))].sort()
   const digest = createHash('sha256')
   for (const path of inputs) { digest.update(relative(root, path).replaceAll('\\', '/')); digest.update(await readFile(path)) }
-  await build({ root, configFile: join(root, 'vite.config.ts'), logLevel: 'warn', build: { outDir: temporary, emptyOutDir: true, sourcemap: false } })
+  await build({ root, base: './', configFile: join(root, 'vite.config.ts'), logLevel: 'warn', build: { outDir: temporary, emptyOutDir: true, sourcemap: false } })
   const assets = await fingerprints(temporary)
   for (const path of Object.keys(assets)) if (!/\.(html|js|css|svg|woff2|png|ico|txt)$/.test(path)) throw new Error(`Unexpected embedded asset: ${path}`)
   await writeFile(join(temporary, 'manifest.json'), JSON.stringify({ source_sha256: digest.digest('hex'), assets }, null, 2) + '\n')

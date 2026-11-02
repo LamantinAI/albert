@@ -307,6 +307,118 @@
         ],
         "type": "object"
       },
+      "ConfigDraftInput": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigFieldChange"
+            },
+            "type": "array"
+          },
+          "content": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "ConfigDraftView": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigField"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "revision",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "ConfigField": {
+        "properties": {
+          "default_value": {},
+          "description": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ConfigFieldKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "maximum": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "minimum": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "path",
+          "group",
+          "label",
+          "description",
+          "kind",
+          "default_value"
+        ],
+        "type": "object"
+      },
+      "ConfigFieldChange": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "description": "Null removes the explicit setting and restores its default."
+          }
+        },
+        "required": [
+          "path",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ConfigFieldKind": {
+        "enum": [
+          "boolean",
+          "integer",
+          "text"
+        ],
+        "type": "string"
+      },
       "ConfigList": {
         "properties": {
           "items": {
@@ -773,6 +885,103 @@
         },
         "type": "object"
       },
+      "ProgressDelta": {
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProgressItem"
+            },
+            "type": "array"
+          },
+          "replace_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "attempt_id",
+          "at",
+          "items"
+        ],
+        "type": "object"
+      },
+      "ProgressItem": {
+        "properties": {
+          "elapsed_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "state",
+          "started_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ProgressSnapshot": {
+        "properties": {
+          "attempt_id": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProgressItem"
+            },
+            "type": "array"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "started_at",
+          "updated_at",
+          "items",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "RuntimeStatus": {
         "properties": {
           "error": {
@@ -894,6 +1103,52 @@
         ],
         "type": "object"
       },
+      "SessionStart": {
+        "additionalProperties": false,
+        "properties": {
+          "client_message_id": {
+            "type": "string"
+          },
+          "temporary": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_message_id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "SessionStartView": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "temporary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "state",
+          "published",
+          "temporary"
+        ],
+        "type": "object"
+      },
       "SessionState": {
         "properties": {
           "active_attempt": {
@@ -903,6 +1158,16 @@
               },
               {
                 "$ref": "#/components/schemas/AttemptView"
+              }
+            ]
+          },
+          "progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProgressSnapshot"
               }
             ]
           },
@@ -917,6 +1182,16 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "text": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TextSnapshot"
+              }
+            ]
           }
         },
         "required": [
@@ -1141,6 +1416,80 @@
         },
         "required": [
           "content"
+        ],
+        "type": "object"
+      },
+      "TextDelta": {
+        "properties": {
+          "attempt_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "generation",
+          "operation",
+          "offset",
+          "text",
+          "message_ids"
+        ],
+        "type": "object"
+      },
+      "TextSnapshot": {
+        "properties": {
+          "attempt_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "generation",
+          "text",
+          "offset",
+          "state",
+          "truncated",
+          "message_ids"
         ],
         "type": "object"
       },
@@ -1869,6 +2218,65 @@
         ]
       }
     },
+    "/configuration/{id}/drafts": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigDraftInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigDraftView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
     "/context": {
       "get": {
         "parameters": [],
@@ -2401,6 +2809,157 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/EmptyObject"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/session-starts": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStartView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/session-starts/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStartView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/session-starts/{id}/cancellations": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyObject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStartView"
                 }
               }
             },
@@ -3260,7 +3819,7 @@
   },
   "servers": [
     {
-      "url": "/api/v1"
+      "url": "."
     }
   ]
 }

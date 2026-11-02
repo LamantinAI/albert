@@ -1,0 +1,225 @@
+.auth-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 30px clamp(24px, 5vw, 70px) 22px;
+}
+.auth-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: clamp(45px, 7vw, 115px);
+  align-items: center;
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: auto;
+  padding: 45px 0;
+}
+.auth-story {
+  text-align: center;
+}
+.auth-identity {
+  flex-direction: column;
+  gap: 28px;
+}
+.auth-identity .identity-paw {
+  width: 228px;
+  height: 230px;
+}
+.auth-identity .identity-eyebrow {
+  display: none;
+}
+.auth-identity .identity-wordmark {
+  width: 300px;
+}
+.auth-identity .identity-tagline {
+  margin-top: 24px;
+  font-size: 23px;
+}
+.auth-story h1 {
+  font: 400 15px/1.8 var(--sans);
+  letter-spacing: -0.2px;
+  margin: 34px 0 0;
+  color: var(--muted);
+}
+.auth-card {
+  padding: 33px 0;
+}
+.auth-card h2 {
+  font-size: 34px;
+  margin-bottom: 12px;
+  letter-spacing: -1.3px;
+}
+.auth-card > p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 28px;
+}
+.auth-card .eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  color: var(--ochre);
+}
+.auth-card .form-stack {
+  gap: 22px;
+}
+.auth-footer {
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding-top: 19px;
+  font: 9px/1.6 var(--mono);
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.setup-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 28px 70px;
+}
+.setup-shell > .brand {
+  margin-bottom: 32px;
+}
+.setup-progress {
+  display: flex;
+  gap: 24px;
+  margin: 24px 0 38px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+.setup-step {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font: 11px/1.5 var(--mono);
+  color: var(--muted);
+}
+.setup-step-current {
+  color: var(--ochre);
+}
+.setup-step span:first-child {
+  width: 25px;
+  height: 25px;
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.setup-step-current span:first-child {
+  border-color: var(--gold);
+  background: #caa24a15;
+}
+.choice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.choice-card {
+  text-align: left;
+  border: 1px solid var(--line-strong);
+  padding: 24px;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.choice-card:hover {
+  border-color: var(--ochre);
+}
+.choice-card p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 27px;
+  overflow-x: auto;
+}
+.settings-tabs a {
+  padding: 12px 16px;
+  text-decoration: none;
+  font: 12px/1.5 var(--sans);
+  color: var(--muted);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.settings-tabs a.active {
+  border-color: var(--gold);
+  color: var(--ink);
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 13px/1.6 var(--sans);
+}
+.toggle-label input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  accent-color: var(--gold);
+}
+.editor {
+  min-height: 280px;
+  tab-size: 2;
+  font: 13px/1.8 var(--mono);
+}
+@media (max-width: 1100px) {
+  .auth-layout {
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 40px;
+  }
+}
+@media (max-width: 760px) {
+  .auth-page {
+    padding: 25px 25px 20px;
+  }
+  .auth-layout {
+    display: block;
+    max-width: 400px;
+    padding: 38px 0;
+  }
+  .auth-story {
+    display: none;
+  }
+  .auth-card {
+    padding: 15px 0;
+  }
+  .auth-card h2 {
+    font-size: 31px;
+  }
+  .auth-footer {
+    font-size: 8px;
+  }
+  .choice-grid {
+    grid-template-columns: 1fr;
+  }
+  .setup-shell {
+    padding: 28px 22px 55px;
+  }
+  .setup-progress {
+    gap: 12px;
+  }
+  .setup-step {
+    font-size: 9px;
+    gap: 6px;
+  }
+  .setup-step span:first-child {
+    width: 21px;
+    height: 21px;
+  }
+}
+.profile-setup {
+  max-width: 760px;
+}
+.profile-next {
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}

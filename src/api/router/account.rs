@@ -19,6 +19,7 @@ pub(super) async fn account_request(
     spec: RouteSpec,
     params: &HashMap<String, String>,
     body: &[u8],
+    secure: bool,
 ) -> ApiResult<Option<Response>> {
     Ok(Some(match (spec.method, spec.path) {
         ("DELETE", "/auth/credentials/{id}") => {
@@ -26,7 +27,7 @@ pub(super) async fn account_request(
             state.auth.revoke_credential(caller, &target).await?;
             let mut response = Json(EmptyObject {}).into_response();
             if target == caller.credential_id() {
-                set_cookie(state, &mut response, "", 0)?;
+                set_cookie(state, &mut response, "", 0, secure)?;
             }
             response
         }
@@ -39,6 +40,7 @@ pub(super) async fn account_request(
                 &mut response,
                 &login.token,
                 state.auth.settings().credential_ttl_seconds,
+                secure,
             )?;
             response
         }

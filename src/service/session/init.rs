@@ -47,7 +47,7 @@ impl SessionService {
                 marker.state == MarkerState::Saved && marker.owner_user_id.is_some(),
             )?;
         }
-        Ok(Self {
+        let service = Self {
             history,
             database,
             settings,
@@ -58,6 +58,8 @@ impl SessionService {
             adapters: Default::default(),
             presentations: Default::default(),
             title_jobs: Default::default(),
-        })
+        };
+        service.recover_web_starts().await?;
+        Ok(service)
     }
 }

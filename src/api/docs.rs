@@ -4,13 +4,15 @@ use utoipa::OpenApi;
 use super::models::{
     AccountRole, AccountView, ApiErrorBody, ApiErrorDetail, ApplyRequest, ApplyView,
     ApprovalDecision, ApprovalList, ApprovalView, AttemptView, CancelRequest, Capabilities,
-    ClientContext, ConfigDocument, ConfigList, ConfigWrite, CredentialUpdate, CredentialView,
+    ClientContext, ConfigDocument, ConfigDraftInput, ConfigDraftView, ConfigField,
+    ConfigFieldChange, ConfigFieldKind, ConfigList, ConfigWrite, CredentialUpdate, CredentialView,
     EmptyObject, IdentityList, IdentityView, LoginRequest, MessageCreate, MessageList,
     MessageReceipt, MessageView, ModelConfig, ModelOrder, ModelPoolView, ModelPreference,
-    ModelRole, ModelView, ModelWrite, PageQuery, ProfileView, RuntimeStatus, SecretList,
-    SecretWrite, SessionCreate, SessionEvent, SessionList, SessionState, SessionUpdate,
-    SessionView, SetupPhase, SetupView, SkillImport, SkillList, SkillUpdate, SkillView, SkillWrite,
-    UserCreate, UserList, UserUpdate, ValidationView,
+    ModelRole, ModelView, ModelWrite, PageQuery, ProfileView, ProgressDelta, ProgressItem,
+    ProgressSnapshot, RuntimeStatus, SecretList, SecretWrite, SessionCreate, SessionEvent,
+    SessionList, SessionStart, SessionStartView, SessionState, SessionUpdate, SessionView,
+    SetupPhase, SetupView, SkillImport, SkillList, SkillUpdate, SkillView, SkillWrite, TextDelta,
+    TextSnapshot, UserCreate, UserList, UserUpdate, ValidationView,
 };
 
 #[derive(OpenApi)]
@@ -33,6 +35,8 @@ use super::models::{
     ApiErrorBody,
     ApiErrorDetail,
     SessionView,
+    SessionStart,
+    SessionStartView,
     SessionList,
     SessionCreate,
     SessionUpdate,
@@ -42,6 +46,11 @@ use super::models::{
     MessageReceipt,
     AttemptView,
     SessionState,
+    ProgressDelta,
+    ProgressItem,
+    ProgressSnapshot,
+    TextDelta,
+    TextSnapshot,
     SessionEvent,
     CancelRequest,
     PageQuery,
@@ -60,6 +69,11 @@ use super::models::{
     ConfigList,
     ConfigDocument,
     ConfigWrite,
+    ConfigDraftInput,
+    ConfigDraftView,
+    ConfigField,
+    ConfigFieldChange,
+    ConfigFieldKind,
     ValidationView,
     ApplyRequest,
     ApplyView,
@@ -95,6 +109,19 @@ pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
     ("PATCH", "/users/{id}", Some("UserUpdate"), "AccountView"),
     ("GET", "/account/profile", None, "ProfileView"),
     ("GET", "/account/identities", None, "IdentityList"),
+    (
+        "POST",
+        "/session-starts",
+        Some("SessionStart"),
+        "SessionStartView",
+    ),
+    ("GET", "/session-starts/{id}", None, "SessionStartView"),
+    (
+        "POST",
+        "/session-starts/{id}/cancellations",
+        Some("EmptyObject"),
+        "SessionStartView",
+    ),
     ("GET", "/sessions", None, "SessionList"),
     ("POST", "/sessions", Some("SessionCreate"), "SessionView"),
     ("GET", "/sessions/{id}", None, "SessionView"),
@@ -150,6 +177,12 @@ pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
     ("GET", "/configuration", None, "ConfigList"),
     ("GET", "/configuration/{id}", None, "ConfigDocument"),
     (
+        "POST",
+        "/configuration/{id}/drafts",
+        Some("ConfigDraftInput"),
+        "ConfigDraftView",
+    ),
+    (
         "PUT",
         "/configuration/{id}",
         Some("ConfigWrite"),
@@ -190,7 +223,7 @@ pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
 pub fn schema() -> Value {
     let mut document = to_value(ApiDoc::openapi()).expect("OpenAPI serializes");
     document["info"] = json!({"title":"Albert Web Panel API","version":"1"});
-    document["servers"] = json!([{"url":"/api/v1"}]);
+    document["servers"] = json!([{"url":"."}]);
     document["components"]["securitySchemes"] =
         json!({"browserCookie":{"type":"apiKey","in":"cookie","name":"albert_auth"}});
     for &(method, path, request, response) in ROUTES {

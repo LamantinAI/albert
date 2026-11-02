@@ -3,8 +3,10 @@ import type { FormEvent } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import { Button, Field, Notice } from "../../components/ui";
+import { useDialogs } from "../../components/useDialogs";
 
 export function Secrets() {
+  const { confirm, dialog } = useDialogs();
   const [names, setNames] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -42,9 +44,12 @@ export function Secrets() {
   }
   async function remove(id: string) {
     if (
-      !window.confirm(
-        `Remove credential ${id}? Services using it may require configuration changes.`,
-      )
+      !(await confirm({
+        title: "Remove credential?",
+        description: `Remove credential ${id}? Services using it may require configuration changes.`,
+        confirmLabel: "Remove credential",
+        danger: true,
+      }))
     )
       return;
     setBusy(true);
@@ -60,6 +65,7 @@ export function Secrets() {
   }
   return (
     <>
+      {dialog}
       <section className="card">
         <h2>Provider credentials</h2>
         <p className="muted">
@@ -68,7 +74,7 @@ export function Secrets() {
         </p>
         {error && <Notice kind="error">{error}</Notice>}
         {notice && <Notice kind="success">{notice}</Notice>}
-        <form className="form-stack" onSubmit={save}>
+        <form className="form-stack admin-entry-form" onSubmit={save}>
           <div className="form-grid">
             <Field
               label="Credential name"
@@ -98,7 +104,7 @@ export function Secrets() {
         )}
         {names.map((id) => (
           <div className="data-row" key={id}>
-            <div>
+            <div className="credential-identity">
               <strong className="mono">{id}</strong>
               <span className="badge badge-success">Configured</span>
             </div>

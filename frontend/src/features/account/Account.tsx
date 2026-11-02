@@ -45,7 +45,7 @@ export function Account() {
         )}
         {identities?.items.map((identity) => (
           <div
-            className="data-row"
+            className="data-row identity-row"
             key={`${identity.connector}:${identity.external_actor_id}`}
           >
             <strong>{identity.connector}</strong>

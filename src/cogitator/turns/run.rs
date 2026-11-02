@@ -194,7 +194,9 @@ impl AlbertCogitator {
         } else {
             info!("→ {answer}");
         }
-        let answer = match report.ok().flatten() {
+        let (admission, records) = report.expect("successful commit checked above");
+        feed.text_commit(&records).await;
+        let answer = match admission {
             Some(ReportAdmission::Queued(message)) => format!("Final result recorded and queued for the selected destination. Message {}. Physical delivery is not yet confirmed.", message.as_str()),
             Some(ReportAdmission::Failed { code, .. }) => format!("{answer}\n\nReport delivery could not be queued ({code}); the result remains recorded in this session."),
             _ => answer,
@@ -202,7 +204,7 @@ impl AlbertCogitator {
         self.emit_reply(&incoming, answer, ctx).await;
         locked.active = None;
         drop(locked);
-        self.schedule_title(&incoming);
+        self.schedule_title(&incoming, ctx);
         if let Some(target) = restart {
             self.apply_restart(target, ctx).await;
         }

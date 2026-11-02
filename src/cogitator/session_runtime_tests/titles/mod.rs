@@ -44,6 +44,74 @@ async fn named(fixture: &Fixture, context: &SessionContext) -> String {
     .unwrap()
 }
 #[tokio::test]
+async fn first_temporary_turn_generates_a_ram_title_and_notifies_the_session() {
+    let (fixture, original) = enabled("title-delayed").await;
+    let temporary = fixture
+        .service
+        .start_temporary(&original, None)
+        .await
+        .unwrap();
+    let mut updates = fixture
+        .ctx
+        .bus()
+        .subscribe(
+            Filter::by_kind("albert.session.updated"),
+            SubscribeOptions::default(),
+        )
+        .await
+        .unwrap();
+    let mut replies = fixture.replies().await;
+    fixture
+        .host
+        .clone()
+        .handle(
+            message(
+                "telegram",
+                "7",
+                "7",
+                "How do SQLite journals recover?",
+                false,
+                true,
+            ),
+            &fixture.ctx,
+        )
+        .await;
+    timeout(Duration::from_secs(1), replies.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(named(&fixture, &temporary).await, "SQLite journal recovery");
+    let event = timeout(Duration::from_secs(1), updates.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        event.context.get::<SessionContext>().unwrap().session_id(),
+        temporary.session_id()
+    );
+    assert!(fixture
+        .service
+        .history()
+        .get_session(temporary.session_id())
+        .await
+        .unwrap()
+        .is_none());
+    let saved = fixture
+        .service
+        .save_temporary(&temporary, "named-temp-save", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .get(&saved, saved.session_id())
+            .await
+            .unwrap()
+            .title,
+        "SQLite journal recovery"
+    );
+}
+#[tokio::test]
 async fn title_is_toolfree_minimal_nonblocking_and_not_requested_again() {
     let (fixture, context) = enabled("title-delayed").await;
     let mut replies = fixture.replies().await;
@@ -218,6 +286,7 @@ async fn subscription_auth_failure_uses_the_same_bounded_metadata_fallback() {
             "native exchange".to_owned(),
         )
         .with_context(context.clone()),
+        &fixture.ctx,
     );
     assert_eq!(named(&fixture, &context).await, "Проверка журналов SQLite");
     assert!(fixture.server.requests.lock().unwrap().is_empty());

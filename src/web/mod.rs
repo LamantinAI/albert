@@ -1,5 +1,6 @@
 mod approvals;
 mod assets;
+mod mount;
 mod profile;
 pub(crate) mod runtime;
 pub(crate) mod sessions;
@@ -126,20 +127,27 @@ impl Host for Panel {
     }
 }
 
-pub(crate) struct HostedPanel(pub Arc<Panel>, pub usize);
+pub(crate) struct HostedPanel {
+    pub panel: Arc<Panel>,
+    pub max_body_bytes: usize,
+}
 #[async_trait]
 impl WebApplication for HostedPanel {
     async fn router(&self, context: ConnectorContext) -> OctoResult<Router> {
-        self.0.sessions.attach(context.clone());
-        self.0.approvals.attach(context);
-        Ok(
-            api_router(ApiState::new(self.0.auth.clone(), self.0.clone()), self.1)
-                .merge(assets::router()),
-        )
+        self.panel.sessions.attach(context.clone());
+        self.panel.approvals.attach(context);
+        Ok(mount::router(
+            api_router(
+                ApiState::new(self.panel.auth.clone(), self.panel.clone()),
+                self.max_body_bytes,
+            )
+            .merge(assets::router()),
+        ))
     }
+
     async fn on_event(&self, _context: &ConnectorContext, event: Envelope) -> OctoResult<()> {
-        self.0.sessions.observe(&event);
-        self.0.approvals.observe(&event).await;
+        self.panel.sessions.observe(&event);
+        self.panel.approvals.observe(&event).await;
         Ok(())
     }
 }

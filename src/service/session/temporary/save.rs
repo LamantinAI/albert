@@ -1,4 +1,5 @@
 use octo_connector_telegram::NativeFrame;
+use octo_history::SessionUpdate;
 use tracing::warn;
 
 use crate::{
@@ -25,6 +26,19 @@ impl SessionService {
         promotion_key: &str,
         _native: Option<&NativeFrame>,
     ) -> SessionResult<SessionContext> {
+        self.save_temporary_named(context, promotion_key, None)
+            .await
+    }
+
+    pub(crate) async fn save_temporary_named(
+        &self,
+        context: &SessionContext,
+        promotion_key: &str,
+        title: Option<String>,
+    ) -> SessionResult<SessionContext> {
+        if title.as_ref().is_some_and(|title| title.len() > 4096) {
+            return Err(SessionError::InvalidInput("title is too long"));
+        }
         context.require_private()?;
         let global = self.router.lifecycle_gate();
         let _lifecycle = global.write_owned().await;
@@ -73,7 +87,21 @@ impl SessionService {
         )
         .await?;
         promote_in(&mut tx, id.as_str()).await?;
-        let session = self.catalog_session_in(&mut tx, id).await?;
+        let mut session = self.catalog_session_in(&mut tx, id).await?;
+        if let Some(title) = title {
+            session = self
+                .history
+                .update_session_in(
+                    &mut tx,
+                    id,
+                    SessionUpdate {
+                        expected_revision: session.revision,
+                        title: Some(title),
+                        archived: None,
+                    },
+                )
+                .await?;
+        }
         let lease = self.lease_for_in(&mut tx, id).await?;
         if let Err(error) = tx.commit().await {
             // Reconcile an uncertain acknowledgement before any writer can

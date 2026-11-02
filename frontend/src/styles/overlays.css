@@ -1,0 +1,111 @@
+.dialog-panel {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 27px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 80px #0008;
+  overflow: auto;
+}
+.dialog-panel::backdrop {
+  background: #0009;
+}
+.dialog-panel h2 {
+  font-size: 23px;
+  margin-bottom: 12px;
+}
+.dialog-panel > p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin-bottom: 22px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.select-control {
+  position: relative;
+  min-width: 0;
+}
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 43px;
+  padding: 11px 12px;
+  border: 1px solid var(--input-line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  font: 14px/1.6 var(--sans);
+}
+.select-trigger > span,
+.select-options li > span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.select-trigger > svg {
+  flex-shrink: 0;
+  transform: rotate(90deg);
+  color: var(--muted);
+}
+.select-trigger[aria-expanded="true"] {
+  border-color: var(--ochre);
+}
+.select-options {
+  position: absolute;
+  inset: calc(100% + 6px) 0 auto;
+  z-index: 60;
+  max-height: min(280px, 50dvh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px #0006;
+  list-style: none;
+}
+.select-options[data-side="above"] {
+  inset: auto 0 calc(100% + 6px);
+}
+.select-options li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 3px;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.select-options li[data-active] {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.select-options li[aria-selected="true"] {
+  color: var(--ochre);
+}
+.select-options li[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (max-width: 480px) {
+  .dialog-panel {
+    padding: 23px;
+  }
+  .dialog-actions > .button {
+    flex: 1;
+  }
+}

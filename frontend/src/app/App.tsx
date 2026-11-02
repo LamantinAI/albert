@@ -1,3 +1,4 @@
+import { uiPath } from "../api/paths";
 import { Component, lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
@@ -5,7 +6,11 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Button, EmptyState, Notice } from "../components/ui";
 import { Login } from "../features/auth/Login";
+import { SessionDirectoryProvider } from "../features/sessions/SessionDirectory";
+import { AllConversations } from "../features/sessions/AllConversations";
+import { WorkspaceSettings } from "../features/configuration/WorkspaceSettings";
 import { Shell } from "./Shell";
+import { PageLoading } from "./PageLoading";
 import { ContextProvider, useClientContext } from "./context";
 import type { ClientContext } from "./context";
 
@@ -101,8 +106,8 @@ function Content() {
   if (loading)
     return (
       <main className="setup-shell">
-        <Brand />
-        <EmptyState title="Opening your workspace…" />
+        <Brand caption={false} />
+        <PageLoading />
       </main>
     );
   if (error && !context)
@@ -126,18 +131,25 @@ function Content() {
   return (
     <Routes>
       <Route path="/setup" element={<Setup />} />
-      <Route element={<Shell />}>
+      <Route
+        element={
+          <SessionDirectoryProvider>
+            <Shell />
+          </SessionDirectoryProvider>
+        }
+      >
         <Route
           index
           element={
             <Navigate
-              to={context.setup.model_ready ? "/chats" : "/setup"}
+              to={context.setup.phase === "runtime_error" ? "/setup" : "/chats"}
               replace
             />
           }
         />
-        <Route path="/chats" element={<Chats />} />
-        <Route path="/chats/:id" element={<Chats />} />
+        <Route path="/chats/*" element={<Chats />} />
+        <Route path="/chats/all" element={<AllConversations />} />
+        <Route path="/workspace" element={<WorkspaceSettings />} />
         <Route path="/account" element={<Account />} />
         <Route
           path="/models"
@@ -188,9 +200,16 @@ function Content() {
 export function App() {
   return (
     <Boundary>
-      <BrowserRouter basename="/ui">
+      <BrowserRouter basename={uiPath()}>
         <ContextProvider>
-          <Suspense fallback={<EmptyState title="Opening this view…" />}>
+          <Suspense
+            fallback={
+              <main className="setup-shell">
+                <Brand caption={false} />
+                <PageLoading />
+              </main>
+            }
+          >
             <Content />
           </Suspense>
         </ContextProvider>

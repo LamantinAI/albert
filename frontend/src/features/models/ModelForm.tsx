@@ -22,11 +22,15 @@ export function ModelForm({
   label = "Add model",
   onCancel,
   initial,
+  defaultBaseUrl,
+  requireApiKey = false,
 }: {
   onSave: (draft: ModelDraft) => Promise<void>;
   label?: string;
   onCancel?: () => void;
   initial?: Model;
+  defaultBaseUrl?: string;
+  requireApiKey?: boolean;
 }) {
   const [draft, setDraft] = useState<ModelDraft>({
     id: initial?.config.id ?? "",
@@ -35,7 +39,7 @@ export function ModelForm({
       initial?.config.base_url ??
       (initial?.config.provider === "subscription"
         ? ""
-        : "https://api.openai.com/v1"),
+        : (defaultBaseUrl ?? "https://api.openai.com/v1")),
     secretName: initial?.config.api_key_env ?? "",
     secretValue: "",
     vision: initial?.config.vision ?? true,
@@ -110,6 +114,7 @@ export function ModelForm({
           />
           <Field
             label="API key"
+            required={requireApiKey && !draft.secretName}
             type="password"
             autoComplete="new-password"
             value={draft.secretValue}
@@ -120,6 +125,7 @@ export function ModelForm({
       )}
       <Field
         label="Context window (tokens)"
+        fieldClassName="field-context-window"
         type="number"
         min="1"
         value={draft.contextWindow}

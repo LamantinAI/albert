@@ -23,7 +23,9 @@ use self::{account::account_request, resources::host_request, stream::events};
 use super::{
     docs::{schema, ROUTES},
     errors::{ApiError, ApiResult},
-    extractors::{csrf, principal as authenticated_principal, same_origin, COOKIE_NAME},
+    extractors::{
+        csrf, login_origin, principal as authenticated_principal, secure_request, COOKIE_NAME,
+    },
     host::{HostOperation, ProfileOperation},
     models::{AccountRole, Capabilities, ClientContext, LoginRequest, SetupPhase, SetupView},
     state::ApiState,
@@ -82,8 +84,8 @@ async fn dispatch(
         return context(&state, &headers).await;
     }
     if spec.path == "/auth/credentials" {
-        same_origin(&state, &headers)?;
         let input: LoginRequest = parse(&body)?;
+        login_origin(&state, &headers, &input.username, &input.password)?;
         let login = state.auth.login(input).await?;
         let mut response = Json(login.credential).into_response();
         set_cookie(
@@ -91,6 +93,7 @@ async fn dispatch(
             &mut response,
             &login.token,
             state.auth.settings().credential_ttl_seconds,
+            secure_request(&state, &headers)?,
         )?;
         return Ok(response);
     }
@@ -107,7 +110,8 @@ async fn dispatch(
             "Change the default credentials before continuing.",
         ));
     }
-    if let Some(response) = account_request(&state, &caller, spec, &params, &body).await? {
+    let secure = spec.method != "GET" && secure_request(&state, &headers)?;
+    if let Some(response) = account_request(&state, &caller, spec, &params, &body, secure).await? {
         return Ok(response);
     }
     if spec.path.ends_with("/events") {
@@ -188,8 +192,15 @@ fn id(params: &HashMap<String, String>, key: &str) -> ApiResult<String> {
         .cloned()
         .ok_or_else(|| ApiError::invalid("Invalid resource ID."))
 }
-fn set_cookie(state: &ApiState, response: &mut Response, token: &str, ttl: u64) -> ApiResult<()> {
-    let secure = state.auth.settings().secure_cookie
+fn set_cookie(
+    state: &ApiState,
+    response: &mut Response,
+    token: &str,
+    ttl: u64,
+    request_secure: bool,
+) -> ApiResult<()> {
+    let secure = request_secure
+        || state.auth.settings().secure_cookie
         || state.auth.settings().public_origin.starts_with("https://");
     let cookie = format!(
         "{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}{}",

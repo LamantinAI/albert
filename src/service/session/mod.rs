@@ -102,13 +102,29 @@ impl SessionService {
         if page.limit > self.settings.limits.max_page_size as usize {
             return Err(SessionError::InvalidInput("page exceeds configured limit"));
         }
-        let sessions = self
-            .history
-            .list_sessions(
-                &SessionFilter::PrivateOwner(context.private_user_id()?.as_str().into()),
-                page,
-            )
-            .await?;
+        let filter = SessionFilter::PrivateOwner(context.private_user_id()?.as_str().into());
+        let mut request = page;
+        let mut scans = 0;
+        let sessions = loop {
+            let requested_limit = request.limit;
+            let mut sessions = self.history.list_sessions(&filter, request).await?;
+            scans += 1;
+            let mut visible = Vec::new();
+            for session in sessions.sessions {
+                if !self.web_unpublished(&session.id).await? {
+                    visible.push(session);
+                }
+            }
+            sessions.sessions = visible;
+            if !sessions.sessions.is_empty() || !sessions.has_more || scans >= 8 {
+                break sessions;
+            }
+            request = PageRequest {
+                limit: requested_limit,
+                before_id: sessions.next_before,
+                through_id: Some(sessions.through_id),
+            };
+        };
         // The supported host policy applies to listed metadata as well as opens.
         for session in &sessions.sessions {
             if session.host != "host" {

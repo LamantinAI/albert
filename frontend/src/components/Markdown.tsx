@@ -1,38 +1,67 @@
+import { memo } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  streamEdge,
+  streamedCode,
+  streamedPre,
+  streamedSpan,
+  StreamInk,
+} from "./streaming";
+import type { StreamPresentation } from "../features/sessions/useStreamPresentation";
 
-export function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({
+  text,
+  streaming = false,
+  ink,
+}: {
+  text: string;
+  streaming?: boolean;
+  ink?: Pick<StreamPresentation, "ranges" | "now">;
+}) {
+  const color = ink ?? {
+    ranges: [{ from: Math.max(0, text.length - 24), to: text.length, born: 0 }],
+    now: 0,
+  };
   return (
     <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        skipHtml
-        urlTransform={defaultUrlTransform}
-        components={{
-          a: ({ children, href }) =>
-            href ? (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            ) : (
-              <span>{children}</span>
+      <StreamInk.Provider value={color}>
+        <ReactMarkdown
+          remarkPlugins={
+            streaming
+              ? [remarkGfm, streamEdge(text, color.ranges)]
+              : [remarkGfm]
+          }
+          skipHtml
+          urlTransform={defaultUrlTransform}
+          components={{
+            a: ({ children, href }) =>
+              href ? (
+                <a href={href} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ) : (
+                <span>{children}</span>
+              ),
+            // Remote image loading must not disclose the reader's visit to a model URL.
+            img: ({ alt }) => (
+              <span className="image-placeholder">
+                {alt || "Image attachment"}
+              </span>
             ),
-          // Remote image loading must not disclose the reader's visit to a model URL.
-          img: ({ alt }) => (
-            <span className="image-placeholder">
-              {alt || "Image attachment"}
-            </span>
-          ),
-          table: ({ children }) => (
-            <div className="table-scroll">
-              <table>{children}</table>
-            </div>
-          ),
-          pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
+            table: ({ children }) => (
+              <div className="table-scroll">
+                <table>{children}</table>
+              </div>
+            ),
+            pre: streamedPre,
+            code: streamedCode,
+            span: streamedSpan,
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </StreamInk.Provider>
     </div>
   );
-}
+});

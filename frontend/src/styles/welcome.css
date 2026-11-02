@@ -1,0 +1,335 @@
+.welcome-conversation {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.welcome-content {
+  width: min(100%, 814px);
+  padding: 20px 30px 0;
+  margin: auto;
+  flex-shrink: 0;
+}
+.welcome-content > .identity {
+  margin-bottom: 30px;
+}
+.welcome-copy :is(h1, h2) {
+  font-size: 36px;
+  font-weight: 400;
+  letter-spacing: -1.4px;
+  line-height: 1.2;
+  margin: 0 0 13px;
+}
+.welcome-copy > p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+  margin-bottom: 0;
+}
+.welcome-mode-copy {
+  display: grid;
+}
+.welcome-mode-copy > span {
+  grid-area: 1 / 1;
+}
+.welcome-mode-copy > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+.welcome-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 24px 0;
+}
+.welcome-suggestions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+}
+.welcome-suggestions button:hover:not(:disabled) {
+  border-color: #caa24a75;
+  background: #caa24a08;
+}
+.welcome-suggestions svg {
+  color: var(--gold);
+}
+.welcome-suggestions strong {
+  font-size: 12px;
+  font-weight: 400;
+}
+.welcome-composer {
+  width: min(100%, 814px);
+  padding: 8px 30px 24px;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+.welcome-composer .composer-area {
+  padding: 0;
+  position: relative;
+}
+.welcome-composer .composer-footer {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 1px;
+  right: 1px;
+  margin: 0;
+}
+.welcome-composer > .notice {
+  margin-bottom: 12px;
+}
+.composer-caption {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+.temporary-choice.button {
+  min-height: 28px;
+  padding: 4px 8px;
+  gap: 6px;
+  line-height: 18px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.temporary-choice > svg {
+  flex: 0 0 auto;
+}
+.temporary-choice > span {
+  display: block;
+}
+.temporary-choice[aria-pressed="true"] {
+  color: var(--ochre);
+}
+.transcript-empty {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0;
+}
+@media (max-width: 1100px) {
+  .welcome-content,
+  .welcome-composer {
+    padding-left: 28px;
+    padding-right: 28px;
+  }
+  .welcome-copy :is(h1, h2) {
+    font-size: 32px;
+  }
+}
+@media (max-width: 760px) {
+  .welcome-content {
+    padding: 14px 25px 0;
+  }
+  .chat-identity {
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .chat-identity .identity-paw {
+    width: 115px;
+    height: 141px;
+  }
+  .chat-identity .identity-wordmark {
+    width: 190px;
+  }
+  .chat-identity .identity-eyebrow {
+    font-size: 6px;
+    letter-spacing: 1.1px;
+    margin-bottom: 13px;
+  }
+  .chat-identity .identity-tagline {
+    font-size: 18px;
+    margin-top: 14px;
+  }
+  .welcome-copy :is(h1, h2) {
+    font-size: 29px;
+    letter-spacing: -1.2px;
+  }
+  .welcome-copy > p {
+    font-size: 13px;
+  }
+  .welcome-suggestions {
+    gap: 7px;
+    margin: 20px 0;
+  }
+  .welcome-suggestions button {
+    padding: 8px 10px;
+  }
+  .welcome-suggestions strong {
+    font-size: 11px;
+  }
+  .welcome-composer {
+    padding: 8px 19px 24px;
+  }
+}
+@media (max-width: 359px) {
+  .welcome-content {
+    padding-left: 21px;
+    padding-right: 21px;
+  }
+  .chat-identity .identity-paw {
+    width: 94px;
+    height: 120px;
+  }
+  .chat-identity .identity-wordmark {
+    width: 158px;
+  }
+  .chat-identity .identity-tagline {
+    font-size: 16px;
+  }
+  .welcome-copy :is(h1, h2) {
+    font-size: 25px;
+  }
+}
+@media (max-height: 800px) and (min-width: 761px) {
+  .chat-identity .identity-paw {
+    width: 150px;
+    height: 155px;
+  }
+  .chat-identity .identity-wordmark {
+    width: 255px;
+  }
+}
+@media (max-height: 600px) {
+  .welcome-content {
+    margin: 0 auto;
+  }
+  .welcome-content > .identity,
+  .welcome-suggestions,
+  .welcome-copy > p {
+    display: none;
+  }
+  .welcome-copy :is(h1, h2) {
+    font-size: 28px;
+  }
+  .welcome-composer {
+    margin-top: auto;
+    padding-bottom: 16px;
+  }
+}
+.model-onboarding {
+  width: min(100%, 814px);
+  margin: auto;
+  padding: 32px 30px;
+}
+.model-onboarding h1 {
+  font-size: 34px;
+  margin-bottom: 14px;
+}
+.model-onboarding-lead {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 28px;
+}
+.model-connection-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.model-connection-option {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.model-connection-option > svg {
+  color: var(--gold);
+  margin-bottom: 22px;
+}
+.model-connection-option h2 {
+  font-size: 22px;
+  margin-bottom: 0;
+}
+.model-connection-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.model-connection-option p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 14px 0 24px;
+}
+.model-connection-option .button {
+  margin-top: auto;
+}
+@media (max-width: 650px) {
+  .model-onboarding {
+    padding: 24px 22px;
+  }
+  .model-onboarding h1 {
+    font-size: 28px;
+  }
+  .model-connection-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-connection-option {
+    padding: 20px;
+  }
+  .model-connection-option > svg {
+    margin-bottom: 14px;
+  }
+}
+
+.welcome-conversation .conversation-start,
+.welcome-conversation .identity {
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+}
+.welcome-conversation[data-leaving] .conversation-start,
+.welcome-conversation[data-leaving] .identity {
+  opacity: 0;
+  transform: translateY(-14px);
+}
+.starting-conversation .message,
+.starting-conversation .task-progress {
+  animation: first-message 0.22s ease-out both;
+}
+@keyframes first-message {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-conversation .conversation-start,
+  .welcome-conversation .identity {
+    transition: none;
+  }
+  .starting-conversation .message,
+  .starting-conversation .task-progress {
+    animation: none;
+  }
+}
+
+.chat-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-stage[data-entered] {
+  animation: first-message 0.22s ease-out both;
+}
+.starting-conversation .message,
+.starting-conversation .task-progress {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-stage[data-entered] {
+    animation: none;
+  }
+}

@@ -1,9 +1,13 @@
+mod stream;
+use self::stream::response;
 use super::{fixture::fixture, AlbertCogitator};
 use crate::{
     config::AuthMode,
     models::{ModelPool, ModelSpec, PoolConfig, RoleProfile},
 };
-use axum::{extract::State, http::StatusCode, routing::post, serve, Json, Router};
+use axum::{
+    extract::State, http::StatusCode, response::Response, routing::post, serve, Json, Router,
+};
 use octo_core::CogitatorContext;
 use serde_json::{json, Value};
 use std::{
@@ -22,7 +26,13 @@ impl Drop for Server {
     }
 }
 
-async fn completion(
+async fn completion(state: State<Arc<Mutex<Vec<Value>>>>, Json(body): Json<Value>) -> Response {
+    let streaming = body["stream"] == true;
+    let (status, Json(value)) = buffered_completion(state, Json(body)).await;
+    response(status, value, streaming)
+}
+
+async fn buffered_completion(
     State(requests): State<Arc<Mutex<Vec<Value>>>>,
     Json(body): Json<Value>,
 ) -> (StatusCode, Json<Value>) {

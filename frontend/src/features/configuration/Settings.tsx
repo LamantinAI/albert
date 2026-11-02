@@ -1,43 +1,59 @@
 import { useEffect, useState } from "react";
-import { api, errorMessage } from "../../api/client";
-import { Button, Field, Notice } from "../../components/ui";
-import { NavLink, Route, Routes } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 
-import { PageHeading } from "../../components/ui";
+import { api, errorMessage } from "../../api/client";
+import { Select } from "../../components/Select";
+import { Button, Field, Notice, PageHeading } from "../../components/ui";
 import { DocumentEditor } from "./DocumentEditor";
 import { Secrets } from "./Secrets";
 
-function Configuration() {
-  const [id, setId] = useState("albert");
+function Connections() {
+  const [search] = useSearchParams();
+  const requested = search.get("document");
+  const [id, setId] = useState(
+    requested === "connectors" || requested?.startsWith("connector:")
+      ? requested
+      : "connectors",
+  );
   const [connectorId, setConnectorId] = useState("");
-  const [documents, setDocuments] = useState<string[]>([]);
+  const [documents, setDocuments] = useState<string[]>(["connectors"]);
   const [error, setError] = useState("");
   useEffect(() => {
     void api("/configuration", "get")
-      .then((value) => setDocuments(value.items))
+      .then((value) =>
+        setDocuments(
+          value.items.filter(
+            (id) => id === "connectors" || id.startsWith("connector:"),
+          ),
+        ),
+      )
       .catch((error) => setError(errorMessage(error)));
   }, []);
   return (
     <>
       {error && <Notice kind="error">{error}</Notice>}
-      <label className="field">
-        <span className="field-label">Configuration document</span>
-        <select value={id} onChange={(event) => setId(event.target.value)}>
-          {documents.map((name) => (
-            <option key={name} value={name}>
-              {name === "albert"
-                ? "Albert"
-                : name === "models"
-                  ? "Model pool"
-                  : name === "connectors"
-                    ? "Connector topology"
-                    : name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        id="connection-document"
+        label="Connection document"
+        value={id}
+        onChange={setId}
+        options={documents.map((name) => ({
+          value: name,
+          label:
+            name === "connectors"
+              ? "Connection topology"
+              : name.slice("connector:".length),
+        }))}
+      />
       <form
-        className="form-actions"
+        className="form-actions connector-form"
         onSubmit={(event) => {
           event.preventDefault();
           const document = `connector:${connectorId}`;
@@ -59,11 +75,6 @@ function Configuration() {
         />
         <Button type="submit">Add connector</Button>
       </form>
-      <small className="muted">
-        Enter the connector configuration, validate and save it, then apply the
-        saved revision.
-      </small>
-      <div className="section-gap" />
       <DocumentEditor key={id} id={id} kind="configuration" />
     </>
   );
@@ -74,18 +85,18 @@ function Prompts() {
   return (
     <>
       <div className="form-actions">
-        <button
-          className={`button ${id === "soul" ? "button-primary" : ""}`}
+        <Button
+          variant={id === "soul" ? "primary" : "secondary"}
           onClick={() => setId("soul")}
         >
           Persona
-        </button>
-        <button
-          className={`button ${id === "system" ? "button-primary" : ""}`}
+        </Button>
+        <Button
+          variant={id === "system" ? "primary" : "secondary"}
           onClick={() => setId("system")}
         >
           Operating instructions
-        </button>
+        </Button>
       </div>
       <div className="section-gap" />
       <DocumentEditor key={id} id={id} kind="prompts" />
@@ -93,28 +104,43 @@ function Prompts() {
   );
 }
 
+function RawDocument() {
+  const { id } = useParams();
+  return <DocumentEditor key={id} id={id ?? "albert"} kind="configuration" />;
+}
+
 export function Settings() {
+  const location = useLocation();
+  const [search] = useSearchParams();
+  const document = search.get("document");
+  if (location.pathname === "/settings" && document && document !== "albert") {
+    const target =
+      document === "connectors" || document.startsWith("connector:")
+        ? `/settings/connections?document=${encodeURIComponent(document)}`
+        : `/settings/documents/${encodeURIComponent(document)}`;
+    return <Navigate to={target} replace />;
+  }
+  const title = location.pathname.includes("/connections")
+    ? "Connections"
+    : location.pathname.endsWith("/secrets")
+      ? "Credentials"
+      : location.pathname.endsWith("/prompts")
+        ? "Persona & instructions"
+        : location.pathname.includes("/documents/")
+          ? "Raw configuration"
+          : "Agent settings";
   return (
     <div className="workspace-body">
-      <PageHeading
-        eyebrow="Workspace / Configuration"
-        title="Clear intentions. Explicit changes."
-      >
-        Validate a change, save it, then apply it to the runtime. A saved file
-        and an effective configuration are distinct states.
-      </PageHeading>
-      <nav className="settings-tabs" aria-label="Configuration sections">
-        <NavLink to="/settings" end>
-          Configuration
-        </NavLink>
-        <NavLink to="/settings/prompts">Persona & instructions</NavLink>
-        <NavLink to="/settings/secrets">Credentials</NavLink>
-        <a href="/ui/docs/index.html">API reference</a>
-      </nav>
+      <PageHeading title={title} />
       <Routes>
-        <Route index element={<Configuration />} />
+        <Route
+          index
+          element={<DocumentEditor id="albert" kind="configuration" />}
+        />
+        <Route path="connections" element={<Connections />} />
         <Route path="prompts" element={<Prompts />} />
         <Route path="secrets" element={<Secrets />} />
+        <Route path="documents/:id" element={<RawDocument />} />
       </Routes>
     </div>
   );

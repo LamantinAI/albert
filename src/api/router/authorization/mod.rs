@@ -134,6 +134,22 @@ mod tests {
             .0,
             StatusCode::BAD_REQUEST
         );
+        for token in [None, Some(user.csrf())] {
+            assert_eq!(
+                request(
+                    &fixture.router,
+                    Method::POST,
+                    "/api/v1/configuration/albert/drafts",
+                    Some(&cookie),
+                    token,
+                    Some(ORIGIN),
+                    json!({"content":"", "revision":"r1", "changes":[]})
+                )
+                .await
+                .0,
+                StatusCode::FORBIDDEN
+            );
+        }
         assert_eq!(fixture.host.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             request(

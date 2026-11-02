@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { api, ApiError, errorMessage } from "../../api/client";
+import { api, ApiError, errorMessage, requestId } from "../../api/client";
 
 interface Pending {
   key: string;
@@ -82,7 +82,7 @@ export function useMessageSend(
     running.current = true;
     setSending(true);
     setError("");
-    const request = current.current ?? { key: crypto.randomUUID(), text };
+    const request = current.current ?? { key: requestId(), text };
     current.current = request;
     setPending(request);
     remember(request.key);

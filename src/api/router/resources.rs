@@ -26,6 +26,15 @@ pub(super) async fn host_request(
     let operation = match (spec.method, spec.path) {
         ("GET", "/account/profile") => HostOperation::Profile(ProfileOperation::Get),
         ("GET", "/account/identities") => HostOperation::Profile(ProfileOperation::Identities),
+        ("POST", "/session-starts") => {
+            HostOperation::Session(SessionOperation::Start(parse(body)?))
+        }
+        ("GET", "/session-starts/{id}") => {
+            HostOperation::Session(SessionOperation::StartGet { id: resource()? })
+        }
+        ("POST", "/session-starts/{id}/cancellations") => {
+            HostOperation::Session(SessionOperation::StartCancel { id: resource()? })
+        }
         ("GET", "/sessions") => HostOperation::Session(SessionOperation::List(page(query)?)),
         ("POST", "/sessions") => HostOperation::Session(SessionOperation::Create(parse(body)?)),
         ("GET", "/sessions/{id}") => {
@@ -92,6 +101,10 @@ pub(super) async fn host_request(
             HostOperation::Config(ConfigOperation::Get { id: resource()? })
         }
         ("PUT", "/configuration/{id}") => HostOperation::Config(ConfigOperation::Put {
+            id: resource()?,
+            input: parse(body)?,
+        }),
+        ("POST", "/configuration/{id}/drafts") => HostOperation::Config(ConfigOperation::Draft {
             id: resource()?,
             input: parse(body)?,
         }),

@@ -1,9 +1,92 @@
 // Schema-backed browser component checks. These do not assert backend security.
 import { expect, test } from "@playwright/test";
 
-import { account, clientContext, readyFixture } from "./fixture";
+import { account, clientContext, message, readyFixture } from "./fixture";
 
-test("login and forced credential rotation have a usable paper-and-ochre layout", async ({
+test("message copying keeps the original text and reports clipboard refusal", async ({
+  page,
+}) => {
+  const fixture = await readyFixture(page);
+  const longAnswer = { ...message(10), content: message(10).content.repeat(8) };
+  await page.route("**/api/v1/sessions/*/messages?*", (route) =>
+    route.fulfill({
+      json: {
+        items: [longAnswer, message(9), message(7)],
+        has_more: false,
+        next_cursor: null,
+        through_id: "message-10",
+      },
+    }),
+  );
+  const copied: string[] = [];
+  await page.exposeFunction("fixtureCopy", (text: string) => copied.push(text));
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) =>
+          (
+            window as unknown as {
+              fixtureCopy: (value: string) => Promise<void>;
+            }
+          ).fixtureCopy(text),
+      },
+    });
+  });
+  await page.goto("/ui/chats/session-1");
+  const question = page.locator('[data-message-id="message-9"]');
+  const answer = page.locator('[data-message-id="message-10"]');
+  await question
+    .getByRole("button", { name: "Copy message", exact: true })
+    .click();
+  await expect(
+    question.getByRole("button", { name: "Copied", exact: true }),
+  ).toBeVisible();
+  await answer
+    .getByRole("button", { name: "Copy answer", exact: true })
+    .click();
+  await expect(
+    answer.getByRole("button", { name: "Copied", exact: true }),
+  ).toBeVisible();
+  expect(copied).toEqual([message(9).content, longAnswer.content]);
+  for (const [entry, body] of [
+    [question, ".message-text"],
+    [answer, ".markdown"],
+  ] as const) {
+    const contentBox = await entry.locator(body).boundingBox();
+    const copyBox = await entry.locator(".message-copy").boundingBox();
+    const messageBox = await entry.boundingBox();
+    expect(copyBox!.y).toBeGreaterThanOrEqual(
+      contentBox!.y + contentBox!.height,
+    );
+    expect(
+      Math.abs(copyBox!.x + copyBox!.width - messageBox!.x - messageBox!.width),
+    ).toBeLessThan(1);
+    await expect(entry.locator("header .message-copy")).toHaveCount(0);
+  }
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async () => {
+          throw new Error("Clipboard refused");
+        },
+      },
+    });
+  });
+  const failed = page.locator('[data-message-id="message-7"]');
+  await failed
+    .getByRole("button", { name: "Copy message", exact: true })
+    .click();
+  await expect(failed.getByRole("alert")).toContainText("Could not copy");
+  await expect(
+    failed.getByRole("button", { name: "Copied", exact: true }),
+  ).toHaveCount(0);
+  expect(fixture.requests.every((request) => request.method === "GET")).toBe(
+    true,
+  );
+});
+
+test("login and forced credential rotation have a usable dark workspace layout", async ({
   page,
 }, testInfo) => {
   let context = clientContext({
@@ -32,6 +115,10 @@ test("login and forced credential rotation have a usable paper-and-ochre layout"
       });
       return route.fulfill({ json: context.account });
     }
+    if (path.endsWith("/sessions"))
+      return route.fulfill({
+        json: { items: [], has_more: false, next_cursor: null },
+      });
     return route.fulfill({ json: context });
   });
   await page.goto("/ui/");
@@ -45,7 +132,7 @@ test("login and forced credential rotation have a usable paper-and-ochre layout"
   await page.getByLabel("Password", { exact: true }).fill("owner");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Make this workspace yours." }),
+    page.getByRole("heading", { name: "Set up your profile" }),
   ).toBeVisible();
   await page.getByLabel("Current password").fill("owner");
   await page
@@ -54,16 +141,19 @@ test("login and forced credential rotation have a usable paper-and-ochre layout"
   await page
     .getByLabel("Confirm new password")
     .fill("a different long test password");
-  await page.getByRole("button", { name: "Secure my account" }).click();
+  await page.getByRole("button", { name: "Save profile" }).click();
   await expect(
-    page.getByRole("heading", { name: "Give Albert a way to think." }),
+    page.getByRole("heading", { name: "Connect a model to start" }),
   ).toBeVisible();
   await expect(page.getByText("Choose profile", { exact: true })).toHaveCount(
     0,
   );
   await expect(
-    page.getByRole("link", { name: "Review configuration", exact: true }),
-  ).toHaveAttribute("href", "/ui/settings");
+    page.getByRole("link", { name: "Use an API key", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
+  ).toBeDisabled();
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
 });
 
@@ -123,7 +213,14 @@ test("temporary save keeps the session and users cannot open owner controls", as
   const fixture = await readyFixture(page);
   fixture.temporary();
   await page.goto("/ui/chats/session-1");
-  await page.getByRole("button", { name: "Save chat", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Actions for Research notes", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Save chat", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Save conversation" })
+    .getByRole("button", { name: "Save chat", exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Save chat", exact: true }),
   ).toHaveCount(0);

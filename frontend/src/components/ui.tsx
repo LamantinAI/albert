@@ -2,6 +2,7 @@ import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
+  Ref,
   ReactNode,
 } from "react";
 
@@ -9,13 +10,19 @@ export function Button({
   variant = "secondary",
   className = "",
   children,
+  ref,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost" | "danger";
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 }) {
   return (
-    <button className={`button button-${variant} ${className}`} {...props}>
+    <button
+      ref={ref}
+      className={`button button-${variant} ${className}`}
+      {...props}
+    >
       {children}
     </button>
   );
@@ -26,16 +33,18 @@ export function Field({
   hint,
   error,
   id,
+  fieldClassName = "",
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   hint?: string;
   error?: string;
+  fieldClassName?: string;
 }) {
   const generated = useId();
   const fieldId = id ?? generated;
   return (
-    <div className="field">
+    <div className={`field ${fieldClassName}`}>
       <label htmlFor={fieldId}>{label}</label>
       <input
         id={fieldId}
@@ -96,7 +105,7 @@ export function PageHeading({
   children,
   actions,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   children?: ReactNode;
   actions?: ReactNode;
@@ -104,7 +113,7 @@ export function PageHeading({
   return (
     <header className="page-heading">
       <div>
-        <p className="eyebrow">{eyebrow}</p>
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1>{title}</h1>
         {children && <p className="lead">{children}</p>}
       </div>

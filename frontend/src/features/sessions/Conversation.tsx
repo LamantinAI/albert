@@ -1,36 +1,65 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
 import { useClientContext } from "../../app/context";
 import { Icon } from "../../components/Icon";
-import { Markdown } from "../../components/Markdown";
-import { Button, EmptyState, Notice } from "../../components/ui";
+import { LampLoader } from "../../components/LampLoader";
+import { MessageBubble } from "./MessageBubble";
+import { Button, Notice } from "../../components/ui";
+import { StreamingReply } from "./StreamingReply";
 import { Composer } from "./Composer";
+import { Progress } from "./Progress";
+import { ConversationStart } from "./ConversationStart";
+import { ModelConnectionChoice } from "../models/ModelConnectionChoice";
 import { useConversation } from "./useConversation";
+import type { Session } from "./useConversation";
 import { useMessageSend } from "./useMessageSend";
 
 export function Conversation({
   id,
-  onChanged,
-  onEnded,
+  provisional = false,
+  startingText,
+  onCancelStart,
+  onReady,
+  onSessionChange,
+  inDirectory,
+  initialText,
+  onInitialConsumed,
+  autoSendInitial,
+  onInitialStarted,
 }: {
   id: string;
-  onChanged: () => void;
-  onEnded: () => void;
+  provisional?: boolean;
+  startingText?: string;
+  onCancelStart?: () => Promise<void>;
+  onReady?: () => void;
+  onSessionChange: (session: Session) => void;
+  inDirectory: boolean;
+  initialText?: string;
+  onInitialConsumed?: () => void;
+  autoSendInitial?: boolean;
+  onInitialStarted?: () => void;
 }) {
   const { context } = useClientContext();
   const conversation = useConversation(id);
+  const [initialDate] = useState(() => new Date().toISOString());
   const [error, setError] = useState("");
   const [stopping, setStopping] = useState(false);
-  const [working, setWorking] = useState(false);
   const [newMessages, setNewMessages] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
+  const [suggestion, setSuggestion] = useState<{
+    text: string;
+    revision: number;
+  }>();
   const nearBottom = useRef(true);
   const olderAnchor = useRef<{ height: number; top: number } | null>(null);
   const previousCount = useRef(0);
   const session = conversation.state?.session;
+  const messages = conversation.messages.filter(
+    (message) => message.role !== "activity",
+  );
   const active = conversation.state?.active_attempt;
   const temporary = session?.kind === "temporary";
   const ended =
@@ -38,6 +67,35 @@ export function Conversation({
     session?.state === "ended" ||
     session?.state === "closed" ||
     session?.state === "expired";
+  const thinking =
+    !ended &&
+    (provisional ||
+      (!session && !!startingText) ||
+      (!!active && ["running", "queued", "cancelling"].includes(active.state)));
+  const lastMessage = messages.at(-1);
+  const opening = conversation.loading && !provisional && !startingText;
+
+  useEffect(() => {
+    if (session && inDirectory && !provisional) onSessionChange(session);
+  }, [session, inDirectory, provisional, onSessionChange]);
+
+  const wasProvisional = useRef(provisional);
+  useEffect(() => {
+    if (wasProvisional.current && !provisional) void conversation.refresh();
+    wasProvisional.current = provisional;
+  }, [provisional]);
+  useEffect(() => {
+    if (
+      !conversation.loading &&
+      session &&
+      messages.some((message) => message.role === "assistant")
+    )
+      onReady?.();
+  }, [conversation.messages, conversation.loading, session, onReady]);
+
+  useEffect(() => {
+    if (ended) onInitialConsumed?.();
+  }, [ended, onInitialConsumed]);
 
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -49,10 +107,9 @@ export function Conversation({
         olderAnchor.current.height;
       olderAnchor.current = null;
     } else if (nearBottom.current) node.scrollTop = node.scrollHeight;
-    else if (conversation.messages.length > previousCount.current)
-      setNewMessages(true);
-    previousCount.current = conversation.messages.length;
-  }, [conversation.messages]);
+    else if (messages.length > previousCount.current) setNewMessages(true);
+    previousCount.current = messages.length;
+  }, [conversation.messages, conversation.state?.text?.offset]);
 
   const {
     send,
@@ -62,32 +119,16 @@ export function Conversation({
     error: sendError,
     reconcile,
   } = useMessageSend(id, context?.account?.id ?? "", async () => {
+    onInitialConsumed?.();
     nearBottom.current = true;
     await conversation.refresh();
-    onChanged();
   });
-  async function rename() {
-    if (!session) return;
-    const title = window.prompt("Conversation title", session.title);
-    if (title === null || !title.trim() || title.trim() === session.title)
-      return;
-    setWorking(true);
-    setError("");
-    try {
-      await api("/sessions/{id}", "patch", {
-        path: { id },
-        revision: session.revision,
-        body: { revision: session.revision, title: title.trim() },
-      });
-      await conversation.refresh();
-      onChanged();
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setWorking(false);
-    }
-  }
   async function stop() {
+    if (provisional && onCancelStart) {
+      await onCancelStart();
+      await conversation.refresh();
+      return;
+    }
     if (!active) return;
     setStopping(true);
     setError("");
@@ -101,51 +142,6 @@ export function Conversation({
       setError(errorMessage(error));
     } finally {
       setStopping(false);
-    }
-  }
-  async function save() {
-    setWorking(true);
-    setError("");
-    try {
-      await api("/sessions/{id}", "patch", {
-        path: { id },
-        revision: session?.revision,
-        body: {
-          revision: session?.revision ?? 0,
-          kind: "permanent",
-          promotion_key: crypto.randomUUID(),
-          title: session?.title || null,
-        },
-      });
-      await conversation.refresh();
-      onChanged();
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setWorking(false);
-    }
-  }
-  async function end() {
-    if (
-      !window.confirm(
-        "End this temporary chat? Its unsaved conversation will be discarded. External actions already performed will remain.",
-      )
-    )
-      return;
-    setWorking(true);
-    setError("");
-    try {
-      await api("/sessions/{id}", "patch", {
-        path: { id },
-        revision: session?.revision,
-        body: { revision: session?.revision ?? 0, state: "ended" },
-      });
-      onChanged();
-      onEnded();
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setWorking(false);
     }
   }
   async function older() {
@@ -168,53 +164,8 @@ export function Conversation({
 
   return (
     <section className="conversation" aria-label="Conversation">
-      <header className="conversation-heading">
-        <div>
-          <h1>{session?.title || "Untitled conversation"}</h1>
-          <p>
-            <Link to="/chats">All chats</Link> ·{" "}
-            <span
-              className={`connection ${!conversation.connected ? "connection-disconnected" : ""}`}
-            >
-              <span className="connection-dot" />
-              {conversation.connected ? "Connected" : "Reconnecting"}
-            </span>
-            {temporary && (
-              <>
-                {" "}
-                · <span className="badge badge-gold">Temporary</span>
-              </>
-            )}
-          </p>
-        </div>
-        <div className="conversation-actions">
-          {session && !ended && (
-            <Button
-              variant="ghost"
-              disabled={working}
-              onClick={() => void rename()}
-            >
-              Rename
-            </Button>
-          )}
-          {temporary && !ended && (
-            <>
-              <Button disabled={working} onClick={() => void save()}>
-                Save chat
-              </Button>
-              <Button
-                variant="danger"
-                disabled={working}
-                onClick={() => void end()}
-              >
-                End chat
-              </Button>
-            </>
-          )}
-        </div>
-      </header>
       <div
-        className="transcript"
+        className={`transcript ${opening ? "conversation-loading" : ""} ${!conversation.loading && messages.length === 0 && !conversation.hasMore && !pending && !thinking ? "transcript-empty" : ""}`}
         ref={scroll}
         onScroll={() => {
           if (!scroll.current) return;
@@ -233,51 +184,51 @@ export function Conversation({
             </Button>
           </div>
         )}
-        {conversation.loading ? (
-          <EmptyState title="Opening your conversation…" />
+        {opening ? (
+          <LampLoader label="Loading conversation" />
         ) : (
-          conversation.messages.length === 0 && (
-            <EmptyState
-              eyebrow={temporary ? "A temporary conversation" : "A fresh page"}
-              title="What shall we think through?"
-            >
-              <p>
-                {temporary
-                  ? "An empty context, held in memory. Save the chat when you want to keep it."
-                  : "Ask a question, share a thought, or work through a task together."}
-              </p>
-            </EmptyState>
-          )
+          messages.length === 0 &&
+          !conversation.hasMore &&
+          !pending &&
+          !thinking &&
+          (context?.setup.model_ready ? (
+            <ConversationStart
+              heading="h2"
+              temporary={temporary}
+              disabled={ended || !context?.setup.model_ready}
+              onSuggestion={(text) =>
+                setSuggestion((old) => ({
+                  text,
+                  revision: (old?.revision ?? 0) + 1,
+                }))
+              }
+            />
+          ) : (
+            <ModelConnectionChoice />
+          ))
         )}
-        {conversation.messages.map((message) => (
-          <article
-            className="message"
+        {messages.length === 0 && startingText && (
+          <MessageBubble
+            message={{
+              id: "pending-first",
+              role: "user",
+              content: startingText,
+              created_at: initialDate,
+            }}
+            connected
+          />
+        )}
+        {messages.map((message) => (
+          <MessageBubble
             key={message.id}
-            data-message-id={message.id}
-          >
-            <header className="message-heading">
-              <strong
-                className={message.role === "assistant" ? "albert-label" : ""}
-              >
-                {message.role === "assistant"
-                  ? "ALBERT"
-                  : message.role === "user"
-                    ? "YOU"
-                    : message.role.toUpperCase()}
-              </strong>
-              <time dateTime={message.created_at}>
-                {new Date(message.created_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-            </header>
-            {message.role === "assistant" ? (
-              <Markdown text={message.content} />
-            ) : (
-              <div className="message-text">{message.content}</div>
-            )}
-          </article>
+            message={message}
+            connected={conversation.connected}
+            progress={
+              !ended && !thinking && !pending && message.id === lastMessage?.id
+                ? conversation.state?.progress
+                : null
+            }
+          />
         ))}
         {pending && (
           <article className="message message-pending">
@@ -290,29 +241,21 @@ export function Conversation({
             <div className="message-text">{pending.text}</div>
           </article>
         )}
-        {(active ||
-          conversation.state?.status.length ||
-          conversation.events.length > 0) && (
-          <details className="activity">
-            <summary>
-              {active
-                ? `Albert is ${active.state.replaceAll("_", " ")}…`
-                : "Activity"}{" "}
-              · {conversation.state?.status.length ?? 0} updates
-            </summary>
-            <div className="activity-body">
-              {conversation.state?.status.map((status, index) => (
-                <div className="activity-event" key={index}>
-                  {status}
-                </div>
-              ))}
-              {conversation.events.slice(-8).map((event) => (
-                <div className="activity-event" key={event.id}>
-                  {event.kind.replaceAll(".", " ")}
-                </div>
-              ))}
-            </div>
-          </details>
+        <StreamingReply
+          state={conversation.state}
+          messages={messages}
+          onAdvance={() => {
+            if (scroll.current && nearBottom.current)
+              scroll.current.scrollTop = scroll.current.scrollHeight;
+          }}
+        />
+        {thinking && (
+          <Progress
+            snapshot={conversation.state?.progress}
+            active={thinking}
+            stopping={stopping || active?.state === "cancelling"}
+            connected={conversation.connected}
+          />
         )}
         {ended && (
           <Notice>
@@ -342,12 +285,12 @@ export function Conversation({
           </Notice>
         </div>
       )}
-      {!context?.setup.model_ready && (
+      {!context?.setup.model_ready && conversation.messages.length > 0 && (
         <div className="chat-error">
           <Notice>
             Connect a model before sending a message.{" "}
             {context?.caps.manage_models && (
-              <Link to="/models">Configure a model</Link>
+              <Link to="/models?connect=api">Connect a model</Link>
             )}
           </Notice>
         </div>
@@ -376,16 +319,27 @@ export function Conversation({
             : ended
               ? "This conversation is no longer available."
               : !session
-                ? "Opening the conversation…"
+                ? "Message Albert…"
                 : undefined
         }
         sending={sending}
         stopping={stopping}
-        active={
-          !!active && ["running", "queued", "cancelling"].includes(active.state)
-        }
+        active={thinking}
         temporary={temporary}
+        suggestion={suggestion}
+        initialText={initialText}
+        autoSendInitial={autoSendInitial}
+        onInitialStarted={onInitialStarted}
       />
+      {session &&
+        !conversation.connected &&
+        !conversation.loading &&
+        !thinking &&
+        !ended && (
+          <small className="conversation-connection" role="status">
+            Reconnecting…
+          </small>
+        )}
     </section>
   );
 }

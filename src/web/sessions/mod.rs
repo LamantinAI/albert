@@ -7,7 +7,10 @@ mod events;
 mod fixture;
 mod lifecycle;
 mod messages;
+mod progress;
 mod send;
+mod start;
+mod text;
 
 use std::{
     collections::HashMap,
@@ -91,6 +94,15 @@ impl SessionHost {
     ) -> ApiResult<HostResponse> {
         let actor = self.actor(caller).await?;
         match operation {
+            SessionOperation::Start(input) => {
+                Ok(HostResponse::Start(self.start(&actor, input).await?))
+            }
+            SessionOperation::StartGet { id } => {
+                Ok(HostResponse::Start(self.get_start(&actor, &id).await?))
+            }
+            SessionOperation::StartCancel { id } => {
+                Ok(HostResponse::Start(self.cancel_start(&actor, &id).await?))
+            }
             SessionOperation::List(page) => {
                 Ok(HostResponse::Sessions(self.catalog(&actor, page).await?))
             }
@@ -162,15 +174,26 @@ impl SessionHost {
             Some(agent) => agent.panel_active(context.session_id()).await,
             None => None,
         };
+        let progress = self.hub.progress(context.session_id(), active.as_deref());
+        let status = if active.is_some() {
+            self.hub.status(context.session_id())
+        } else {
+            Vec::new()
+        };
         Ok(SessionState {
             session: view(context.session()),
-            active_attempt: active.map(|id| AttemptView {
+            active_attempt: active.clone().map(|id| AttemptView {
                 id,
                 state: "running".into(),
                 session_id: context.session_id().to_string(),
             }),
             runtime_epoch: self.runtime.status().runtime_epoch,
-            status: self.hub.status(context.session_id()),
+            status,
+            progress: progress.map(Box::new),
+            text: self
+                .hub
+                .text(context.session_id(), active.as_deref())
+                .map(Box::new),
         })
     }
     pub fn observe(&self, envelope: &Envelope) {

@@ -13,8 +13,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use octo_connector_telegram::TurnFeedback;
-use octo_core::{ChannelId, ConnectorId, Envelope, EventBus as _, EventKind, InProcessBus};
+use octo_core::{ChannelId, ConnectorId, InProcessBus};
 use rig::{
     completion::Message,
     message::{AssistantContent, ToolCall, ToolFunction},
@@ -22,7 +21,6 @@ use rig::{
 };
 use serde_json::Value;
 use tokio::sync::RwLock;
-use tracing::warn;
 
 use crate::{history::sessions::Backend, sessions::SessionContext};
 
@@ -30,6 +28,10 @@ mod feedback;
 mod hooks;
 mod metrics;
 mod presentation;
+pub(crate) mod progress;
+pub(crate) mod text;
+use self::progress::StageSource;
+use self::text::TextCursor;
 pub(crate) use presentation::PresentationBinding;
 use presentation::{shared_state, PresentationState};
 mod trace;
@@ -61,6 +63,10 @@ pub struct StatusFeed {
     actions: Arc<Mutex<Vec<String>>>,
     trace: Arc<Mutex<Trace>>,
     result_observer: Option<Arc<ResultObserver>>,
+    stage_source: Option<Arc<StageSource>>,
+    text: Arc<Mutex<Option<TextCursor>>>,
+    // API cancellation identity stays stable when a presentation reattaches.
+    execution_attempt: Option<String>,
     session_context: Option<SessionContext>,
     discarded: Arc<AtomicBool>,
     presentation: Arc<Mutex<PresentationState>>,
@@ -97,6 +103,9 @@ impl StatusFeed {
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
             result_observer: None,
+            stage_source: None,
+            text: Arc::new(Mutex::new(None)),
+            execution_attempt: None,
             session_context: None,
             discarded: Arc::new(AtomicBool::new(false)),
             presentation: shared_state(),
@@ -127,6 +136,9 @@ impl StatusFeed {
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
             result_observer: None,
+            stage_source: None,
+            text: Arc::new(Mutex::new(None)),
+            execution_attempt: None,
             session_context: None,
             discarded: Arc::new(AtomicBool::new(false)),
             presentation: shared_state(),
@@ -141,6 +153,7 @@ impl StatusFeed {
         self
     }
     pub(crate) fn with_attempt(mut self, attempt_id: String) -> Self {
+        self.execution_attempt = Some(attempt_id.clone());
         self.edit_binding(|binding| binding.attempt = Some(attempt_id.clone()));
         self
     }
@@ -261,43 +274,13 @@ impl StatusFeed {
     /// Host operation progress is ephemeral: never append it to the conversation
     /// or execution journal, and never expose provider reasoning/model names here.
     pub(crate) async fn progress(&self, line: impl Into<String>) {
-        self.emit(line.into()).await;
+        let line = line.into();
+        self.progress_phase(&line).await;
+        self.emit(line).await;
     }
 
     async fn emit(&self, line: String) {
-        let Some(binding) = self.presentation_binding() else {
-            return;
-        };
-        if !self.is_live() || !binding.feedback.as_ref().is_none_or(TurnFeedback::is_open) {
-            return;
-        }
-        let Some(feed) = &self.feed else { return };
-        let lease = match &feed.backend {
-            Some(backend) => Some(backend.read().await),
-            None => None,
-        };
-        if lease
-            .as_ref()
-            .is_some_and(|backend| **backend == Backend::Closed)
-        {
-            return;
-        }
-        let mut env = Envelope::new(
-            feed.source.clone(),
-            EventKind::from_static("chat.status"),
-            line,
-        )
-        .with_target(feed.target.clone());
-        if let Some(ch) = &feed.channel {
-            env = env.with_channel(ch.clone());
-        }
-        if let Some(session) = &feed.session {
-            env = env.with_tag("session_id", session);
-        }
-        let env = binding.output(env);
-        if let Err(e) = feed.bus.publish(env).await {
-            warn!(error = %e, "failed to publish chat.status");
-        }
+        self.publish_line("chat.status", line, None).await;
     }
 }
 

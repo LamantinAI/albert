@@ -1,6 +1,9 @@
 //! Preserve the gateway's original assistant tool rounds during ONE attempt.
 //! Opaque reasoning_details/signatures are not reconstructed by model family,
 //! persisted in the journal, or shared with a different model/client.
+mod stream;
+use self::stream::guarded;
+
 use std::{
     collections::HashMap,
     fmt::{Debug, Formatter, Result as FmtResult},
@@ -11,8 +14,8 @@ use std::{
 use bytes::Bytes;
 use rig::{
     http_client::{
-        Error as HttpError, HttpClientExt, LazyBody, MultipartForm, Request, ReqwestClient,
-        Response, Result as HttpResult, StreamingResponse,
+        HttpClientExt, LazyBody, MultipartForm, Request, ReqwestClient, Response,
+        Result as HttpResult, StreamingResponse,
     },
     wasm_compat::WasmCompatSend,
 };
@@ -105,6 +108,28 @@ impl OpenRouterHttp {
                 .push(message.clone());
         }
     }
+
+    fn streaming_request<T: Into<Bytes>>(&self, request: Request<T>) -> Request<Bytes> {
+        let request = self.restore(request);
+        if !request.uri().path().ends_with("/chat/completions") {
+            return request;
+        }
+        let (mut parts, bytes) = request.into_parts();
+        let bytes = match from_slice::<Value>(&bytes) {
+            Ok(Value::Object(mut body)) => {
+                let options = body
+                    .entry("stream_options")
+                    .or_insert_with(|| Value::Object(Default::default()));
+                if let Some(options) = options.as_object_mut() {
+                    options.entry("include_usage").or_insert(Value::Bool(true));
+                }
+                parts.headers.remove("content-length");
+                Bytes::from(to_vec(&body).expect("JSON serializes"))
+            }
+            _ => bytes,
+        };
+        Request::from_parts(parts, bytes)
+    }
 }
 
 impl HttpClientExt for OpenRouterHttp {
@@ -143,17 +168,20 @@ impl HttpClientExt for OpenRouterHttp {
 
     fn send_streaming<T>(
         &self,
-        _request: Request<T>,
+        request: Request<T>,
     ) -> impl Future<Output = HttpResult<StreamingResponse>> + WasmCompatSend
     where
         T: Into<Bytes>,
     {
-        // Albert's API-key tool loop uses completion(), not streaming. Never
-        // silently lose opaque state if a future caller changes that contract.
-        async {
-            Err(HttpError::Instance(
-                "OpenRouter tool-round capture requires non-streaming requests".into(),
-            ))
+        let future = self.inner.send_streaming(self.streaming_request(request));
+        let rounds = self.rounds.clone();
+        async move {
+            let response = future.await.map_err(normalize)?;
+            if !response.status().is_success() {
+                return Ok(response);
+            }
+            let (parts, body) = response.into_parts();
+            Ok(Response::from_parts(parts, guarded(body, rounds)))
         }
     }
 }

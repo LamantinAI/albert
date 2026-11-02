@@ -27,7 +27,7 @@ enum Fault {
     Incomplete,
 }
 
-fn incomplete() -> HttpError {
+pub(crate) fn incomplete() -> HttpError {
     HttpError::Instance(Box::new(Fault::Incomplete))
 }
 

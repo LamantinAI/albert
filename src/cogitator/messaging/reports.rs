@@ -35,17 +35,21 @@ impl AlbertCogitator {
         records: Vec<Turn>,
         answer: &str,
         ctx: &CogitatorContext,
-    ) -> Result<Option<ReportAdmission>, String> {
+    ) -> Result<(Option<ReportAdmission>, Vec<i64>), String> {
         let channel = channel_of(incoming);
         let (Some(runtime), Some(context)) =
             (&self.messaging, incoming.context.get::<SessionContext>())
         else {
-            self.append_host(&channel, scope, "final", records).await?;
-            return Ok(None);
+            let ids = self
+                .append_host_records(&channel, scope, "final", records)
+                .await?;
+            return Ok((None, ids));
         };
         if !context.is_private() || context.session().kind != SessionKind::Permanent {
-            self.append_host(&channel, scope, "final", records).await?;
-            return Ok(None);
+            let ids = self
+                .append_host_records(&channel, scope, "final", records)
+                .await?;
+            return Ok((None, ids));
         }
         let work = incoming
             .context
@@ -63,13 +67,15 @@ impl AlbertCogitator {
             .as_ref()
             .and_then(|policy| policy.final_result.clone())
         else {
-            self.append_host(&channel, scope, "final", records).await?;
+            let ids = self
+                .append_host_records(&channel, scope, "final", records)
+                .await?;
             if policy.is_some() {
                 if let Err(error) = runtime.store.clear_report_policy(&source).await {
                     warn!(%error, "completed report policy cleanup failed");
                 }
             }
-            return Ok(None);
+            return Ok((None, ids));
         };
         let now = Utc::now().timestamp_millis();
         let report = MessageDraft {
@@ -108,6 +114,11 @@ impl AlbertCogitator {
         if let Err(error) = runtime.store.clear_report_policy(&source).await {
             warn!(%error, "completed report policy cleanup failed");
         }
-        Ok(Some(receipt.report))
+        if let Some(service) = &self.session_service {
+            if let Err(error) = service.web_finish_start(context.session_id()).await {
+                warn!(%error,"first-run publication will reconcile on read");
+            }
+        }
+        Ok((Some(receipt.report), vec![receipt.result.record_id]))
     }
 }

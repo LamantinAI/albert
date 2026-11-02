@@ -4,7 +4,7 @@ use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 
 use crate::db::error::{DatabaseError, DatabaseResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 7;
+pub(super) const SCHEMA_VERSION: i64 = 8;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -31,6 +31,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
         7,
         include_str!("../../../migrations/0007_control_applications.sql"),
     ),
+    (8, include_str!("../../../migrations/0008_web_starts.sql")),
 ];
 fn checksum(sql: &str) -> String {
     format!("{:x}", Sha256::digest(sql.as_bytes()))
@@ -221,7 +222,10 @@ mod tests {
         assert_eq!(journal.records.len(), 1);
         assert_eq!(journal.records[0].turn.content, "retained journal payload");
         Database::from_pool(fixture.pool.clone()).await.unwrap();
-        assert_eq!(ledger(&fixture.pool).await.len(), 7);
+        assert_eq!(
+            ledger(&fixture.pool).await.len(),
+            Database::schema_version() as usize
+        );
     }
     async fn account_rows(pool: &SqlitePool) {
         query("INSERT INTO albert_users(id) VALUES ('fixture-owner')")

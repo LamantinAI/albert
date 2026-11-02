@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, ApiError, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
+import { mergeProgress, progressDelta, progressIsNewer } from "./progress";
+import { mergeText, restoreText, textDelta } from "./text";
+import { apiPath } from "../../api/paths";
+import { projectProgress } from "./ephemeralProgress";
+import type { ProgressView } from "./ephemeralProgress";
 
 export type Session = components["schemas"]["SessionView"];
 export type Message = components["schemas"]["MessageView"];
@@ -43,11 +48,18 @@ export function useConversation(id: string | undefined) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const epoch = useRef<string | null>(null);
   const generation = useRef(0);
+  const mounted = useRef(false);
+  const currentId = useRef(id);
+  const latestState = useRef(state);
+  const unknownAttempt = useRef<string | null>(null);
+  const progressView = useRef<ProgressView | null>(null);
+  currentId.current = id;
+  latestState.current = state;
   const refresh = useCallback(
     async (reset = false) => {
-      if (!id) return;
+      if (!id || !mounted.current || currentId.current !== id) return;
       const current = generation.current;
-      const [snapshot, page] = await Promise.all([
+      const [received, page] = await Promise.all([
         api("/sessions/{id}/state", "get", { path: { id } }),
         api("/sessions/{id}/messages", "get", {
           path: { id },
@@ -56,10 +68,34 @@ export function useConversation(id: string | undefined) {
       ]);
       if (current !== generation.current) return;
       const changedEpoch =
-        epoch.current !== null && epoch.current !== snapshot.runtime_epoch;
+        epoch.current !== null && epoch.current !== received.runtime_epoch;
+      if (changedEpoch) progressView.current = null;
+      const projected = projectProgress(
+        progressView.current,
+        received,
+        page.items,
+      );
+      progressView.current = projected.view;
+      const snapshot = { ...received, progress: projected.progress };
       epoch.current = snapshot.runtime_epoch;
       setUnavailable(false);
-      setState(snapshot);
+      setState((previous) => {
+        const newerProgress =
+          !changedEpoch &&
+          snapshot.active_attempt &&
+          previous?.progress?.attempt_id === snapshot.active_attempt.id &&
+          progressIsNewer(previous.progress, snapshot.progress);
+        const next = newerProgress
+          ? { ...snapshot, progress: previous.progress }
+          : snapshot;
+        return {
+          ...next,
+          text: restoreText(
+            changedEpoch ? null : previous?.text,
+            snapshot.text,
+          ),
+        };
+      });
       setMessages((old) =>
         mergeMessages(reset || changedEpoch ? [] : old, page.items),
       );
@@ -75,6 +111,9 @@ export function useConversation(id: string | undefined) {
 
   useEffect(() => {
     generation.current += 1;
+    mounted.current = false;
+    unknownAttempt.current = null;
+    progressView.current = null;
     epoch.current = null;
     setUnavailable(false);
     setState(null);
@@ -83,41 +122,31 @@ export function useConversation(id: string | undefined) {
     setError("");
     setCursor(null);
     setHasMore(false);
+    setConnected(false);
     if (!id) return;
+    mounted.current = true;
     let stopped = false;
     let refreshing = false;
     let requested = false;
+    let resetRequested = false;
     setLoading(true);
-    void refresh(true)
-      .catch((error) => {
-        if (!stopped) {
-          setError(errorMessage(error));
-          if (
-            error instanceof ApiError &&
-            [403, 404, 410].includes(error.status)
-          )
-            setUnavailable(true);
-        }
-      })
-      .finally(() => {
-        if (!stopped) setLoading(false);
-      });
     const source = new EventSource(
-      `/api/v1/sessions/${encodeURIComponent(id)}/events`,
+      apiPath(`/sessions/${encodeURIComponent(id)}/events`),
       { withCredentials: true },
     );
     const eventIds = new Set<string>();
     async function reconcile(reset: boolean) {
-      if (refreshing) {
-        requested = true;
-        return;
-      }
+      if (stopped) return;
+      requested = true;
+      resetRequested ||= reset;
+      if (refreshing) return;
       refreshing = true;
       try {
         do {
           requested = false;
-          await refresh(reset);
-          reset = false;
+          const mustReset = resetRequested;
+          resetRequested = false;
+          await refresh(mustReset);
         } while (requested && !stopped);
       } catch (error) {
         if (!stopped) {
@@ -130,9 +159,11 @@ export function useConversation(id: string | undefined) {
         }
       } finally {
         refreshing = false;
+        if (!stopped) setLoading(false);
       }
     }
     const receive = (event: MessageEvent) => {
+      if (stopped) return;
       try {
         const value = JSON.parse(event.data) as SessionEvent;
         if (value.session_id !== id) return;
@@ -146,6 +177,64 @@ export function useConversation(id: string | undefined) {
           /gap|resync|reset/.test(value.kind) ||
           (epoch.current !== null && value.runtime_epoch !== epoch.current);
         setEvents((old) => [...old.slice(-49), value]);
+        if (value.kind === "text" && !reset) {
+          const delta = textDelta(value.data);
+          if (!delta || delta.attempt_id !== value.attempt_id) {
+            void reconcile(true);
+            return;
+          }
+          if (
+            latestState.current?.active_attempt?.id === delta.attempt_id ||
+            latestState.current?.text?.attempt_id === delta.attempt_id
+          ) {
+            setState((previous) => {
+              if (
+                !previous ||
+                (previous.active_attempt?.id !== delta.attempt_id &&
+                  previous.text?.attempt_id !== delta.attempt_id)
+              )
+                return previous;
+              const next = mergeText(previous.text, delta);
+              if (!next) {
+                queueMicrotask(() => {
+                  if (!stopped) void reconcile(false);
+                });
+                return previous;
+              }
+              return { ...previous, text: next };
+            });
+            if (delta.operation === "committed") void reconcile(false);
+          } else if (unknownAttempt.current !== delta.attempt_id) {
+            unknownAttempt.current = delta.attempt_id;
+            void reconcile(false);
+          }
+          return;
+        }
+        if (value.kind === "progress" && !reset) {
+          const delta = progressDelta(value.data);
+          if (!delta || delta.attempt_id !== value.attempt_id) {
+            void reconcile(true);
+            return;
+          }
+          if (latestState.current?.active_attempt?.id === delta.attempt_id) {
+            setState((previous) =>
+              previous?.active_attempt?.id === delta.attempt_id
+                ? {
+                    ...previous,
+                    progress: mergeProgress(previous.progress, delta),
+                  }
+                : previous,
+            );
+          } else if (
+            latestState.current?.progress?.attempt_id !== delta.attempt_id &&
+            unknownAttempt.current !== delta.attempt_id
+          ) {
+            unknownAttempt.current = delta.attempt_id;
+            void reconcile(false);
+          }
+          return;
+        }
+        if (value.kind === "status" && !reset) return;
         void reconcile(reset);
       } catch {
         void reconcile(true);
@@ -161,27 +250,33 @@ export function useConversation(id: string | undefined) {
       "gap",
       "resync_required",
       "reset",
+      "progress",
+      "text",
+      "snapshot",
+      "resync",
     ])
       source.addEventListener(kind, receive as EventListener);
     source.onopen = () => {
+      if (stopped) return;
       setConnected(true);
       void reconcile(false);
     };
     source.onerror = () => {
+      if (stopped) return;
       setConnected(false);
       void reconcile(false);
     };
+    void reconcile(true);
     return () => {
       stopped = true;
       generation.current += 1;
+      mounted.current = false;
       source.close();
-      setConnected(false);
-      void reconcile(false);
     };
   }, [id, refresh]);
 
   async function older() {
-    if (!id || !cursor) return;
+    if (!id || !cursor || !mounted.current || currentId.current !== id) return;
     const current = generation.current;
     const page = await api("/sessions/{id}/messages", "get", {
       path: { id },

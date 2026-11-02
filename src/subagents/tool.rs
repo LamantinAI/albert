@@ -11,11 +11,14 @@ use serde::Deserialize;
 use serde_json::{from_str, json};
 
 use super::{Conversation, Task};
-use crate::sessions::SessionContext;
-use crate::{cogitator::AlbertCogitator, context::DiagnosticScope};
+use crate::{
+    cogitator::AlbertCogitator, context::DiagnosticScope, sessions::SessionContext,
+    status::StatusFeed,
+};
 
 #[derive(Clone)]
 pub struct SubagentTool {
+    pub(crate) progress: StatusFeed,
     pub host: Weak<AlbertCogitator>,
     pub ctx: CogitatorContext,
     pub conversation: Conversation,
@@ -35,6 +38,7 @@ impl SubagentTool {
         owner: bool,
     ) -> Self {
         Self {
+            progress: StatusFeed::silent(),
             host,
             ctx,
             conversation,
@@ -48,6 +52,10 @@ impl SubagentTool {
     }
     pub(crate) fn with_diagnostics(mut self, scope: Option<DiagnosticScope>) -> Self {
         self.diagnostics = scope;
+        self
+    }
+    pub(crate) fn with_progress(mut self, feed: StatusFeed) -> Self {
+        self.progress = feed;
         self
     }
     pub fn with_ingress(mut self, ingress: Option<Ingress>) -> Self {

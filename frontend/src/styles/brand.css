@@ -1,0 +1,329 @@
+.brand {
+  color: var(--ochre);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.brand .brand-paw {
+  color: inherit;
+}
+.brand-paw {
+  width: 48px;
+  height: 52px;
+}
+.pixel-paw {
+  color: var(--gold);
+}
+.pixel-paw[data-thinking] .paw-pad {
+  animation: pad-thinking 3.25s ease-in-out infinite;
+}
+.pixel-paw[data-thinking] .paw-pad:nth-child(2) {
+  animation-delay: -2.6s;
+}
+.pixel-paw[data-thinking] .paw-pad:nth-child(3) {
+  animation-delay: -1.95s;
+}
+.pixel-paw[data-thinking] .paw-pad:nth-child(4) {
+  animation-delay: -1.3s;
+}
+.pixel-paw[data-thinking] .paw-pad:nth-child(5) {
+  animation-delay: -0.65s;
+}
+@keyframes pad-thinking {
+  0%,
+  40%,
+  100% {
+    opacity: 1;
+  }
+  18% {
+    opacity: 0.3;
+  }
+}
+.brand-word {
+  display: block;
+  width: 106px;
+  height: 20px;
+}
+.brand-caption {
+  display: block;
+  font: 8px/12px var(--mono);
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 31px;
+}
+.identity-paw {
+  width: 192px;
+  height: 193px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 0.8px #f4c56655) drop-shadow(0 0 2.5px #d99e381c);
+}
+.identity-copy {
+  min-width: 0;
+}
+.identity-eyebrow {
+  display: block;
+  font: 9px/1.6 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+.identity-wordmark {
+  display: block;
+  width: 307px;
+  max-width: 100%;
+  height: auto;
+  filter: drop-shadow(0 0 1px #edbd5d50) drop-shadow(0 0 3px #dca4431a);
+}
+.identity-tagline {
+  color: #d3c5a1;
+  font: 400 21px/1.4 var(--sans);
+  letter-spacing: -0.5px;
+  margin: 19px 0 0;
+}
+@media (max-width: 1100px) {
+  .brand {
+    gap: 9px;
+  }
+  .brand-paw {
+    width: 43px;
+    height: 48px;
+  }
+  .brand-caption {
+    font-size: 7px;
+  }
+  .identity {
+    gap: 24px;
+  }
+  .identity-paw {
+    width: 165px;
+    height: 173px;
+  }
+  .identity-wordmark {
+    width: 267px;
+  }
+}
+@media (max-width: 760px) {
+  .brand-paw {
+    width: 48px;
+    height: 52px;
+  }
+  .brand-caption {
+    font-size: 8px;
+  }
+}
+
+.identity-paw,
+.identity-wordmark {
+  color: var(--gold);
+}
+.paw-dot {
+  opacity: 0.95;
+}
+.paw-dot.zone-2 {
+  opacity: 0.72;
+}
+.paw-dot.zone-3 {
+  opacity: 0.83;
+}
+.paw-animated .paw-dot {
+  animation: point-breathe 9.2s ease-in-out infinite;
+}
+.paw-animated .phase-1 {
+  animation-delay: -1.4s;
+  animation-duration: 11.6s;
+}
+.paw-animated .phase-2 {
+  animation-delay: -4.6s;
+  animation-duration: 7.6s;
+}
+.paw-animated .phase-3 {
+  animation-delay: -2.8s;
+  animation-duration: 12.4s;
+}
+.paw-animated .phase-4 {
+  animation-delay: -7.2s;
+  animation-duration: 9.2s;
+}
+.paw-animated .phase-5 {
+  animation-delay: -5.3s;
+  animation-duration: 14.8s;
+}
+.paw-animated .phase-6 {
+  animation-delay: -2.1s;
+  animation-duration: 11.6s;
+}
+.paw-animated .phase-7 {
+  animation-delay: -9.4s;
+  animation-duration: 12.4s;
+}
+.paw-animated .zone-1 {
+  animation-name: none;
+  opacity: 0.97;
+}
+.paw-animated .zone-2 {
+  animation-name: point-worn;
+}
+.paw-animated .zone-3 {
+  animation-name: point-edge;
+}
+.identity-wordmark .wordmark-letter {
+  opacity: 0.97;
+}
+/* One shared fade, then a short left-to-right restart. Compact branding stays static. */
+.wordmark-animated .wordmark-letter {
+  animation-duration: 18s;
+  animation-delay: -12s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.wordmark-animated .wordmark-letter:nth-child(1) {
+  animation-name: wordmark-power-1;
+}
+.wordmark-animated .wordmark-letter:nth-child(2) {
+  animation-name: wordmark-power-2;
+}
+.wordmark-animated .wordmark-letter:nth-child(3) {
+  animation-name: wordmark-power-3;
+}
+.wordmark-animated .wordmark-letter:nth-child(4) {
+  animation-name: wordmark-power-4;
+}
+.wordmark-animated .wordmark-letter:nth-child(5) {
+  animation-name: wordmark-power-5;
+}
+.wordmark-animated .wordmark-letter:nth-child(6) {
+  animation-name: wordmark-power-6;
+}
+@keyframes point-breathe {
+  0%,
+  20%,
+  100% {
+    opacity: 0.97;
+  }
+  50%,
+  60% {
+    opacity: 0.62;
+  }
+  85% {
+    opacity: 0.97;
+  }
+}
+@keyframes point-worn {
+  0%,
+  100% {
+    opacity: 0.76;
+  }
+  15% {
+    opacity: 0.92;
+  }
+  45%,
+  60% {
+    opacity: 0.18;
+  }
+  88% {
+    opacity: 0.96;
+  }
+}
+@keyframes point-edge {
+  0%,
+  20%,
+  100% {
+    opacity: 0.96;
+  }
+  50%,
+  60% {
+    opacity: 0.38;
+  }
+  85% {
+    opacity: 0.96;
+  }
+}
+@keyframes wordmark-power-1 {
+  0%,
+  72%,
+  84.1%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  84% {
+    opacity: 0.24;
+  }
+}
+@keyframes wordmark-power-2 {
+  0%,
+  72%,
+  84.6%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  84.5% {
+    opacity: 0.24;
+  }
+}
+@keyframes wordmark-power-3 {
+  0%,
+  72%,
+  85.1%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  85% {
+    opacity: 0.24;
+  }
+}
+@keyframes wordmark-power-4 {
+  0%,
+  72%,
+  85.6%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  85.5% {
+    opacity: 0.24;
+  }
+}
+@keyframes wordmark-power-5 {
+  0%,
+  72%,
+  86.1%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  86% {
+    opacity: 0.24;
+  }
+}
+@keyframes wordmark-power-6 {
+  0%,
+  72%,
+  86.6%,
+  100% {
+    opacity: 0.97;
+  }
+  82%,
+  86.5% {
+    opacity: 0.24;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paw-animated .paw-dot,
+  .pixel-paw[data-thinking] .paw-pad,
+  .wordmark-animated .wordmark-letter {
+    animation: none !important;
+  }
+}

@@ -2,6 +2,7 @@
 //! source of settings; application outcomes are durable and idempotent.
 mod applications;
 mod connectors;
+mod drafts;
 #[cfg(test)]
 mod fixture;
 
@@ -248,6 +249,9 @@ impl ControlService {
                 Ok(HostResponse::Config(self.put(&id, input).await?))
             }
             ConfigOperation::Validate(input) => Ok(HostResponse::Validation(self.validate(&input))),
+            ConfigOperation::Draft { id, input } => {
+                Ok(HostResponse::ConfigDraft(self.draft(&id, input).await?))
+            }
             ConfigOperation::Apply(input) => {
                 Ok(HostResponse::Apply(self.apply(permit, input).await?))
             }

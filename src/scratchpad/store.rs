@@ -12,6 +12,26 @@ use serde_json::{from_str, json, to_string, Value};
 use super::{Limits, PadHandle, PadScope, Scratchpad, ScratchpadStore, Stage, StageSpec, Status};
 
 impl ScratchpadStore {
+    pub(crate) fn progress_scoped(&self, scope: &PadScope) -> Vec<(String, String, String)> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(scope)
+            .map(|pad| {
+                pad.steps
+                    .iter()
+                    .take(16)
+                    .map(|stage| {
+                        (
+                            stage.id.clone(),
+                            stage.text.clone(),
+                            stage.status.as_str().into(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
     #[cfg(test)]
     pub fn new() -> Arc<Self> {
         Self::with_limits(Limits::default()).expect("valid default limits")

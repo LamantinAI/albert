@@ -10,7 +10,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use octo_history::{Session, SessionId, SessionKind, SessionState, SessionUpdate};
+use octo_history::{
+    HistoryStore, PageRequest, Role, Session, SessionId, SessionKind, SessionState, SessionStore,
+    SessionUpdate,
+};
 use sqlx::query_scalar;
 
 use super::SessionService;
@@ -59,16 +62,53 @@ impl SessionService {
         &self,
         context: &SessionContext,
     ) -> SessionResult<Option<TitleCandidate>> {
+        let _lifecycle = self.router.lifecycle_gate().read_owned().await;
+        if self.web_unpublished(context.session_id()).await? {
+            return Ok(None);
+        }
         let mut tx = self.history.begin_journal().await?;
         let session = self
             .catalog_session_in(&mut tx, context.session_id())
             .await?;
         context.check(&session)?;
-        if session.kind != SessionKind::Permanent
-            || session.state != SessionState::Active
+        if session.state != SessionState::Active
             || !session.title.trim().is_empty()
             || !context.is_private()
         {
+            return Ok(None);
+        }
+        if session.kind == SessionKind::Temporary {
+            tx.commit().await.map_err(DatabaseError::from)?;
+            let mut request = PageRequest {
+                limit: self.settings.titles.scan_records,
+                ..PageRequest::default()
+            };
+            let mut texts = Vec::new();
+            // Native RAM journals expose backwards pagination. Bound the scan
+            // and require reaching their beginning; never name from a late tail.
+            for _ in 0..8 {
+                let page = self
+                    .router
+                    .temporary()
+                    .journal_page(&context.root_history_key(), request.clone())
+                    .await?;
+                texts.extend(
+                    page.records
+                        .into_iter()
+                        .filter(|record| record.turn.role == Role::User)
+                        .map(|record| (record.id, record.turn.content)),
+                );
+                if !page.has_more {
+                    texts.sort_by_key(|(id, _)| *id);
+                    let excerpt = texts
+                        .into_iter()
+                        .take(self.settings.titles.scan_records)
+                        .find_map(|(_, text)| excerpt(&text, self.settings.titles.input_bytes));
+                    return Ok(excerpt.map(|excerpt| TitleCandidate { session, excerpt }));
+                }
+                request.before_id = page.next_before;
+                request.through_id = Some(page.through_id);
+            }
             return Ok(None);
         }
         let texts: Vec<String> = query_scalar("SELECT substr(t.content,1,?) FROM history_public_turns m JOIN turns t ON t.id=m.turn_id WHERE m.history_key=? AND t.role='user' ORDER BY m.public_id LIMIT ?")
@@ -93,7 +133,6 @@ impl SessionService {
             .await?;
         context.check(&current)?;
         if !context.is_private()
-            || current.kind != SessionKind::Permanent
             || current.state != SessionState::Active
             || !current.title.trim().is_empty()
             || current.revision != candidate.revision
@@ -103,6 +142,21 @@ impl SessionService {
         let Some(title) = normalize(title, self.settings.titles.title_chars) else {
             return Ok(false);
         };
+        if current.kind == SessionKind::Temporary {
+            tx.commit().await.map_err(DatabaseError::from)?;
+            self.router
+                .temporary()
+                .update_session(
+                    &current.id,
+                    SessionUpdate {
+                        expected_revision: candidate.revision,
+                        title: Some(title),
+                        archived: None,
+                    },
+                )
+                .await?;
+            return Ok(true);
+        }
         self.history
             .update_session_in(
                 &mut tx,
@@ -268,24 +322,87 @@ mod tests {
         let (_dir, service, context) = fixture().await;
         let temporary = service.start_temporary(&context, None).await.unwrap();
         add(&service, &temporary).await;
-        assert!(service.title_candidate(&temporary).await.unwrap().is_none());
+        let candidate = service.title_candidate(&temporary).await.unwrap().unwrap();
+        assert_eq!(
+            candidate.excerpt,
+            "How can SQLite journals recover after a crash?"
+        );
+        assert!(service
+            .commit_title(&temporary, &candidate.session, "Temporary recovery notes")
+            .await
+            .unwrap());
+        assert_eq!(
+            service
+                .get(&temporary, temporary.session_id())
+                .await
+                .unwrap()
+                .title,
+            "Temporary recovery notes"
+        );
+        assert!(service
+            .history
+            .get_session(temporary.session_id())
+            .await
+            .unwrap()
+            .is_none());
         let saved = service
             .save_temporary(&temporary, "title-save", None)
             .await
             .unwrap();
         // Immutable execution still says Temporary; canonical promotion wins.
-        let candidate = service.title_candidate(&temporary).await.unwrap().unwrap();
-        assert_eq!(candidate.session.id, *saved.session_id());
-        let mut denied = temporary.clone();
+        assert_eq!(
+            service.get(&saved, saved.session_id()).await.unwrap().title,
+            "Temporary recovery notes"
+        );
+        assert!(service.title_candidate(&temporary).await.unwrap().is_none());
+        let resumed = service.end_temporary(&saved, None).await.unwrap();
+        let next = service
+            .start_temporary(&resumed.context, None)
+            .await
+            .unwrap();
+        add(&service, &next).await;
+        let candidate = service.title_candidate(&next).await.unwrap().unwrap();
+        let mut denied = next.clone();
         denied.user = None;
         assert!(service
             .commit_title(&denied, &candidate.session, "No access")
             .await
             .is_err());
         assert!(service
-            .commit_title(&temporary, &candidate.session, "Журнал SQLite")
+            .commit_title(&next, &candidate.session, "Журнал SQLite")
             .await
             .unwrap());
+    }
+    #[tokio::test]
+    async fn saving_with_a_name_and_ending_a_temporary_chat_fence_generated_titles() {
+        let (_dir, service, context) = fixture().await;
+        let temporary = service.start_temporary(&context, None).await.unwrap();
+        add(&service, &temporary).await;
+        let candidate = service.title_candidate(&temporary).await.unwrap().unwrap();
+        let saved = service
+            .save_temporary_named(&temporary, "named-promotion", Some("Chosen name".into()))
+            .await
+            .unwrap();
+        assert!(!service
+            .commit_title(&temporary, &candidate.session, "Late model title")
+            .await
+            .unwrap());
+        assert_eq!(
+            service.get(&saved, saved.session_id()).await.unwrap().title,
+            "Chosen name"
+        );
+        let resumed = service.end_temporary(&saved, None).await.unwrap();
+        let temporary = service
+            .start_temporary(&resumed.context, None)
+            .await
+            .unwrap();
+        add(&service, &temporary).await;
+        let candidate = service.title_candidate(&temporary).await.unwrap().unwrap();
+        service.end_temporary(&temporary, None).await.unwrap();
+        assert!(service
+            .commit_title(&temporary, &candidate.session, "Late title")
+            .await
+            .is_err());
     }
     #[tokio::test]
     async fn inflight_jobs_deduplicate_and_release_bounded_capacity() {

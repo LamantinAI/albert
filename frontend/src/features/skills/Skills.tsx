@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Icon } from "../../components/Icon";
+import { useDialogs } from "../../components/useDialogs";
 import {
   Button,
   EmptyState,
@@ -14,6 +15,7 @@ import {
 type Skill = components["schemas"]["SkillView"];
 
 export function Skills() {
+  const { confirm, dialog } = useDialogs();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selected, setSelected] = useState<Skill | null>(null);
   const [content, setContent] = useState("");
@@ -24,6 +26,15 @@ export function Skills() {
   const [adding, setAdding] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const dirty = !!selected && content !== (selected.content ?? "");
+  function discard() {
+    return confirm({
+      title: "Discard unsaved changes?",
+      description: "Your unsaved skill edits will be lost.",
+      confirmLabel: "Discard changes",
+      cancelLabel: "Keep editing",
+      danger: true,
+    });
+  }
   async function load() {
     try {
       const result = await api("/skills", "get");
@@ -36,7 +47,7 @@ export function Skills() {
     void load();
   }, []);
   async function open(skill: Skill) {
-    if (dirty && !window.confirm("Discard the unsaved skill edits?")) return;
+    if (dirty && !(await discard())) return;
     setError("");
     setNotice("");
     setBusy(true);
@@ -78,9 +89,12 @@ export function Skills() {
   }
   async function remove(skill: Skill) {
     if (
-      !window.confirm(
-        `Remove ${skill.name}? Its installed bundle will no longer be available to new work.`,
-      )
+      !(await confirm({
+        title: "Remove skill?",
+        description: `Remove ${skill.name}? Its installed bundle will no longer be available to new work.`,
+        confirmLabel: "Remove skill",
+        danger: true,
+      }))
     )
       return;
     setBusy(true);
@@ -143,14 +157,15 @@ export function Skills() {
   }
   return (
     <div className="workspace-body">
+      {dialog}
       <PageHeading
         eyebrow="Workspace / Skills"
         title="A little more capable."
         actions={
           <>
             <Button
-              onClick={() => {
-                if (dirty && !window.confirm("Discard unsaved edits?")) return;
+              onClick={async () => {
+                if (dirty && !(await discard())) return;
                 setAdding(true);
                 setSelected(null);
                 setNewName("");
@@ -195,8 +210,8 @@ export function Skills() {
             <Button
               variant="ghost"
               aria-label="Close skill editor"
-              onClick={() => {
-                if (!dirty || window.confirm("Discard unsaved edits?")) {
+              onClick={async () => {
+                if (!dirty || (await discard())) {
                   setSelected(null);
                   setAdding(false);
                 }
@@ -209,6 +224,7 @@ export function Skills() {
             {adding && (
               <Field
                 label="Bundle ID"
+                fieldClassName="field-bundle-id"
                 required
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}

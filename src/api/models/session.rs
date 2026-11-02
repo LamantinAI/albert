@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use super::{ProgressSnapshot, TextSnapshot};
+
 #[derive(Clone, Serialize, ToSchema)]
 pub struct SessionView {
     pub id: String,
@@ -75,6 +77,10 @@ pub struct SessionState {
     pub active_attempt: Option<AttemptView>,
     pub runtime_epoch: String,
     pub status: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Box<ProgressSnapshot>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<Box<TextSnapshot>>,
 }
 #[derive(Clone, Serialize, ToSchema)]
 pub struct SessionEvent {

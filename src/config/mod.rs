@@ -500,7 +500,7 @@ fn d_soul() -> String {
 fn d_system() -> String {
     "system.md".into()
 }
-fn d_reflect() -> u64 {
+pub(crate) fn d_reflect() -> u64 {
     21_600
 }
 fn d_backend() -> String {
@@ -509,16 +509,16 @@ fn d_backend() -> String {
 fn d_state() -> String {
     "state/scheduler.json".into()
 }
-fn d_max_turns() -> usize {
+pub(crate) fn d_max_turns() -> usize {
     8
 }
 fn d_skills_dir() -> String {
     "skills".into()
 }
-fn d_skills_cache() -> usize {
+pub(crate) fn d_skills_cache() -> usize {
     5
 }
-fn d_skills_page() -> usize {
+pub(crate) fn d_skills_page() -> usize {
     10
 }
 fn d_code_workspace() -> String {

@@ -22,8 +22,8 @@ button {
   cursor: pointer;
 }
 button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+  cursor: default;
+  opacity: 0.55;
 }
 a {
   color: inherit;
@@ -34,8 +34,8 @@ a {
   outline-offset: 3px;
 }
 ::selection {
-  background: #e8d49d;
-  color: var(--ink);
+  background: #caa24a;
+  color: #151515;
 }
 h1,
 h2,
@@ -46,11 +46,11 @@ p {
 h1,
 h2,
 h3 {
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.035em;
 }
 h1 {
-  font-size: clamp(32px, 4vw, 46px);
+  font-size: clamp(30px, 3vw, 38px);
   line-height: 1.15;
   margin-bottom: 14px;
 }
@@ -68,15 +68,15 @@ small,
   line-height: 1.6;
 }
 .eyebrow {
-  font: 11px/1.5 var(--mono);
+  font: 10px/1.5 var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.17em;
-  color: var(--ochre);
+  color: var(--muted);
   margin-bottom: 12px;
 }
 .lead {
   color: var(--muted);
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1.7;
   max-width: 58ch;
   margin-bottom: 0;
@@ -89,11 +89,11 @@ small,
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 42px;
   padding: 9px 16px;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
-  font: 12px/1.5 var(--mono);
+  font: 500 13px/1.5 var(--sans);
   text-decoration: none;
   color: var(--ink);
   background: transparent;
@@ -119,7 +119,7 @@ small,
 }
 .button-danger {
   color: var(--danger);
-  border-color: #9a2d1f66;
+  border-color: #ef998f55;
 }
 .icon-button {
   padding: 8px;
@@ -134,20 +134,20 @@ small,
 }
 .field label,
 .field-label {
-  font: 11px/1.6 var(--mono);
+  font: 13px/1.6 var(--sans);
   color: var(--ink-2);
 }
 input,
 textarea,
 select {
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  border: 1px solid var(--input-line);
   border-radius: 5px;
   color: var(--ink);
   padding: 11px 12px;
   min-height: 43px;
-  font: 13px/1.6 var(--mono);
+  font: 14px/1.6 var(--sans);
 }
 input::placeholder,
 textarea::placeholder {
@@ -189,12 +189,12 @@ textarea {
   padding: 12px 15px;
   border-left: 2px solid var(--ochre);
   background: #caa24a0a;
-  font: 12px/1.7 var(--mono);
+  font: 13px/1.7 var(--sans);
   overflow-wrap: anywhere;
 }
 .notice-error {
   border-color: var(--danger);
-  background: #9a2d1f08;
+  background: #ef998f0a;
 }
 .notice-success {
   border-color: var(--success);
@@ -259,7 +259,7 @@ textarea {
   font-weight: 400;
 }
 .empty-copy {
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1.7;
   color: var(--muted);
 }
@@ -292,6 +292,7 @@ textarea {
 }
 .data-row h3 {
   margin: 0 0 5px;
+  font-size: 20px;
 }
 .data-row p {
   margin: 0;

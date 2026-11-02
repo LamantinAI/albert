@@ -107,9 +107,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
 toml = "0.8"
+toml_edit = "=0.22.27"
 rig-core = "0.35"
 tiktoken-rs = "0.12.0"
 axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "limit"] }
 utoipa = { version = "5.4", features = ["axum_extras"] }
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
@@ -125,7 +127,6 @@ mime_guess = "=2.0.5"
 [dev-dependencies]
 tempfile = "3"
 rmcp = { version = "=1.8.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
-tower = { version = "0.5", features = ["util"] }
 
 # Optimized release profile for the deployed binary (smaller + faster; the target
 # is a small VM). opt-level 3 is the release default; the wins are LTO + a single

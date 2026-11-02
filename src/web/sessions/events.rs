@@ -5,20 +5,21 @@ use std::{
 
 use futures::stream::unfold;
 use octo_connector_telegram::{TelegramOutputScope, TurnFeedback};
-use octo_core::{control::CancellationToken, Envelope};
+use octo_core::Envelope;
 use octo_history::{SessionAccess, SessionId};
-use serde_json::{json, to_value};
+use serde_json::{from_value, json, to_value, Value};
 use tokio::{select, sync::broadcast, sync::broadcast::error::RecvError};
 
-use super::SessionHost;
+use super::{progress::Progress, text::TextPreview, SessionHost};
 use crate::{
     api::{
         errors::{ApiError, ApiResult},
         host::{EventStream, SessionEventRequest},
-        models::SessionEvent,
+        models::{ProgressDelta, ProgressSnapshot, SessionEvent, TextDelta, TextSnapshot},
         principal::Principal,
     },
     sessions::SessionContext,
+    status::{progress::ProgressUpdate, text::TextUpdate},
 };
 
 #[derive(Clone)]
@@ -27,11 +28,14 @@ struct Entry {
     sequence: u64,
     event: SessionEvent,
 }
+
 #[derive(Default)]
 struct Resource {
     entries: VecDeque<Entry>,
     attempt: Option<String>,
     status: Vec<String>,
+    progress: Progress,
+    text: TextPreview,
 }
 #[derive(Default)]
 struct State {
@@ -58,6 +62,7 @@ impl EventHub {
         epoch: &str,
         kind: &str,
         attempt: Option<String>,
+        data: Value,
     ) -> Entry {
         let mut state = self.state.lock().unwrap();
         if !state.resources.contains_key(id) {
@@ -77,7 +82,7 @@ impl EventHub {
             runtime_epoch: epoch.into(),
             kind: kind.into(),
             attempt_id: attempt.clone(),
-            data: json!({"reason":kind}),
+            data: data.clone(),
         };
         let entry = Entry {
             owner: owner.into(),
@@ -85,6 +90,22 @@ impl EventHub {
             event,
         };
         let resource = state.resources.get_mut(id).expect("inserted resource");
+        if kind == "text" {
+            let Ok(delta) = from_value::<TextDelta>(data.clone()) else {
+                return entry;
+            };
+            if !resource.text.apply(&delta) {
+                return entry;
+            }
+        }
+        if kind == "progress" {
+            let Ok(delta) = from_value::<ProgressDelta>(data) else {
+                return entry;
+            };
+            if !resource.progress.apply(&delta) {
+                return entry;
+            }
+        }
         match kind {
             "typing" => {
                 resource.attempt = attempt;
@@ -95,11 +116,9 @@ impl EventHub {
                     resource.status = vec!["Tool activity in progress".into()];
                 }
             }
-            "attempt_ended" => {
-                if resource.attempt == attempt {
-                    resource.status.clear();
-                    resource.attempt = None;
-                }
+            "attempt_ended" if resource.attempt == attempt => {
+                resource.status.clear();
+                resource.attempt = None;
             }
             _ => {}
         }
@@ -119,7 +138,25 @@ impl EventHub {
         kind: &str,
         attempt: Option<String>,
     ) {
-        self.record(id, owner, epoch, kind, attempt);
+        self.record(id, owner, epoch, kind, attempt, json!({"reason":kind}));
+    }
+    pub fn progress(&self, id: &SessionId, active: Option<&str>) -> Option<ProgressSnapshot> {
+        self.state
+            .lock()
+            .unwrap()
+            .resources
+            .get(id)?
+            .progress
+            .snapshot(active)
+    }
+    pub fn text(&self, id: &SessionId, active: Option<&str>) -> Option<TextSnapshot> {
+        self.state
+            .lock()
+            .unwrap()
+            .resources
+            .get(id)?
+            .text
+            .snapshot(active)
     }
     pub fn status(&self, id: &SessionId) -> Vec<String> {
         self.state
@@ -145,7 +182,45 @@ impl EventHub {
         if !context.is_private() || !context.is_live() {
             return;
         }
+        if envelope.kind.as_str() == "albert.text" {
+            if let Some(update) = envelope.context.get::<TextUpdate>() {
+                if let Ok(data) = to_value(&update.0) {
+                    self.record(
+                        context.session_id(),
+                        owner,
+                        epoch,
+                        "text",
+                        Some(update.0.attempt_id.clone()),
+                        data,
+                    );
+                }
+            }
+            return;
+        }
+        if envelope.kind.as_str() == "albert.progress" {
+            if envelope
+                .context
+                .get::<TurnFeedback>()
+                .is_some_and(|token| !token.is_open())
+            {
+                return;
+            }
+            if let Some(update) = envelope.context.get::<ProgressUpdate>() {
+                if let Ok(data) = to_value(&update.0) {
+                    self.record(
+                        context.session_id(),
+                        owner,
+                        epoch,
+                        "progress",
+                        Some(update.0.attempt_id.clone()),
+                        data,
+                    );
+                }
+            }
+            return;
+        }
         let kind = match envelope.kind.as_str() {
+            "albert.session.updated" => "session",
             "chat.typing" => "typing",
             "chat.status" => "status",
             "chat.reply" => "changed",
@@ -227,15 +302,14 @@ impl SessionHost {
             }
         }
         let snapshot = self.state(&actor, &request.session_id).await?;
-        let mut initial = self.hub.record(
+        let initial = self.hub.record(
             &id,
             &owner,
             &epoch,
             if resync { "resync" } else { "snapshot" },
             None,
+            json!({"state":to_value(snapshot).map_err(|_|ApiError::internal())?,"resync":resync}),
         );
-        initial.event.data =
-            json!({"state":to_value(snapshot).map_err(|_|ApiError::internal())?,"resync":resync});
         queue.push_back(initial);
         let shutdown = self
             .context
@@ -243,7 +317,7 @@ impl SessionHost {
             .unwrap()
             .as_ref()
             .map(|context| context.shutdown.clone())
-            .unwrap_or_else(CancellationToken::new);
+            .unwrap_or_default();
         let hub = self.hub.clone();
         let stream = unfold(
             (
@@ -271,7 +345,7 @@ impl SessionHost {
                         event=receiver.recv()=>match event {
                             Ok(entry) if entry.owner==owner && entry.event.session_id==id.as_str()=>queue.push_back(entry),
                             Ok(_)=>{},
-                            Err(RecvError::Lagged(_))=>queue.push_back(hub.record(&id,&owner,&epoch,"resync",None)),
+                            Err(RecvError::Lagged(_))=>queue.push_back(hub.record(&id,&owner,&epoch,"resync",None,json!({"reason":"resync"}))),
                             Err(RecvError::Closed)=>return None,
                         }
                     }
@@ -279,5 +353,43 @@ impl SessionHost {
             },
         );
         Ok(Box::pin(stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use octo_history::SessionId;
+    use serde_json::json;
+
+    use super::EventHub;
+
+    #[test]
+    fn snapshot_payload_is_identical_in_initial_broadcast_and_replay() {
+        let hub = EventHub::new();
+        let id = SessionId::parse("01900000-0000-7000-8000-000000000001").unwrap();
+        let anchor = hub.record(
+            &id,
+            "owner",
+            "epoch",
+            "changed",
+            None,
+            json!({"reason":"changed"}),
+        );
+        let mut receiver = hub.sender.subscribe();
+        let snapshot = hub.record(
+            &id,
+            "owner",
+            "epoch",
+            "snapshot",
+            None,
+            json!({"state":{"status":["Working"]}}),
+        );
+        let broadcast = receiver.try_recv().unwrap();
+        let replay = hub.replay(&id, "owner", anchor.sequence).unwrap();
+        assert_eq!(snapshot.event.data, broadcast.event.data);
+        assert_eq!(snapshot.event.data, replay[0].event.data);
+        assert!(hub
+            .replay(&id, "different-owner", anchor.sequence)
+            .is_none());
     }
 }

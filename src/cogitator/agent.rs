@@ -45,7 +45,7 @@ use crate::{
     scratchpad::PadScope,
     selfconfig::SelfConfig,
     sessions::{telegram::output_scope, SessionContext},
-    status::StatusFeed,
+    status::{text::ObservedModel, StatusFeed},
     subagents::SubagentTool,
 };
 
@@ -98,6 +98,14 @@ impl AlbertCogitator {
                 host.acknowledge_subagent_result(&observer_conversation, owner, name, args, result);
             }
         });
+        let progress_store = self.scratchpad.clone();
+        let progress_scope = scratchpad_scope(&conversation, owner);
+        let feed = feed.with_stage_source(move || progress_store.progress_scoped(&progress_scope));
+        feed.register_connector_names(
+            ctx.connectors()
+                .iter()
+                .map(|connector| connector.id.to_string()),
+        );
         // Owner-only: restarting a connector (to reload its manifest) or the whole
         // process (to apply albert.toml) is an admin action. The tool records the
         // requested target here; the caller carries it out after the reply is sent.
@@ -116,6 +124,7 @@ impl AlbertCogitator {
             .with_ingress(ingress.clone())
             .with_session(session.clone())
             .with_diagnostics(feed.diagnostics())
+            .with_progress(feed.clone())
         });
         let make_tools = || {
             if chat_only {
@@ -320,6 +329,11 @@ impl AlbertCogitator {
             budget.response_tokens = *max_tokens;
         }
         let budget = budget.enabled.then_some(budget);
+        let preview = matches!(
+            &tools,
+            AttemptTools::Root(_) | AttemptTools::ChatOnly { .. }
+        )
+        .then(|| feed.clone());
         let result = match model.provider {
             AuthMode::ApiKey => {
                 let key = self
@@ -339,21 +353,25 @@ impl AlbertCogitator {
                     .map_err(|_| unavailable("Could not construct API client."))?;
                 self.drive_attempt(
                     AgentBuilder::new(
-                        BudgetedModel::new(client.completion_model(&model.model), budget, true)
-                            .with_diagnostics(diagnostics)
-                            .with_diagnostic_model(diagnostic_model_id)
-                            .with_diagnostic_feed(feed.clone())
-                            .with_model_params(reasoning_params)
-                            .with_turn_budget(turn_budget)
-                            .with_recovery(
-                                if metadata {
-                                    0
-                                } else {
-                                    self.config.context.continuation_retries
-                                },
-                                self.config.context.continuation_retry_delay_ms,
-                                feed.clone(),
-                            ),
+                        BudgetedModel::new(
+                            ObservedModel::new(client.completion_model(&model.model), preview),
+                            budget,
+                            true,
+                        )
+                        .with_diagnostics(diagnostics)
+                        .with_diagnostic_model(diagnostic_model_id)
+                        .with_diagnostic_feed(feed.clone())
+                        .with_model_params(reasoning_params)
+                        .with_turn_budget(turn_budget)
+                        .with_recovery(
+                            if metadata {
+                                0
+                            } else {
+                                self.config.context.continuation_retries
+                            },
+                            self.config.context.continuation_retry_delay_ms,
+                            feed.clone(),
+                        ),
                     )
                     .preamble(preamble),
                     tools,
@@ -386,7 +404,7 @@ impl AlbertCogitator {
                 let model = CodexResponsesModel::make(&client, &model.model);
                 self.drive_attempt(
                     AgentBuilder::new(
-                        BudgetedModel::new(model, budget, false)
+                        BudgetedModel::new(ObservedModel::new(model, preview), budget, false)
                             .with_diagnostics(diagnostics)
                             .with_diagnostic_model(diagnostic_model_id)
                             .with_diagnostic_feed(feed.clone())
@@ -479,7 +497,7 @@ impl AlbertCogitator {
     where
         M: CompletionModel + 'static,
     {
-        let pad = self.scratchpad.scoped_handle(pad_scope);
+        let pad = self.scratchpad.scoped_handle(pad_scope.clone());
         debug!(
             channel,
             clouds = !self.config.clouds.is_empty(),
@@ -539,6 +557,9 @@ impl AlbertCogitator {
             artifacts
         };
         let tools = fence_tools(artifacts.wrap(tools), session);
+        let stage_store = self.scratchpad.clone();
+        let stage_scope = pad_scope.clone();
+        let feed = feed.with_stage_source(move || stage_store.progress_scoped(&stage_scope));
         feed.register_tool_names(tools.iter().map(|tool| tool.name()));
         let agent = base.tools(tools).build();
         agent

@@ -33,6 +33,15 @@ impl SessionHost {
         if input.kind.as_deref() == Some("permanent")
             && context.session().kind == SessionKind::Permanent
         {
+            if input
+                .title
+                .as_ref()
+                .is_some_and(|title| title != &context.session().title)
+            {
+                return Err(ApiError::conflict(
+                    "This chat was already saved with another name.",
+                ));
+            }
             return Ok(HostResponse::Session(view(context.session())));
         }
         if context.session().revision != input.revision {
@@ -41,15 +50,9 @@ impl SessionHost {
             ));
         }
         if let Some(kind) = input.kind {
-            if kind != "permanent"
-                || input
-                    .title
-                    .as_ref()
-                    .is_some_and(|title| title != &context.session().title)
-                || input.archived.is_some()
-            {
+            if kind != "permanent" || input.archived.is_some() {
                 return Err(ApiError::invalid(
-                    "Save changes only temporary retention; rename separately.",
+                    "Save changes temporary retention and its name only.",
                 ));
             }
             let key = input
@@ -59,7 +62,7 @@ impl SessionHost {
             let saved = self
                 .runtime
                 .sessions
-                .save_temporary(&context, &key, None)
+                .save_temporary_named(&context, &key, input.title)
                 .await
                 .map_err(session_error)?;
             self.hub.changed(

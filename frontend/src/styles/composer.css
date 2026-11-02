@@ -1,0 +1,64 @@
+.composer-area {
+  padding: 10px max(28px, calc((100% - 760px) / 2)) 20px;
+  flex-shrink: 0;
+  background: var(--paper);
+}
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-height: 58px;
+  border: 1px solid #b5934c60;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.composer:focus-within {
+  border-color: #caa24aa6;
+  box-shadow: 0 0 0 3px #caa24a07;
+}
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  max-height: 200px;
+  border: 0;
+  padding: 4px 2px;
+  resize: none;
+  background: none;
+  font: 15px/1.6 var(--sans);
+  overflow-y: auto;
+}
+.composer textarea:focus-visible {
+  outline: none;
+}
+.composer-bottom,
+.composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.composer-buttons .button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.composer-footer {
+  font: 9px/1.7 var(--mono);
+  color: var(--muted);
+  margin: 8px 1px 0;
+}
+@media (max-width: 760px) {
+  .composer-area {
+    padding: 8px 18px 16px;
+  }
+  .composer {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  .composer-buttons .button {
+    min-width: 36px;
+    padding: 6px 8px;
+  }
+}

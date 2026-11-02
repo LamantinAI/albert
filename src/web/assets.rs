@@ -8,17 +8,40 @@ use axum::{
     routing::get,
     Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine};
 use include_dir::{include_dir, Dir};
 use mime_guess::from_path;
+use sha2::{Digest, Sha256};
 
 static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui-dist");
 
+const LANDING_SCRIPT: &str = r#"(()=>{const u=new URL(window.location.href);u.pathname=u.pathname.replace(/\/+$/,"")+"/ui/";window.location.replace(u.href)})()"#;
+
 pub(crate) fn router() -> Router {
     Router::new()
-        .route("/", get(|| async { Redirect::temporary("/ui/") }))
-        .route("/ui", get(|| async { Redirect::permanent("/ui/") }))
+        .route("/", get(landing))
+        .route(
+            "/ui",
+            get(|uri: Uri| async move {
+                let target = match uri.query() {
+                    Some(query) => format!("ui/?{query}"),
+                    None => "ui/".into(),
+                };
+                Redirect::permanent(&target)
+            }),
+        )
         .route("/ui/", get(asset))
         .route("/ui/{*path}", get(asset))
+}
+
+async fn landing() -> Response {
+    let digest = STANDARD.encode(Sha256::digest(LANDING_SCRIPT.as_bytes()));
+    Response::builder().header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(CACHE_CONTROL, "no-store")
+        .header("content-security-policy", format!("default-src 'none'; script-src 'sha256-{digest}'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"))
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(format!("<!doctype html><html><head><meta charset=\"utf-8\"><title>Albert</title></head><body><script>{LANDING_SCRIPT}</script><noscript>JavaScript is required to open this workspace.</noscript></body></html>")))
+        .expect("static landing response")
 }
 
 async fn asset(uri: Uri) -> Response {
@@ -64,6 +87,33 @@ async fn asset(uri: Uri) -> Response {
         .header(CACHE_CONTROL, cache)
         .header("x-content-type-options", "nosniff")
         .header("content-security-policy", policy)
-        .body(Body::from(file.contents()))
+        .body(if extension == "html" {
+            let Some(html) = file.contents_utf8() else {
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            };
+            Body::from(render_html(html, path))
+        } else {
+            Body::from(file.contents())
+        })
         .expect("static response")
+}
+
+fn render_html(html: &str, path: &str) -> String {
+    let depth = path.bytes().filter(|byte| *byte == b'/').count();
+    let relative = if depth == 0 {
+        "./".to_owned()
+    } else {
+        "../".repeat(depth)
+    };
+    // Only a relative distance is rendered. No Host or forwarding header is
+    // reflected into executable content, resource URLs or trusted API state.
+    html.replace(
+        "<head>",
+        &format!("<head><meta name=\"albert-ui-root\" content=\"{relative}\">"),
+    )
+    .replace("=\"/ui/", &format!("=\"{relative}"))
+    .replace("=\"./ui/", &format!("=\"{relative}"))
+    .replace("=\"/api/v1/", &format!("=\"{relative}api/v1/"))
+    .replace("=\"./assets/", &format!("=\"{relative}assets/"))
+    .replace("=\"./favicon.svg", &format!("=\"{relative}favicon.svg"))
 }

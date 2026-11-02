@@ -24,7 +24,10 @@ use crate::{
     context::{window_messages, DiagnosticScope},
     history::{assistant_turn, sessions::Backend, to_messages, Turn},
     messaging::contract::WorkRef,
-    sessions::{acceptance::SourceReceipt, SessionContext},
+    sessions::{
+        acceptance::{AcceptedStart, SourceReceipt},
+        SessionContext,
+    },
     sessions::{
         error::{SessionError, SessionResult},
         ingress::for_message,
@@ -205,7 +208,7 @@ impl AlbertCogitator {
             Some(decision) => decision.request.clone(),
             None => NativeRequest::from_envelope(incoming).map_err(|error| error.to_string())?,
         };
-        let result = if incoming
+        let mut result = if incoming
             .context
             .get::<SessionContext>()
             .is_some_and(|session| !session.is_live())
@@ -242,6 +245,26 @@ impl AlbertCogitator {
                 Err("Native aliases require a session journal.".into())
             }
         };
+        if let (Ok(receipt), Some(proof), Some(session), Some(service)) = (
+            &mut result,
+            incoming.context.get::<AcceptedStart>(),
+            incoming.context.get::<SessionContext>(),
+            self.session_service.as_ref(),
+        ) {
+            let digest = format!("{:x}", Sha256::digest(input.text.as_bytes()));
+            if receipt.duplicate
+                && proof.consume(session.session_id().as_str(), &native.key, &digest)
+            {
+                match service
+                    .web_run_start(session.session_id(), &native.key)
+                    .await
+                {
+                    Ok(true) => receipt.duplicate = false,
+                    Ok(false) => {}
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+        }
         if let Some(receipt) = incoming.context.get::<SourceReceipt>() {
             receipt.complete(result.clone());
         }
@@ -259,18 +282,31 @@ impl AlbertCogitator {
         phase: &str,
         turns: Vec<Turn>,
     ) -> Result<(), String> {
+        self.append_host_records(key, scope, phase, turns)
+            .await
+            .map(|_| ())
+    }
+    pub(super) async fn append_host_records(
+        &self,
+        key: &str,
+        scope: &str,
+        phase: &str,
+        turns: Vec<Turn>,
+    ) -> Result<Vec<i64>, String> {
         if turns.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
         if self.session_history.is_none() {
             return self
                 .history
                 .append(key, &turns)
                 .await
+                .map(|_| vec![])
                 .map_err(|error| error.to_string());
         }
         let bytes = to_vec(&turns).map_err(|error| error.to_string())?;
-        self.history
+        let receipt = self
+            .history
             .append_journal(
                 key,
                 &AppendRequest {
@@ -281,8 +317,19 @@ impl AlbertCogitator {
                 },
             )
             .await
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        if matches!(phase, "final" | "reflex-result") {
+            if let (Some(service), Some(raw)) =
+                (&self.session_service, key.strip_prefix("session/"))
+            {
+                if let Ok(id) = SessionId::parse(raw) {
+                    if let Err(error) = service.web_finish_start(&id).await {
+                        warn!(%error,"first-run publication will reconcile on read");
+                    }
+                }
+            }
+        }
+        Ok(receipt.record_ids)
     }
 
     pub(super) async fn strict_history(&self, key: &str) -> Result<Vec<Turn>, String> {

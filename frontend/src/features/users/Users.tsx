@@ -5,11 +5,14 @@ import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useClientContext } from "../../app/context";
 import { Icon } from "../../components/Icon";
+import { Select } from "../../components/Select";
+import { useDialogs } from "../../components/useDialogs";
 import { Button, Field, Notice, PageHeading } from "../../components/ui";
 
 type Account = components["schemas"]["AccountView"];
 
 export function Users() {
+  const { confirm, dialog } = useDialogs();
   const { context } = useClientContext();
   const [users, setUsers] = useState<Account[]>([]);
   const [adding, setAdding] = useState(false);
@@ -50,9 +53,11 @@ export function Users() {
   ) {
     if (
       values.role === "owner" &&
-      !window.confirm(
-        `Give ${user.username} owner access to global configuration and user management?`,
-      )
+      !(await confirm({
+        title: "Give owner access?",
+        description: `Give ${user.username} owner access to global configuration and user management?`,
+        confirmLabel: "Give owner access",
+      }))
     )
       return;
     setBusy(true);
@@ -72,6 +77,7 @@ export function Users() {
   }
   return (
     <div className="workspace-body">
+      {dialog}
       <PageHeading
         eyebrow="Workspace / People"
         title="The people in your workspace."
@@ -92,7 +98,7 @@ export function Users() {
       {adding && (
         <section className="card">
           <h2>Create an account</h2>
-          <form className="form-stack" onSubmit={create}>
+          <form className="form-stack admin-entry-form" onSubmit={create}>
             <div className="form-grid">
               <Field
                 label="Username"
@@ -111,18 +117,15 @@ export function Users() {
                 onChange={(event) => setPassword(event.target.value)}
               />
             </div>
-            <label className="field">
-              <span className="field-label">Role</span>
-              <select
-                value={role}
-                onChange={(event) =>
-                  setRole(event.target.value as "owner" | "user")
-                }
-              >
-                <option value="user">User — own chats and account</option>
-                <option value="owner">Owner — workspace administration</option>
-              </select>
-            </label>
+            <Select
+              label="Role"
+              value={role}
+              onChange={(value) => setRole(value as "owner" | "user")}
+              options={[
+                { value: "user", label: "User — own chats and account" },
+                { value: "owner", label: "Owner — workspace administration" },
+              ]}
+            />
             <Button type="submit" variant="primary" disabled={busy}>
               {busy ? "Creating…" : "Create account"}
             </Button>

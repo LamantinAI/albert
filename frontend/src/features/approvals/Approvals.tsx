@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Button, EmptyState, Notice, PageHeading } from "../../components/ui";
+import { useDialogs } from "../../components/useDialogs";
 
 type Approval = components["schemas"]["ApprovalView"];
 const actions: Record<string, string> = {
@@ -71,6 +72,7 @@ function outcome(state: string) {
 }
 
 export function Approvals() {
+  const { confirm, dialog } = useDialogs();
   const [items, setItems] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
@@ -126,9 +128,12 @@ export function Approvals() {
     const shown = presentation(item.summary);
     if (
       approve &&
-      !window.confirm(
-        `Approve “${shown.action}” for ${shown.resource}? This change may be irreversible. Review the affected objects before continuing.`,
-      )
+      !(await confirm({
+        title: "Approve change?",
+        description: `Approve “${shown.action}” for ${shown.resource}? This change may be irreversible. Review the affected objects before continuing.`,
+        confirmLabel: "Approve change",
+        danger: true,
+      }))
     )
       return;
     setBusy(item.id);
@@ -154,6 +159,7 @@ export function Approvals() {
 
   return (
     <div className="workspace-body">
+      {dialog}
       <PageHeading
         eyebrow="Workspace / Approvals"
         title="Changes that need your decision."

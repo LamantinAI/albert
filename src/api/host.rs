@@ -8,11 +8,12 @@ use super::{
     errors::ApiResult,
     models::{
         ApplyRequest, ApplyView, ApprovalDecision, ApprovalList, ApprovalView, AttemptView,
-        CancelRequest, ConfigDocument, ConfigList, ConfigWrite, EmptyObject, IdentityList,
-        MessageCreate, MessageList, MessageReceipt, ModelOrder, ModelPoolView, ModelPreference,
-        ModelWrite, PageQuery, ProfileView, RuntimeStatus, SecretList, SecretWrite, SessionCreate,
-        SessionEvent, SessionList, SessionState, SessionUpdate, SessionView, SkillImport,
-        SkillList, SkillUpdate, SkillView, SkillWrite, ValidationView,
+        CancelRequest, ConfigDocument, ConfigDraftInput, ConfigDraftView, ConfigList, ConfigWrite,
+        EmptyObject, IdentityList, MessageCreate, MessageList, MessageReceipt, ModelOrder,
+        ModelPoolView, ModelPreference, ModelWrite, PageQuery, ProfileView, RuntimeStatus,
+        SecretList, SecretWrite, SessionCreate, SessionEvent, SessionList, SessionStart,
+        SessionStartView, SessionState, SessionUpdate, SessionView, SkillImport, SkillList,
+        SkillUpdate, SkillView, SkillWrite, ValidationView,
     },
     principal::Principal,
 };
@@ -53,6 +54,13 @@ pub enum ProfileOperation {
     Identities,
 }
 pub enum SessionOperation {
+    Start(SessionStart),
+    StartGet {
+        id: String,
+    },
+    StartCancel {
+        id: String,
+    },
     List(PageQuery),
     Create(SessionCreate),
     Get {
@@ -119,6 +127,7 @@ pub enum ConfigOperation {
     List,
     Get { id: String },
     Put { id: String, input: ConfigWrite },
+    Draft { id: String, input: ConfigDraftInput },
     Validate(ConfigWrite),
     Apply(ApplyRequest),
     Application { id: String },
@@ -139,6 +148,7 @@ pub enum HostResponse {
     Profile(ProfileView),
     Identities(IdentityList),
     Session(SessionView),
+    Start(SessionStartView),
     Sessions(SessionList),
     Messages(MessageList),
     Receipt(MessageReceipt),
@@ -148,6 +158,7 @@ pub enum HostResponse {
     Skill(SkillView),
     Skills(SkillList),
     Config(ConfigDocument),
+    ConfigDraft(ConfigDraftView),
     Configs(ConfigList),
     Validation(ValidationView),
     Apply(ApplyView),

@@ -1,0 +1,47 @@
+.lamp-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gold);
+}
+.lamp-loader-ring {
+  display: block;
+  width: 96px;
+  height: 96px;
+  overflow: visible;
+  filter: drop-shadow(0 0 0.8px #dfba634a);
+}
+.lamp-loader-dot {
+  fill: currentColor;
+  opacity: 0.75;
+  animation: lamp-loader-light var(--lamp-duration) ease-in-out
+    var(--lamp-delay) infinite;
+}
+@keyframes lamp-loader-light {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  22% {
+    opacity: 0.97;
+  }
+  45% {
+    opacity: 0.8;
+  }
+  70% {
+    opacity: 0.12;
+  }
+  88% {
+    opacity: 0.3;
+  }
+}
+.transcript.conversation-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lamp-loader-dot {
+    animation: none;
+  }
+}

@@ -121,10 +121,6 @@ impl WebSettings {
                     "web.public_origin must be an HTTP(S) origin without a path.".into(),
                 ));
             }
-        } else if settings.enabled && !settings.bind.ip().is_loopback() {
-            return Err(Error::Config(
-                "Set web.public_origin when binding to a non-loopback address.".into(),
-            ));
         }
         Ok(settings)
     }
@@ -160,7 +156,6 @@ mod tests {
             "typo=true",
             "max_body_bytes=0",
             "public_origin='https://example.org/path'",
-            "bind='0.0.0.0:9877'",
         ] {
             let doc: Table = from_str(&format!("[web]\n{input}")).unwrap();
             assert!(WebSettings::from_document(&doc).is_err(), "{input}");
@@ -169,5 +164,14 @@ mod tests {
             from_str("[web]\nbind='0.0.0.0:9877'\npublic_origin='https://albert.example.org'")
                 .unwrap();
         assert!(WebSettings::from_document(&doc).is_ok());
+    }
+
+    #[test]
+    fn direct_listeners_infer_the_browser_origin_without_an_address_setting() {
+        for bind in ["127.0.0.1:9877", "0.0.0.0:9877", "[::]:9877"] {
+            let doc: Table = from_str(&format!("[web]\nbind='{bind}'")).unwrap();
+            let settings = WebSettings::from_document(&doc).unwrap();
+            assert!(settings.public_origin.is_none());
+        }
     }
 }

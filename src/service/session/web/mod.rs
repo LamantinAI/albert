@@ -2,6 +2,7 @@
 //! is created merely to prove access to a Session.
 mod lifecycle;
 mod metadata;
+pub(crate) mod start;
 
 use octo_history::{SessionAccess, SessionId};
 use sqlx::{Sqlite, Transaction};
