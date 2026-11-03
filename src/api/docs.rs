@@ -8,15 +8,28 @@ use super::models::{
     ConfigFieldChange, ConfigFieldKind, ConfigList, ConfigWrite, CredentialUpdate, CredentialView,
     EmptyObject, IdentityList, IdentityView, LoginRequest, MessageCreate, MessageList,
     MessageReceipt, MessageView, ModelConfig, ModelOrder, ModelPoolView, ModelPreference,
-    ModelRole, ModelView, ModelWrite, PageQuery, ProfileView, ProgressDelta, ProgressItem,
-    ProgressSnapshot, RuntimeStatus, SecretList, SecretWrite, SessionCreate, SessionEvent,
-    SessionList, SessionStart, SessionStartView, SessionState, SessionUpdate, SessionView,
-    SetupPhase, SetupView, SkillImport, SkillList, SkillUpdate, SkillView, SkillWrite, TextDelta,
-    TextSnapshot, UserCreate, UserList, UserUpdate, ValidationView,
+    ModelRole, ModelView, ModelWrite, OpenAiLoginPhase, OpenAiLoginStart, OpenAiLoginSubmission,
+    OpenAiLoginView, PageQuery, ProfileView, ProgressDelta, ProgressItem, ProgressSnapshot,
+    RuntimeStatus, SecretList, SecretWrite, SessionCreate, SessionEvent, SessionList, SessionStart,
+    SessionStartView, SessionState, SessionUpdate, SessionView, SetupPhase, SetupView, SkillImport,
+    SkillList, SkillUpdate, SkillView, SkillWrite, SubscriptionApplyRequest,
+    SubscriptionCatalogModel, SubscriptionCatalogView, SubscriptionConnectionView,
+    SubscriptionPhase, SubscriptionSelection, TextDelta, TextSnapshot, UserCreate, UserList,
+    UserUpdate, ValidationView,
 };
 
 #[derive(OpenApi)]
 #[openapi(components(schemas(
+    SubscriptionApplyRequest,
+    SubscriptionSelection,
+    SubscriptionConnectionView,
+    SubscriptionPhase,
+    SubscriptionCatalogView,
+    SubscriptionCatalogModel,
+    OpenAiLoginStart,
+    OpenAiLoginSubmission,
+    OpenAiLoginPhase,
+    OpenAiLoginView,
     AccountRole,
     AccountView,
     Capabilities,
@@ -90,6 +103,54 @@ struct ApiDoc;
 /// This route inventory also drives router registration; request/response shapes
 /// come from Rust DTO schemas, not a second handwritten TypeScript contract.
 pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
+    (
+        "POST",
+        "/openai-login-attempts",
+        Some("OpenAiLoginStart"),
+        "OpenAiLoginView",
+    ),
+    (
+        "GET",
+        "/openai-login-attempts/{id}",
+        None,
+        "OpenAiLoginView",
+    ),
+    (
+        "POST",
+        "/openai-login-attempts/{id}/submissions",
+        Some("OpenAiLoginSubmission"),
+        "OpenAiLoginView",
+    ),
+    (
+        "POST",
+        "/openai-login-attempts/{id}/cancellations",
+        None,
+        "OpenAiLoginView",
+    ),
+    (
+        "GET",
+        "/openai-subscription",
+        None,
+        "SubscriptionConnectionView",
+    ),
+    (
+        "POST",
+        "/openai-subscription/catalogs",
+        None,
+        "SubscriptionCatalogView",
+    ),
+    (
+        "POST",
+        "/openai-subscription/selections",
+        Some("SubscriptionSelection"),
+        "SubscriptionConnectionView",
+    ),
+    (
+        "POST",
+        "/openai-subscription/applications",
+        Some("SubscriptionApplyRequest"),
+        "SubscriptionConnectionView",
+    ),
     ("GET", "/context", None, "ClientContext"),
     (
         "POST",

@@ -66,8 +66,7 @@ export function Login() {
               <Icon name="arrow" size={16} />
             </Button>
             <small className="muted">
-              First launch: use owner / owner through localhost or the server
-              IP. You will choose new credentials before continuing.
+              First sign-in: owner / owner.
             </small>
           </form>
         </section>

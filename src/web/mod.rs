@@ -23,7 +23,7 @@ use crate::{
         errors::ApiResult,
         host::{
             EventStream, Host, HostOperation, HostResponse, ModelOperation, ProfileOperation,
-            SessionEventRequest, SkillOperation,
+            SessionEventRequest, SkillOperation, SubscriptionOperation,
         },
         models::RuntimeStatus,
         principal::Principal,
@@ -31,8 +31,8 @@ use crate::{
         state::ApiState,
     },
     service::{
-        auth::AuthService, control::ControlService, panel_models::ModelService,
-        panel_skills::SkillService,
+        auth::AuthService, control::ControlService, openai_login::OpenAiLoginService,
+        panel_models::ModelService, panel_skills::SkillService,
     },
 };
 
@@ -41,6 +41,7 @@ pub(crate) struct Panel {
     pub auth: Arc<AuthService>,
     pub sessions: Arc<SessionHost>,
     models: ModelService,
+    openai_login: Arc<OpenAiLoginService>,
     skills: SkillService,
     control: ControlService,
     approvals: ApprovalService,
@@ -49,9 +50,12 @@ pub(crate) struct Panel {
 impl Panel {
     pub fn new(runtime: Arc<AgentRuntime>, auth: Arc<AuthService>) -> Arc<Self> {
         let gate = Arc::new(Mutex::new(()));
+        let models = ModelService::new(runtime.path.clone(), runtime.base.clone(), gate.clone());
+        let openai_login = OpenAiLoginService::new(runtime.clone(), auth.clone(), models.clone());
         Arc::new(Self {
             sessions: SessionHost::new(runtime.clone(), auth.clone()),
-            models: ModelService::new(runtime.path.clone(), runtime.base.clone(), gate.clone()),
+            models,
+            openai_login,
             skills: SkillService::new(runtime.base.clone(), gate.clone()),
             control: ControlService::new(runtime.clone(), gate),
             approvals: ApprovalService::new(runtime.clone()),
@@ -72,6 +76,25 @@ impl Host for Panel {
         operation: HostOperation,
     ) -> ApiResult<HostResponse> {
         match operation {
+            HostOperation::OpenAiSubscription(operation) => match operation {
+                SubscriptionOperation::Connection => Ok(HostResponse::SubscriptionConnection(
+                    self.openai_login.subscription_connection(caller).await?,
+                )),
+                SubscriptionOperation::Catalog => Ok(HostResponse::SubscriptionCatalog(
+                    self.openai_login.subscription_catalog(caller).await?,
+                )),
+                SubscriptionOperation::Select(input) => Ok(HostResponse::SubscriptionConnection(
+                    self.openai_login.select_subscription(caller, input).await?,
+                )),
+                SubscriptionOperation::Apply(input) => Ok(HostResponse::SubscriptionConnection(
+                    self.openai_login
+                        .retry_subscription_apply(caller, input)
+                        .await?,
+                )),
+            },
+            HostOperation::OpenAiLogin(operation) => Ok(HostResponse::OpenAiLogin(
+                self.openai_login.operation(caller, operation).await?,
+            )),
             HostOperation::Profile(ProfileOperation::Get) => {
                 Ok(HostResponse::Profile(self.profile(caller).await?))
             }

@@ -1,6 +1,7 @@
 //! Owner control of persisted model settings. Runtime activation is assembly-owned.
 pub(crate) mod files;
 mod mutations;
+mod onboarding;
 mod views;
 
 use std::{path::PathBuf, sync::Arc};
@@ -81,6 +82,7 @@ mod tests {
             host::ModelOperation,
             models::{
                 AccountRole, AccountView, ModelConfig, ModelOrder, ModelPreference, ModelWrite,
+                SubscriptionCatalogModel,
             },
             principal::{OwnerPermit, Principal},
         },
@@ -382,5 +384,62 @@ mod tests {
                 .unwrap()
                 .contains("# Existing installation")
         );
+    }
+    #[tokio::test]
+    async fn subscription_onboarding_preserves_pool_default_and_is_idempotent() {
+        let (_dir, service) = fixture();
+        let initial = service
+            .operation(
+                &permit(),
+                ModelOperation::Create(model("api", None, Some("synthetic-key"))),
+            )
+            .await
+            .unwrap();
+        let before = initial.models[0].config.clone();
+        let subscription = service
+            .connect_subscription(
+                SubscriptionCatalogModel {
+                    slug: "selected-slug".into(),
+                    selectable: true,
+                    unavailable_reason: None,
+                    name: "Selected model".into(),
+                    description: None,
+                    input_modalities: vec!["text".into()],
+                    context_window: Some(32_000),
+                    reasoning_efforts: vec!["high".into()],
+                    default_reasoning_effort: Some("high".into()),
+                },
+                "https://chatgpt.com/backend-api/codex".into(),
+                false,
+            )
+            .await
+            .unwrap();
+        let again = service
+            .connect_subscription(
+                SubscriptionCatalogModel {
+                    slug: "selected-slug".into(),
+                    selectable: true,
+                    unavailable_reason: None,
+                    name: "Selected model".into(),
+                    description: None,
+                    input_modalities: vec!["text".into()],
+                    context_window: Some(32_000),
+                    reasoning_efforts: vec!["high".into()],
+                    default_reasoning_effort: Some("high".into()),
+                },
+                "https://chatgpt.com/backend-api/codex".into(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(subscription.0, again.0);
+        let after = service.list().await.unwrap();
+        assert_eq!(after.preferred, initial.preferred);
+        assert_eq!(after.models.len(), 2);
+        assert_eq!(after.models[0].config.model, before.model);
+        assert_eq!(after.models[0].config.api_key_env, before.api_key_env);
+        assert!(!after.models[1].config.vision);
+        assert!(after.models[1].config.tools);
+        assert_eq!(after.models[1].config.context_window, Some(32_000));
     }
 }

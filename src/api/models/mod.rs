@@ -27,3 +27,13 @@ pub use session::{
     AttemptView, CancelRequest, MessageCreate, MessageList, MessageReceipt, MessageView, PageQuery,
     SessionCreate, SessionEvent, SessionList, SessionState, SessionUpdate, SessionView,
 };
+
+pub mod openai_login;
+pub use openai_login::{
+    OpenAiLoginPhase, OpenAiLoginStart, OpenAiLoginSubmission, OpenAiLoginView,
+};
+
+pub use openai_login::{
+    SubscriptionApplyRequest, SubscriptionCatalogModel, SubscriptionCatalogView,
+    SubscriptionConnectionView, SubscriptionPhase, SubscriptionSelection,
+};

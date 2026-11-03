@@ -153,7 +153,7 @@ test("login and forced credential rotation have a usable dark workspace layout",
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
 });
 

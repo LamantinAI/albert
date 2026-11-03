@@ -1,0 +1,45 @@
+# Only synthetic local services; no deployment files or host credentials.
+services:
+  albert:
+    build:
+      context: ${ALBERT_E2E_CONTEXT:?Use the local runner to stage a test binary}
+      dockerfile: Runtime.Dockerfile
+    environment:
+      ALBERT_E2E_AUTH_PUBLIC_ORIGIN: http://127.0.0.1:${ALBERT_E2E_AUTH_PORT}
+      ALBERT_E2E_AUTH_INTERNAL_ORIGIN: http://mock-provider:8000
+      ALBERT_E2E_MODEL_ORIGIN: http://mock-provider:8000/backend-api/codex
+      RUST_LOG: albert=info,octo_core=warn
+    volumes:
+      - state:/data
+    depends_on:
+      mock-provider:
+        condition: service_healthy
+    networks: [isolated]
+  mock-provider:
+    image: python:3.12-slim
+    command: [python3, -B, /fixture/mock_provider.py]
+    volumes:
+      - ${ALBERT_E2E_CONTEXT}/mock_provider.py:/fixture/mock_provider.py:ro
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [isolated]
+  gateway:
+    image: nginx:stable-alpine
+    volumes:
+      - ${ALBERT_E2E_CONTEXT}/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:${ALBERT_E2E_PORT}:9877"
+      - "127.0.0.1:${ALBERT_E2E_AUTH_PORT}:8000"
+    depends_on:
+      - albert
+      - mock-provider
+    networks: [browser, isolated]
+volumes:
+  state:
+networks:
+  browser: {}
+  isolated:
+    internal: true

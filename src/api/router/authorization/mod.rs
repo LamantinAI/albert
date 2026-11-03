@@ -3,7 +3,9 @@ use crate::api::{errors::ApiResult, host::HostOperation, principal::Principal};
 pub(super) fn host_access(caller: &Principal, operation: &HostOperation) -> ApiResult<()> {
     if matches!(
         operation,
-        HostOperation::Model(_)
+        HostOperation::OpenAiSubscription(_)
+            | HostOperation::OpenAiLogin(_)
+            | HostOperation::Model(_)
             | HostOperation::Skill(_)
             | HostOperation::Config(_)
             | HostOperation::Approval(_)
@@ -88,6 +90,8 @@ mod tests {
         for path in [
             "/api/v1/users",
             "/api/v1/model-pool",
+            "/api/v1/openai-login-attempts/nonexistent",
+            "/api/v1/openai-subscription",
             "/api/v1/secrets",
             "/api/v1/skills",
         ] {
@@ -150,6 +154,20 @@ mod tests {
                 StatusCode::FORBIDDEN
             );
         }
+        assert_eq!(
+            request(
+                &fixture.router,
+                Method::POST,
+                "/api/v1/openai-login-attempts",
+                Some(&cookie),
+                Some(user.csrf()),
+                Some(ORIGIN),
+                json!({"replace_existing":false})
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
         assert_eq!(fixture.host.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             request(

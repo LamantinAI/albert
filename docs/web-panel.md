@@ -14,9 +14,12 @@ to open the panel. Open **http://127.0.0.1:9877/ui/**.
 
 1. Sign in as **owner** with password **owner**.
 2. Replace the initial password (at least 12 bytes); optionally rename the account.
-3. Connect the first OpenAI-compatible model and supply its API key. Existing
-   ChatGPT subscription credentials can also be used through model settings;
-   `albert login` remains the interactive subscription sign-in command.
+3. Choose Sign in with OpenAI for a ChatGPT subscription, or connect an
+   OpenAI-compatible model with an API key. The subscription wizard opens the
+   authorization instructions directly and accepts the returned callback address or
+   one-time code. After credentials connect, choose a model from the account-specific
+   catalog; no model ID or model settings are required before authorization.
+   `albert login` remains the interactive terminal alternative.
 4. Start a permanent or temporary conversation.
 
 The initial account is seeded once. Restarting never resets its password. Model
@@ -255,8 +258,8 @@ The first authenticated visit with initial credentials explicitly opens profile
 setup. After choosing sign-in credentials, the user continues to a chat. When no
 model is connected, the chat shows prominent model-connection choices instead
 of relying on a small configuration warning. The API-key choice opens the
-existing model editor and returns to chat after saving. The OpenAI sign-in card
-is a design placeholder marked Coming soon; it does not start authentication.
+existing model editor and returns to chat after saving. The OpenAI choice opens
+the guided subscription wizard; model settings also expose Connect or Reconnect.
 
 Settings is the single directory of administrative sections. Agent contains
 behavior fields and Raw only. Connections, Persona, Credentials, Models and API
@@ -264,6 +267,60 @@ reference remain sibling destinations, with a shared Settings navigation. The si
 the Settings button, leaving conversation history available. Keyboard navigation,
 Escape and reduced-motion behavior are supported. Existing document links redirect to their dedicated destination; model
 configuration remains available through its Raw link.
+
+## ChatGPT subscription sign-in
+
+Only an owner who has changed the initial password can authorize a workspace
+subscription. Start sign-in, open the OpenAI page, then bring its result back.
+The authorization link and return-address form occupy separate screens. Choose
+**I've signed in** to continue to the form; **Back** and forward navigation keep
+the same authorization attempt and pasted input.
+The final localhost callback page may show “This site can’t be reached” or
+“Unable to connect” when the agent runs remotely or inside a container. Keep that
+tab open: the sign-in result is in its address bar. Select the address bar with
+Cmd+L on Mac or Ctrl+L elsewhere and copy the complete address, including all query
+parameters after the question mark. Return to Albert, paste the address into the
+wizard and choose Connect subscription. Copy the address, not the error text on
+the page; a one-time authorization code is also accepted. An API
+key, access token or refresh token is not the requested input.
+
+CLI and panel share the authorization-code/PKCE implementation. The server holds
+the verifier and state for each expiring, owner-bound attempt. Full callback URLs
+must match the exact callback address and state; duplicate or malformed parameters
+are rejected. A pasted address is parsed locally and never fetched. Authentication
+attempts are bounded in RAM and expire; they are not conversation records.
+
+Authorization ends when credentials are connected. It does not add a model or
+change the model pool. Albert then loads the authenticated account's subscription
+catalog and shows the provider's model names and descriptions. Choose a model and
+select **Use selected model** to add or reuse it and make it preferred for new
+conversations. Existing model entries and conversations remain intact.
+
+Catalog failures keep the credentials connected. **Retry loading models** repeats
+only the catalog request; it does not repeat authorization. Closing the picker or
+restarting Albert also preserves credentials, and reopening the dialog resumes
+model selection. A catalog snapshot is bound to its connection generation; account
+replacement or process restart requires a fresh list before selection.
+
+If selected model settings were saved but runtime application failed, **Retry
+applying model settings** applies them without another login. Codex's `tool_mode`
+metadata describes its own harness runtime and does not disable advertised models
+in Albert. Capabilities are mapped from the catalog protocol rather than guessed
+from model names. Closing or cancelling an unsaved attempt
+prevents a late provider reply from installing credentials. Once saved, cancellation
+cannot undo the installed account. Reconnecting requires confirmation because the
+subscription is shared by this workspace.
+
+Installation is serialized with refresh through the shared subscription handle.
+Credentials are written atomically with restrictive permissions, stay off browser
+storage and API responses, and are not included in provider errors. Existing model
+entries, order and unrelated configurations remain intact. The preferred model
+changes only through the explicit selection action. No provider model ID is
+requested before authorization. The panel never assumes that an arbitrary public callback
+URL is registered with the provider.
+
+See [local testing](local-testing.md) for isolated Docker end-to-end checks with
+synthetic OAuth and model services.
 
 ## Agent settings and draft editing
 

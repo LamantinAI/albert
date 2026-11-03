@@ -14,6 +14,7 @@ import "./styles/composer.css";
 import "./styles/welcome.css";
 import "./styles/admin.css";
 import "./styles/overlays.css";
+import "./styles/subscription.css";
 import "./styles/progress.css";
 
 createRoot(document.getElementById("root")!).render(<App />);

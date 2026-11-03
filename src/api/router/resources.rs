@@ -6,7 +6,8 @@ use crate::api::{
     errors::{ApiError, ApiResult},
     host::{
         ApprovalOperation, ConfigOperation, HostOperation, HostResponse, ModelOperation,
-        ProfileOperation, SessionOperation, SkillOperation,
+        OpenAiLoginOperation, ProfileOperation, SessionOperation, SkillOperation,
+        SubscriptionOperation,
     },
     models::PageQuery,
     principal::Principal,
@@ -24,6 +25,33 @@ pub(super) async fn host_request(
 ) -> ApiResult<HostResponse> {
     let resource = || id(params, "id");
     let operation = match (spec.method, spec.path) {
+        ("POST", "/openai-login-attempts") => {
+            HostOperation::OpenAiLogin(OpenAiLoginOperation::Start(parse(body)?))
+        }
+        ("GET", "/openai-login-attempts/{id}") => {
+            HostOperation::OpenAiLogin(OpenAiLoginOperation::Get { id: resource()? })
+        }
+        ("POST", "/openai-login-attempts/{id}/submissions") => {
+            HostOperation::OpenAiLogin(OpenAiLoginOperation::Submit {
+                id: resource()?,
+                input: parse(body)?,
+            })
+        }
+        ("POST", "/openai-login-attempts/{id}/cancellations") => {
+            HostOperation::OpenAiLogin(OpenAiLoginOperation::Cancel { id: resource()? })
+        }
+        ("GET", "/openai-subscription") => {
+            HostOperation::OpenAiSubscription(SubscriptionOperation::Connection)
+        }
+        ("POST", "/openai-subscription/catalogs") => {
+            HostOperation::OpenAiSubscription(SubscriptionOperation::Catalog)
+        }
+        ("POST", "/openai-subscription/selections") => {
+            HostOperation::OpenAiSubscription(SubscriptionOperation::Select(parse(body)?))
+        }
+        ("POST", "/openai-subscription/applications") => {
+            HostOperation::OpenAiSubscription(SubscriptionOperation::Apply(parse(body)?))
+        }
         ("GET", "/account/profile") => HostOperation::Profile(ProfileOperation::Get),
         ("GET", "/account/identities") => HostOperation::Profile(ProfileOperation::Identities),
         ("POST", "/session-starts") => {

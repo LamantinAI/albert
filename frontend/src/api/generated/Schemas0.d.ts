@@ -204,6 +204,23 @@ ModelWrite: {
             config: components["schemas"]["ModelConfig"];
             revision?: string | null;
         };
+/** @enum {string} */
+        OpenAiLoginPhase: "awaiting_callback" | "exchanging" | "connected" | "failed" | "cancelled" | "expired";
+OpenAiLoginStart: {
+            replace_existing?: boolean;
+        };
+OpenAiLoginSubmission: {
+            callback: string;
+        };
+OpenAiLoginView: {
+            authorize_url?: string | null;
+            credentials_saved: boolean;
+            expires_at: string;
+            id: string;
+            message?: string | null;
+            phase: components["schemas"]["OpenAiLoginPhase"];
+            redirect_uri: string;
+        };
 PageQuery: {
             after?: string | null;
             limit?: number | null;
@@ -338,6 +355,42 @@ SkillWrite: {
             content: string;
             revision?: string | null;
         };
+SubscriptionApplyRequest: {
+            generation: string;
+        };
+SubscriptionCatalogModel: {
+            context_window?: number | null;
+            default_reasoning_effort?: string | null;
+            description?: string | null;
+            input_modalities: string[];
+            name: string;
+            reasoning_efforts: string[];
+            selectable: boolean;
+            slug: string;
+            unavailable_reason?: string | null;
+        };
+SubscriptionCatalogView: {
+            generation: string;
+            models: components["schemas"]["SubscriptionCatalogModel"][];
+            revision: string;
+        };
+SubscriptionConnectionView: {
+            connected: boolean;
+            generation?: string | null;
+            message?: string | null;
+            phase: components["schemas"]["SubscriptionPhase"];
+            preferred_model_id?: string | null;
+            selected_model_id?: string | null;
+            selected_slug?: string | null;
+        };
+/** @enum {string} */
+        SubscriptionPhase: "disconnected" | "connected" | "applying" | "ready" | "apply_failed";
+SubscriptionSelection: {
+            catalog_revision: string;
+            generation: string;
+            prefer?: boolean;
+            slug: string;
+        };
 TextDelta: {
             attempt_id: string;
             generation: string;
@@ -368,10 +421,5 @@ UserUpdate: {
             /** Format: int64 */
             revision: number;
             role?: null | components["schemas"]["AccountRole"];
-        };
-ValidationView: {
-            issues: string[];
-            requires_restart: boolean;
-            valid: boolean;
         };
 }

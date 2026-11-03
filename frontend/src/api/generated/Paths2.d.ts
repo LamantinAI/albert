@@ -236,58 +236,27 @@ export interface Paths2 {
         patch?: never;
         trace?: never;
     };
-"/prompts/{id}": {
+"/openai-login-attempts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Success */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ConfigDocument"];
-                    };
-                };
-                /** @description Error */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorBody"];
-                    };
-                };
-            };
-        };
-        put: {
+        get?: never;
+        put?: never;
+        post: {
             parameters: {
                 query?: never;
                 header: {
                     "x-albert-csrf": string;
                 };
-                path: {
-                    id: string;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["ConfigWrite"];
+                    "application/json": components["schemas"]["OpenAiLoginStart"];
                 };
             };
             responses: {
@@ -297,7 +266,7 @@ export interface Paths2 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ConfigDocument"];
+                        "application/json": components["schemas"]["OpenAiLoginView"];
                     };
                 };
                 /** @description Error */
@@ -311,14 +280,13 @@ export interface Paths2 {
                 };
             };
         };
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-"/secrets": {
+"/openai-login-attempts/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -329,7 +297,9 @@ export interface Paths2 {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    id: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -340,7 +310,7 @@ export interface Paths2 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SecretList"];
+                        "application/json": components["schemas"]["OpenAiLoginView"];
                     };
                 };
                 /** @description Error */
@@ -356,6 +326,54 @@ export interface Paths2 {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/openai-login-attempts/{id}/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "x-albert-csrf": string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Success */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpenAiLoginView"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorBody"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;

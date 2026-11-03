@@ -109,14 +109,22 @@ impl AgentRuntime {
             .models
             .clone()
             .unwrap_or_else(|| PoolConfig::legacy(&config));
+        let subscription_usable = if pool
+            .models
+            .iter()
+            .any(|model| model.provider == AuthMode::Subscription)
+        {
+            config.subscription_auth_json == self.subscription.path()
+                && self.subscription.fresh().await.is_ok()
+        } else {
+            false
+        };
         let usable = pool.models.iter().any(|model| match model.provider {
             AuthMode::ApiKey => {
                 !model.model.trim().is_empty()
                     && config.model_key(model.api_key_env.as_deref()).is_some()
             }
-            AuthMode::Subscription => {
-                !model.model.trim().is_empty() && config.subscription_auth_json.is_file()
-            }
+            AuthMode::Subscription => !model.model.trim().is_empty() && subscription_usable,
         });
         if !usable {
             self.unavailable(None);
@@ -135,7 +143,7 @@ impl AgentRuntime {
                 ));
                 "Agent memory could not be initialized. Review memory settings.".to_owned()
             })?;
-            let capabilities = if config.subscription_auth_json.exists() {
+            let capabilities = if subscription_usable {
                 vec!["subscription", "imagegen"]
             } else {
                 Vec::new()

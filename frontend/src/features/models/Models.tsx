@@ -6,11 +6,13 @@ import { useClientContext } from "../../app/context";
 import { Icon } from "../../components/Icon";
 import { useDialogs } from "../../components/useDialogs";
 import { Button, EmptyState, Notice, PageHeading } from "../../components/ui";
+import { OpenAiLogin } from "./OpenAiLogin";
 import { ModelForm } from "./ModelForm";
 import { saveModel } from "./api";
 import type { Model, ModelPool } from "./api";
 
 export function Models() {
+  const [openai, setOpenai] = useState(false);
   const { confirm, dialog } = useDialogs();
   const { refresh } = useClientContext();
   const [search] = useSearchParams();
@@ -95,6 +97,15 @@ export function Models() {
   return (
     <div className="workspace-body">
       {dialog}
+      {openai && (
+        <OpenAiLogin
+          onClose={() => setOpenai(false)}
+          onConnected={async () => {
+            await load();
+            navigate("/chats");
+          }}
+        />
+      )}
       <PageHeading
         eyebrow="Workspace / Models"
         title={connecting ? "Connect with an API key" : "Your model pool."}
@@ -107,6 +118,13 @@ export function Models() {
               >
                 Raw
               </Link>
+              <Button onClick={() => setOpenai(true)}>
+                {pool?.models.some(
+                  (model) => model.config.provider === "subscription",
+                )
+                  ? "Reconnect OpenAI subscription"
+                  : "Connect OpenAI subscription"}
+              </Button>
               <Button variant="primary" onClick={() => setEditing("new")}>
                 <Icon name="plus" size={15} />
                 Add model

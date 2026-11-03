@@ -838,6 +838,77 @@
         ],
         "type": "object"
       },
+      "OpenAiLoginPhase": {
+        "enum": [
+          "awaiting_callback",
+          "exchanging",
+          "connected",
+          "failed",
+          "cancelled",
+          "expired"
+        ],
+        "type": "string"
+      },
+      "OpenAiLoginStart": {
+        "additionalProperties": false,
+        "properties": {
+          "replace_existing": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "OpenAiLoginSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "callback": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "callback"
+        ],
+        "type": "object"
+      },
+      "OpenAiLoginView": {
+        "properties": {
+          "authorize_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "credentials_saved": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/OpenAiLoginPhase"
+          },
+          "redirect_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phase",
+          "redirect_uri",
+          "expires_at",
+          "credentials_saved"
+        ],
+        "type": "object"
+      },
       "PageQuery": {
         "properties": {
           "after": {
@@ -1416,6 +1487,176 @@
         },
         "required": [
           "content"
+        ],
+        "type": "object"
+      },
+      "SubscriptionApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation"
+        ],
+        "type": "object"
+      },
+      "SubscriptionCatalogModel": {
+        "properties": {
+          "context_window": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "default_reasoning_effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reasoning_efforts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "slug",
+          "selectable",
+          "name",
+          "input_modalities",
+          "reasoning_efforts"
+        ],
+        "type": "object"
+      },
+      "SubscriptionCatalogView": {
+        "properties": {
+          "generation": {
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionCatalogModel"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation",
+          "revision",
+          "models"
+        ],
+        "type": "object"
+      },
+      "SubscriptionConnectionView": {
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/SubscriptionPhase"
+          },
+          "preferred_model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "connected",
+          "phase"
+        ],
+        "type": "object"
+      },
+      "SubscriptionPhase": {
+        "enum": [
+          "disconnected",
+          "connected",
+          "applying",
+          "ready",
+          "apply_failed"
+        ],
+        "type": "string"
+      },
+      "SubscriptionSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_revision": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "prefer": {
+            "type": "boolean"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation",
+          "catalog_revision",
+          "slug"
         ],
         "type": "object"
       },
@@ -2573,6 +2814,381 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ModelPoolView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-login-attempts": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAiLoginStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAiLoginView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-login-attempts/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAiLoginView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-login-attempts/{id}/cancellations": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAiLoginView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-login-attempts/{id}/submissions": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAiLoginSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenAiLoginView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-subscription": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionConnectionView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-subscription/applications": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionConnectionView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-subscription/catalogs": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionCatalogView"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "browserCookie": []
+          }
+        ]
+      }
+    },
+    "/openai-subscription/selections": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-albert-csrf",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionConnectionView"
                 }
               }
             },

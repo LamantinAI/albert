@@ -2,7 +2,7 @@
 import type { components, operations } from '../schema'
 
 export interface Paths5 {
-"/skills/{id}": {
+"/sessions/{id}/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -26,7 +26,7 @@ export interface Paths5 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SkillView"];
+                        "application/json": components["schemas"]["SessionEvent"];
                     };
                 };
                 /** @description Error */
@@ -40,119 +40,15 @@ export interface Paths5 {
                 };
             };
         };
-        put: {
-            parameters: {
-                query?: never;
-                header: {
-                    "x-albert-csrf": string;
-                };
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SkillWrite"];
-                };
-            };
-            responses: {
-                /** @description Success */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SkillView"];
-                    };
-                };
-                /** @description Error */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorBody"];
-                    };
-                };
-            };
-        };
+        put?: never;
         post?: never;
-        delete: {
-            parameters: {
-                query?: never;
-                header: {
-                    "x-albert-csrf": string;
-                };
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Success */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["EmptyObject"];
-                    };
-                };
-                /** @description Error */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorBody"];
-                    };
-                };
-            };
-        };
+        delete?: never;
         options?: never;
         head?: never;
-        patch: {
-            parameters: {
-                query?: never;
-                header: {
-                    "x-albert-csrf": string;
-                };
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SkillUpdate"];
-                };
-            };
-            responses: {
-                /** @description Success */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SkillView"];
-                    };
-                };
-                /** @description Error */
-                default: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorBody"];
-                    };
-                };
-            };
-        };
+        patch?: never;
         trace?: never;
     };
-"/users": {
+"/sessions/{id}/messages": {
         parameters: {
             query?: never;
             header?: never;
@@ -163,7 +59,9 @@ export interface Paths5 {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    id: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -174,7 +72,7 @@ export interface Paths5 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["UserList"];
+                        "application/json": components["schemas"]["MessageList"];
                     };
                 };
                 /** @description Error */
@@ -195,12 +93,14 @@ export interface Paths5 {
                 header: {
                     "x-albert-csrf": string;
                 };
-                path?: never;
+                path: {
+                    id: string;
+                };
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["UserCreate"];
+                    "application/json": components["schemas"]["MessageCreate"];
                 };
             };
             responses: {
@@ -210,7 +110,7 @@ export interface Paths5 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["AccountView"];
+                        "application/json": components["schemas"]["MessageReceipt"];
                     };
                 };
                 /** @description Error */
@@ -230,35 +130,24 @@ export interface Paths5 {
         patch?: never;
         trace?: never;
     };
-"/users/{id}": {
+"/sessions/{id}/messages/{request_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: {
+        get: {
             parameters: {
                 query?: never;
-                header: {
-                    "x-albert-csrf": string;
-                };
+                header?: never;
                 path: {
                     id: string;
+                    request_id: string;
                 };
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["UserUpdate"];
-                };
-            };
+            requestBody?: never;
             responses: {
                 /** @description Success */
                 200: {
@@ -266,7 +155,7 @@ export interface Paths5 {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["AccountView"];
+                        "application/json": components["schemas"]["MessageReceipt"];
                     };
                 };
                 /** @description Error */
@@ -280,6 +169,152 @@ export interface Paths5 {
                 };
             };
         };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/sessions/{id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Success */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionState"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/skill-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "x-albert-csrf": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SkillImport"];
+                };
+            };
+            responses: {
+                /** @description Success */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillView"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Success */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillList"];
+                    };
+                };
+                /** @description Error */
+                default: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }

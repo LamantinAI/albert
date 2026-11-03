@@ -22,6 +22,18 @@
   color: var(--muted);
   margin-bottom: 22px;
 }
+.dialog-panel .openai-return-step {
+  margin-top: 24px;
+}
+.openai-return-instructions {
+  padding-left: 20px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.openai-return-instructions li + li {
+  margin-top: 8px;
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

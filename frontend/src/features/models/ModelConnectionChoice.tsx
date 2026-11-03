@@ -1,10 +1,14 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useClientContext } from "../../app/context";
 import { Icon } from "../../components/Icon";
 import { Button, Notice } from "../../components/ui";
 
+import { OpenAiLogin } from "./OpenAiLogin";
+
 export function ModelConnectionChoice() {
+  const [openai, setOpenai] = useState(false);
   const { context } = useClientContext();
   const canConfigure = !!context?.caps.manage_models;
   if (context?.setup.model_ready)
@@ -37,21 +41,18 @@ export function ModelConnectionChoice() {
           ? "Your profile is ready. Choose how Albert will think."
           : "A model connection is the next step before your first conversation."}
       </p>
+      {openai && (
+        <OpenAiLogin onClose={() => setOpenai(false)} onConnected={() => {}} />
+      )}
       {canConfigure ? (
         <div className="model-connection-options">
           <article className="model-connection-option">
             <Icon name="spark" size={24} />
             <div className="model-connection-title">
               <h2>OpenAI</h2>
-              <span className="badge">Coming soon</span>
             </div>
             <p>Sign in with your ChatGPT subscription.</p>
-            <Button
-              disabled
-              title="OpenAI sign-in is not available in the panel yet"
-            >
-              Sign in with OpenAI
-            </Button>
+            <Button onClick={() => setOpenai(true)}>Sign in with OpenAI</Button>
           </article>
           <article className="model-connection-option">
             <Icon name="models" size={24} />

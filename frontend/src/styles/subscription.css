@@ -1,0 +1,264 @@
+/* Subscription dialogs own their scrolling; actions stay within the viewport. */
+.dialog-panel.subscription-dialog {
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  overflow: hidden;
+}
+.dialog-panel.subscription-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dialog-panel.subscription-dialog--catalog {
+  height: min(760px, calc(100dvh - 40px));
+}
+.subscription-dialog > h2 {
+  flex: none;
+  margin: 0;
+  padding: 24px 28px 18px;
+  border-bottom: 1px solid var(--line);
+  font-size: 23px;
+  line-height: 1.3;
+}
+.subscription-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 28px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.subscription-dialog-body--catalog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 26px;
+}
+.subscription-dialog-body > .notice {
+  flex: none;
+  margin: 0 0 16px;
+}
+.subscription-flow-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  padding: 17px 28px;
+  border-top: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+.subscription-flow-footer .button {
+  margin: 0;
+}
+.subscription-footer-note {
+  margin: 0;
+  max-width: 340px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.subscription-secondary {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.subscription-step {
+  margin: 0 0 12px;
+  color: var(--ochre);
+  font-size: 12px;
+}
+.subscription-auth-copy > p {
+  margin: 0 0 16px;
+}
+.subscription-authorize-link {
+  margin: 2px 0 20px;
+  gap: 12px;
+}
+.subscription-return-form > p {
+  margin: 0 0 16px;
+}
+.subscription-return-instructions {
+  margin: 0 0 22px;
+  padding-left: 22px;
+}
+.subscription-return-instructions li + li {
+  margin-top: 8px;
+}
+.subscription-return-form .field {
+  margin: 0;
+}
+.subscription-return-form .subscription-expiry {
+  margin: 18px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.subscription-picker {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+.subscription-picker-toolbar {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.subscription-picker-toolbar > p {
+  margin: 6px 0;
+}
+.subscription-picker-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.subscription-picker-toolbar .button {
+  padding: 6px 8px;
+  min-height: 32px;
+  font-size: 12px;
+}
+.subscription-picker > .notice {
+  flex: none;
+  margin: 0;
+}
+.subscription-model-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+}
+.subscription-choice {
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.subscription-choice:hover {
+  border-color: var(--muted);
+}
+.subscription-choice[data-selected] {
+  border-color: var(--ochre);
+  background: color-mix(in srgb, var(--ochre) 9%, var(--paper));
+  box-shadow: inset 0 0 0 1px var(--ochre);
+}
+.subscription-choice[data-disabled] {
+  opacity: 0.65;
+}
+.subscription-choice-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+.subscription-dialog .subscription-choice-row input[type="radio"] {
+  appearance: auto;
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 3px 0 0;
+  padding: 0;
+  border: initial;
+  border-radius: 50%;
+  background: initial;
+  box-shadow: none;
+  accent-color: var(--ochre);
+}
+.subscription-choice-row input:focus-visible {
+  outline: 2px solid var(--ochre);
+  outline-offset: 3px;
+}
+.subscription-choice-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.subscription-choice-copy strong {
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.subscription-choice-copy > span {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.subscription-model-details {
+  margin: -4px 16px 12px 44px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.subscription-model-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.subscription-model-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.subscription-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .dialog-panel.subscription-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .dialog-panel.subscription-dialog--catalog {
+    height: min(760px, calc(100dvh - 24px));
+  }
+  .subscription-dialog > h2 {
+    padding: 20px 18px 16px;
+    font-size: 21px;
+  }
+  .subscription-dialog-body {
+    padding: 18px;
+  }
+  .subscription-dialog-body--catalog {
+    padding: 12px 14px;
+  }
+  .subscription-flow-footer {
+    padding: 14px 18px;
+    gap: 10px;
+  }
+  .subscription-flow-footer .button {
+    padding-inline: 12px;
+    font-size: 13px;
+  }
+  .subscription-footer-note {
+    display: none;
+  }
+  .subscription-choice-row {
+    padding: 14px;
+    gap: 10px;
+  }
+  .subscription-model-details {
+    margin-left: 40px;
+  }
+}

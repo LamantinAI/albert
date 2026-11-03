@@ -10,10 +10,12 @@ use super::{
         ApplyRequest, ApplyView, ApprovalDecision, ApprovalList, ApprovalView, AttemptView,
         CancelRequest, ConfigDocument, ConfigDraftInput, ConfigDraftView, ConfigList, ConfigWrite,
         EmptyObject, IdentityList, MessageCreate, MessageList, MessageReceipt, ModelOrder,
-        ModelPoolView, ModelPreference, ModelWrite, PageQuery, ProfileView, RuntimeStatus,
-        SecretList, SecretWrite, SessionCreate, SessionEvent, SessionList, SessionStart,
-        SessionStartView, SessionState, SessionUpdate, SessionView, SkillImport, SkillList,
-        SkillUpdate, SkillView, SkillWrite, ValidationView,
+        ModelPoolView, ModelPreference, ModelWrite, OpenAiLoginStart, OpenAiLoginSubmission,
+        OpenAiLoginView, PageQuery, ProfileView, RuntimeStatus, SecretList, SecretWrite,
+        SessionCreate, SessionEvent, SessionList, SessionStart, SessionStartView, SessionState,
+        SessionUpdate, SessionView, SkillImport, SkillList, SkillUpdate, SkillView, SkillWrite,
+        SubscriptionApplyRequest, SubscriptionCatalogView, SubscriptionConnectionView,
+        SubscriptionSelection, ValidationView,
     },
     principal::Principal,
 };
@@ -42,12 +44,33 @@ pub trait Host: Send + Sync {
     ) -> ApiResult<EventStream>;
 }
 pub enum HostOperation {
+    OpenAiLogin(OpenAiLoginOperation),
+    OpenAiSubscription(SubscriptionOperation),
     Profile(ProfileOperation),
     Session(SessionOperation),
     Model(ModelOperation),
     Skill(SkillOperation),
     Config(ConfigOperation),
     Approval(ApprovalOperation),
+}
+pub enum OpenAiLoginOperation {
+    Start(OpenAiLoginStart),
+    Get {
+        id: String,
+    },
+    Submit {
+        id: String,
+        input: OpenAiLoginSubmission,
+    },
+    Cancel {
+        id: String,
+    },
+}
+pub enum SubscriptionOperation {
+    Connection,
+    Catalog,
+    Select(SubscriptionSelection),
+    Apply(SubscriptionApplyRequest),
 }
 pub enum ProfileOperation {
     Get,
@@ -145,6 +168,9 @@ pub enum ApprovalOperation {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum HostResponse {
+    OpenAiLogin(OpenAiLoginView),
+    SubscriptionConnection(SubscriptionConnectionView),
+    SubscriptionCatalog(SubscriptionCatalogView),
     Profile(ProfileView),
     Identities(IdentityList),
     Session(SessionView),
