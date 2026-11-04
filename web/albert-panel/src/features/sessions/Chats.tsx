@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 
 import { api, ApiError, errorMessage, requestId } from "../../api/client";
+import { uiPath } from "../../api/paths";
 import { useClientContext } from "../../app/context";
 import { Notice } from "../../components/ui";
 import { Conversation } from "./Conversation";
@@ -233,6 +234,22 @@ export function Chats() {
               (session) => session.id === effectiveId,
             )}
             onSessionChange={directory.updateKnown}
+            onRemoved={() => {
+              directory.removeSession(effectiveId);
+              directory.consumeDraft(effectiveId);
+              const current = window.location.pathname.replace(/\/+$/, "");
+              const openingId = startId ?? request?.id;
+              if (
+                current !==
+                  uiPath(`/chats/${encodeURIComponent(effectiveId)}`) &&
+                (!openingId ||
+                  current !==
+                    uiPath(`/chats/start/${encodeURIComponent(openingId)}`))
+              )
+                return;
+              setError("");
+              navigate("/chats", { replace: true });
+            }}
             initialText={
               directory.initialDraft?.session === effectiveId
                 ? directory.initialDraft.text

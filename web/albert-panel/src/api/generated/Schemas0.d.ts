@@ -89,6 +89,7 @@ ConfigDraftView: {
             revision: string;
         };
 ConfigField: {
+            choices?: string[] | null;
             default_value: unknown;
             description: string;
             group: string;
@@ -99,6 +100,7 @@ ConfigField: {
             /** Format: int64 */
             minimum?: number | null;
             path: string;
+            required?: boolean | null;
             value?: unknown;
         };
 ConfigFieldChange: {
@@ -107,7 +109,7 @@ ConfigFieldChange: {
             value: unknown;
         };
 /** @enum {string} */
-        ConfigFieldKind: "boolean" | "integer" | "text";
+        ConfigFieldKind: "boolean" | "integer" | "number" | "text" | "text_list";
 ConfigList: {
             items: string[];
             revision: string;
@@ -116,6 +118,20 @@ ConfigWrite: {
             content: string;
             path: string;
             revision?: string | null;
+        };
+ConnectorList: {
+            available_types: components["schemas"]["ConnectorTypeView"][];
+            items: components["schemas"]["ConnectorView"][];
+        };
+ConnectorTypeView: {
+            kind: string;
+            label: string;
+        };
+ConnectorView: {
+            id: string;
+            kind: string;
+            label: string;
+            settings_mode: string;
         };
 CredentialUpdate: {
             current_password: string;
@@ -391,35 +407,13 @@ SubscriptionSelection: {
             prefer?: boolean;
             slug: string;
         };
-TextDelta: {
-            attempt_id: string;
-            generation: string;
-            message_ids: string[];
-            offset: number;
-            operation: string;
-            text: string;
-        };
-TextSnapshot: {
-            attempt_id: string;
-            generation: string;
-            message_ids: string[];
-            offset: number;
-            state: string;
-            text: string;
-            truncated: boolean;
-        };
-UserCreate: {
-            password: string;
-            role: components["schemas"]["AccountRole"];
-            username: string;
-        };
-UserList: {
-            items: components["schemas"]["AccountView"][];
-        };
-UserUpdate: {
-            disabled?: boolean | null;
+TelegramBindingView: {
+            actor_id: string;
+            chat_id: string;
             /** Format: int64 */
-            revision: number;
-            role?: null | components["schemas"]["AccountRole"];
+            created_at: number;
+        };
+TelegramConnectionList: {
+            items: components["schemas"]["TelegramConnectionView"][];
         };
 }

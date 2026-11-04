@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorMessage, requestId } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useClientContext } from "../../app/context";
+import { useUnsavedChanges } from "../../app/UnsavedChanges";
+import { ResourceLoading } from "../../components/ResourceLoading";
 import { Button, Notice } from "../../components/ui";
 import { useDialogs } from "../../components/useDialogs";
 import { StructuredFields } from "./StructuredFields";
@@ -15,21 +17,33 @@ type Application = components["schemas"]["ApplyView"];
 export function DocumentEditor({
   id,
   kind,
+  initialContent = "",
+  preferFields = true,
+  onSaved,
 }: {
   id: string;
   kind: "configuration" | "prompts";
+  initialContent?: string;
+  preferFields?: boolean;
+  onSaved?: () => void;
 }) {
   const { refresh } = useClientContext();
   const { confirm, dialog } = useDialogs(id);
   const [document, setDocument] = useState<Document | null>(null);
   const [content, setContent] = useState("");
   const [mode, setMode] = useState<"fields" | "raw">(
-    kind === "configuration" && id === "albert" ? "fields" : "raw",
+    kind === "configuration" &&
+      preferFields &&
+      (id === "albert" || id.startsWith("connector:"))
+      ? "fields"
+      : "raw",
   );
   const [validation, setValidation] = useState<Validation | null>(null);
   const [application, setApplication] = useState<Application | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
   const [notice, setNotice] = useState("");
   const validated = useRef<string | null>(null);
   const applicationKey = useRef<{
@@ -38,7 +52,10 @@ export function DocumentEditor({
     revision: string;
     documentId: string;
   } | null>(null);
-  const structured = kind === "configuration" && id === "albert";
+  const structured =
+    kind === "configuration" &&
+    preferFields &&
+    (id === "albert" || id.startsWith("connector:"));
   function invalidate() {
     setValidation(null);
     validated.current = null;
@@ -60,6 +77,10 @@ export function DocumentEditor({
   }, [document?.redacted]);
   const dirty =
     document !== null && (content !== document.content || draft.hasEdits);
+  const markSaved = useUnsavedChanges(
+    dirty,
+    JSON.stringify([content, draft.edits]),
+  );
   useEffect(() => {
     if (
       structured &&
@@ -91,6 +112,8 @@ export function DocumentEditor({
   }
   useEffect(() => {
     let current = true;
+    setLoading(true);
+    setError("");
     const request =
       kind === "configuration"
         ? api("/configuration/{id}", "get", { path: { id } })
@@ -99,25 +122,19 @@ export function DocumentEditor({
       .then((value) => {
         if (current) {
           setDocument(value);
-          setContent(value.content);
+          setContent(value.content || initialContent);
         }
       })
       .catch((error) => {
         if (current) setError(errorMessage(error));
+      })
+      .finally(() => {
+        if (current) setLoading(false);
       });
     return () => {
       current = false;
     };
-  }, [id, kind]);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [id, kind, initialContent, reload]);
   useEffect(() => {
     if (
       !application ||
@@ -211,14 +228,18 @@ export function DocumentEditor({
         kind === "configuration"
           ? await api("/configuration/{id}", "put", options)
           : await api("/prompts/{id}", "put", options);
+      markSaved();
       setDocument(result);
       setContent(result.content);
+      onSaved?.();
       setValidation(null);
       validated.current = null;
       setApplication(null);
       applicationKey.current = null;
       setNotice(
-        "Saved on disk. Apply the saved revision to update the runtime.",
+        kind === "prompts"
+          ? "Saved. New turns use these instructions."
+          : "Saved on disk. Apply the saved revision to update the runtime.",
       );
     } catch (error) {
       setError(errorMessage(error));
@@ -286,7 +307,7 @@ export function DocumentEditor({
             <Button
               variant="ghost"
               aria-pressed={mode === "fields"}
-              disabled={busy || document?.redacted}
+              disabled={busy || loading || !document || document.redacted}
               onClick={() => void switchMode("fields")}
             >
               Fields
@@ -294,20 +315,16 @@ export function DocumentEditor({
             <Button
               variant="ghost"
               aria-pressed={mode === "raw"}
-              disabled={busy}
+              disabled={busy || loading || !document}
               onClick={() => void switchMode("raw")}
             >
               Raw
             </Button>
           </div>
+        ) : kind === "prompts" ? (
+          <span className="muted">Instructions</span>
         ) : (
-          <h2>
-            {id === "soul"
-              ? "Persona"
-              : id === "system"
-                ? "Operating instructions"
-                : "Document"}
-          </h2>
+          <h2>Document</h2>
         )}
         {document && (
           <span className="badge">
@@ -333,7 +350,13 @@ export function DocumentEditor({
             )
           ) : (
             <label className="field">
-              <span className="field-label">{document.path}</span>
+              <span className={kind === "prompts" ? "sr-only" : "field-label"}>
+                {kind === "prompts"
+                  ? id === "soul"
+                    ? "Persona instructions"
+                    : "Operating instructions"
+                  : document.path}
+              </span>
               <textarea
                 className="editor"
                 disabled={busy}
@@ -389,12 +412,14 @@ export function DocumentEditor({
             >
               Save
             </Button>
-            <Button
-              disabled={busy || dirty || draft.pending}
-              onClick={() => void apply()}
-            >
-              Apply saved configuration
-            </Button>
+            {kind === "configuration" && (
+              <Button
+                disabled={busy || dirty || draft.pending}
+                onClick={() => void apply()}
+              >
+                Apply saved configuration
+              </Button>
+            )}
           </div>
           {application && (
             <Notice
@@ -410,28 +435,35 @@ export function DocumentEditor({
               {application.message}
             </Notice>
           )}
-          {(error || application) && applicationKey.current && (
-            <Button disabled={busy} onClick={() => void checkApplication()}>
-              Check application outcome
-            </Button>
-          )}
-          {application?.state === "restart_required" && (
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={() => void apply("process")}
-            >
-              Restart Albert process
-            </Button>
-          )}
+          {kind === "configuration" &&
+            (error || application) &&
+            applicationKey.current && (
+              <Button disabled={busy} onClick={() => void checkApplication()}>
+                Check application outcome
+              </Button>
+            )}
+          {kind === "configuration" &&
+            application?.state === "restart_required" && (
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => void apply("process")}
+              >
+                Restart Albert process
+              </Button>
+            )}
           <small className="muted">
             {kind === "prompts"
               ? "Saved prompt files are reloaded for new turns. Active attempts keep their existing instructions."
               : "Runtime application preserves the existing snapshots of active work. Topology changes may require a process restart."}
           </small>
         </div>
+      ) : loading ? (
+        <ResourceLoading label="Loading document…" />
       ) : (
-        <p className="muted">Loading document…</p>
+        <Button onClick={() => setReload((value) => value + 1)}>
+          Retry loading document
+        </Button>
       )}
     </section>
   );

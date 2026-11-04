@@ -5,6 +5,7 @@ use octo_history::SessionKind;
 use rig::{
     completion::ToolDefinition, tool::ToolDyn, tool::ToolError, wasm_compat::WasmBoxedFuture,
 };
+use tokio::select;
 
 use crate::sessions::SessionContext;
 mod end;
@@ -23,6 +24,11 @@ pub(super) fn scope_ingress(
     let (Some(ingress), Some(session)) = (ingress.as_ref(), session) else {
         return Ok(ingress);
     };
+    // Account-native ingress is already bound to its exact live account proof
+    // at the source adapter. Retain it when constructing root and child tools.
+    if session.account().is_some() {
+        return Ok(Some(ingress.clone()));
+    }
     let Some(epoch) = session.scope_epoch() else {
         return Ok(Some(ingress.clone()));
     };
@@ -104,12 +110,16 @@ impl ToolDyn for FencedTool {
     }
     fn call(&self, args: String) -> WasmBoxedFuture<'_, Result<String, ToolError>> {
         Box::pin(async move {
-            if !self.session.is_live() {
+            if !self.session.authorized().await {
                 return Err(ToolError::ToolCallError(Box::new(IoError::other(
-                    "Session ended; tool was not executed.",
+                    "Session ended or account access changed; tool was not executed.",
                 ))));
             }
-            self.inner.call(args).await
+            select! {
+                biased;
+                _ = self.session.access_cancelled() => Err(ToolError::ToolCallError(Box::new(IoError::other("Account access changed; pending tool stopped.")))),
+                result = self.inner.call(args) => result,
+            }
         })
     }
 }

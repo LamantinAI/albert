@@ -18,30 +18,18 @@ struct Entry {
 
 /// Task vocabulary for the primary connector protocols. IDs remain runtime data.
 const ROUTES: &[(&str, &str)] = &[
-    (
-        "search.web",
-        "Web search / поиск в интернете: find sources and current facts",
-    ),
-    (
-        "browser.fetch",
-        "Read URL / браузер, прочитать страницу: extract a known web page",
-    ),
+    ("search.web", "Web search: find sources and current facts"),
+    ("browser.fetch", "Read URL: extract a known web page"),
     (
         "commons.cmd.search",
-        "Reference photos / фотографии, иллюстрации: search Wikimedia Commons",
+        "Reference photos: search Wikimedia Commons",
     ),
-    (
-        "transcribe.run",
-        "Hear audio / расшифровка, транскрипция: audio or video to text",
-    ),
-    ("speak.run", "Speak / голос: synthesize a voice reply"),
-    (
-        "imagegen.run",
-        "Generate images / нарисовать: create or edit artwork",
-    ),
+    ("transcribe.run", "Hear audio: audio or video to text"),
+    ("speak.run", "Speak: synthesize a voice reply"),
+    ("imagegen.run", "Generate images: create or edit artwork"),
     (
         "forkd.run",
-        "Scripts / скрипты: local computation or a missing integration, after connector discovery",
+        "Scripts: local computation or a missing integration, after connector discovery",
     ),
 ];
 
@@ -170,7 +158,7 @@ mod tests {
         assert!(catalog.search("", 1).to_string().contains("Web search"));
         assert!(catalog.search("", 1).to_string().contains("warehouse"));
         assert_eq!(
-            catalog.search("интернет", 5)["matches"][0]["target"],
+            catalog.search("current facts", 5)["matches"][0]["target"],
             "internet-work"
         );
         assert_eq!(

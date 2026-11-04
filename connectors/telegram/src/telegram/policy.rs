@@ -1,31 +1,44 @@
-use std::{collections::HashSet, sync::Arc, sync::Mutex as SyncMutex, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    sync::Mutex as SyncMutex,
+    time::Duration,
+};
 
 use albert_core::{
-    commands::parse, messaging::store::DeliveryObservation, messaging::transport::AdapterKind,
-    messaging::transport::ReportAttempt, service::session::NativeRoute,
-    service::session::SessionService, sessions::error::SessionError,
+    accounts::AccountAuthority, commands::parse, messaging::store::DeliveryObservation,
+    messaging::transport::AdapterKind, messaging::transport::ReportAttempt,
+    service::session::NativeRoute, service::session::SessionService, sessions::error::SessionError,
     sessions::error::SessionResult, sessions::presentation::NavigationNotice,
     sessions::presentation::OrdinarySessionOutput, sessions::transport::OutputScope,
     sessions::Admission, sessions::AdmissionScope, sessions::ExternalIdentity,
     sessions::ReplyRoute, sessions::SessionContext,
 };
 use async_trait::async_trait;
-use octo_approval::{Authority, Ingress, ScopeBinding};
+use octo_approval::{Authority, Ingress};
 use octo_connector_telegram::{
-    CallbackDecision, CallbackFrame, DeliveryReport, DeliveryStatus, IngressDecision, IngressScope,
-    NativeFrame, TelegramHostPolicy, TelegramOutputScope, TrackingLimits, TurnFeedback,
+    ActorRoleDecision, CallbackDecision, CallbackFrame, CommandMenuScope, DeliveryReport,
+    DeliveryStatus, IngressDecision, IngressScope, NativeFrame, PreflightDecision, PreflightFrame,
+    TelegramCommand, TelegramHostPolicy, TelegramOutputScope, TrackingLimits, TurnFeedback,
+    VerifiedActor, VerifiedBot,
 };
 use octo_core::Envelope;
 use tokio::sync::Mutex;
 
 use super::{
-    commands::control, navigation as native_navigation, output_scope, picker::Picker,
+    account_delivery::DeliveryGrant,
+    accounts::{decorate_decision, AccountInput},
+    commands::control,
+    navigation as native_navigation, output_scope,
+    picker::Picker,
     transport::wire_scope,
 };
 use crate::telegram::request_alias;
 
 /// Invoked after the source adapter authenticates the sender and applies ACLs.
 pub struct SessionTelegramPolicy {
+    pub(super) delivery_accounts: SyncMutex<HashMap<String, DeliveryGrant>>,
+    pub(super) accounts: Option<AccountAuthority>,
     pub(super) service: Arc<SessionService>,
     pub(super) authority: Authority,
     pub(super) admission: Mutex<()>,
@@ -76,6 +89,8 @@ impl SessionTelegramPolicy {
     pub fn new(service: Arc<SessionService>, authority: Authority) -> Self {
         let picker = Picker::new(service.settings().picker.clone());
         Self {
+            accounts: None,
+            delivery_accounts: SyncMutex::new(HashMap::new()),
             picker,
             service,
             authority,
@@ -90,6 +105,14 @@ impl SessionTelegramPolicy {
         provisional: Envelope,
     ) -> SessionResult<IngressDecision> {
         let admission = verified_admission(&frame, &provisional)?;
+        let admission = if let Some(input) = provisional.context.get::<AccountInput>() {
+            match &input.grant {
+                Some(grant) => admission.with_account(grant.clone())?,
+                None => Admission::group(None, admission.route().clone(), "host")?,
+            }
+        } else {
+            admission
+        };
         let alias = request_alias(&frame);
         if let Some(binding) = self
             .service
@@ -186,11 +209,10 @@ impl SessionTelegramPolicy {
         context: SessionContext,
     ) -> SessionResult<Envelope> {
         let mut envelope = envelope;
-        if let (Some(epoch), Some(ingress)) =
-            (context.scope_epoch(), envelope.context.get::<Ingress>())
-        {
-            let scope = ScopeBinding::new(context.root_history_key(), epoch.to_owned())
-                .map_err(|_| SessionError::Denied)?;
+        if let (Some(scope), Some(ingress)) = (
+            self.service.scope_registry().binding(&context)?,
+            envelope.context.get::<Ingress>(),
+        ) {
             let proof = self
                 .authority
                 .bind_scope(ingress, scope)
@@ -203,14 +225,44 @@ impl SessionTelegramPolicy {
 
 #[async_trait]
 impl TelegramHostPolicy for SessionTelegramPolicy {
+    async fn authorize_outbound(
+        &self,
+        bot: VerifiedBot,
+        chat_id: i64,
+        envelope: &Envelope,
+    ) -> Result<Option<bool>, String> {
+        self.account_outbound(bot, chat_id, envelope).await
+    }
+    async fn bot_ready(&self, bot: VerifiedBot) -> Result<(), String> {
+        self.account_bot_ready(bot).await
+    }
+    async fn preflight(&self, frame: PreflightFrame) -> Result<PreflightDecision, String> {
+        self.account_preflight(frame).await
+    }
+    async fn actor_role(&self, actor: VerifiedActor) -> Result<ActorRoleDecision, String> {
+        self.account_role(actor).await
+    }
+    async fn command_menu(
+        &self,
+        scope: CommandMenuScope,
+    ) -> Result<Option<Vec<TelegramCommand>>, String> {
+        self.account_menu(scope).await
+    }
     async fn admit(
         &self,
         frame: NativeFrame,
         provisional: Envelope,
     ) -> Result<IngressDecision, String> {
         let _guard = self.admission.lock().await;
+        let input = provisional.context.get::<AccountInput>().cloned();
+        if self.accounts.is_some() && input.as_ref().is_none_or(|input| !input.matches(&frame)) {
+            return Ok(IngressDecision::Ignore);
+        }
         Ok(match self.admit_inner(frame, provisional).await {
-            Ok(decision) => decision,
+            Ok(decision) => match &input {
+                Some(input) => decorate_decision(decision, input),
+                None => decision,
+            },
             Err(error) => IngressDecision::Control {
                 notice: Some(error.to_string()),
                 scope: None,
@@ -229,7 +281,8 @@ impl TelegramHostPolicy for SessionTelegramPolicy {
             && self.progress_visible(envelope)
     }
     fn allow_delivery(&self, envelope: &Envelope) -> bool {
-        live(envelope)
+        self.account_delivery_live(envelope)
+            && live(envelope)
             && self.navigation_visible(envelope)
             && self.ordinary_visible(envelope)
             && self.progress_visible(envelope)

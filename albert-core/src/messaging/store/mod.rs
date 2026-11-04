@@ -138,6 +138,7 @@ mod tests {
     }
     fn source(session: Session) -> TrustedSource {
         let context = SessionContext {
+            account: None,
             actor_tools: None,
             lease: ScopeRegistry::default().issue(&session.id, None).unwrap(),
             cleanup_scope: None,

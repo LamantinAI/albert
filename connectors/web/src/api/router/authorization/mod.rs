@@ -1,9 +1,13 @@
-use crate::{api::errors::ApiResult, api::host::HostOperation, api::principal::Principal};
+use crate::{
+    api::errors::ApiResult, api::host::HostOperation, api::host::TelegramOperation,
+    api::principal::Principal,
+};
 
 pub(super) fn host_access(caller: &Principal, operation: &HostOperation) -> ApiResult<()> {
     if matches!(
         operation,
-        HostOperation::OpenAiSubscription(_)
+        HostOperation::Telegram(TelegramOperation::Credential { .. })
+            | HostOperation::OpenAiSubscription(_)
             | HostOperation::OpenAiLogin(_)
             | HostOperation::Model(_)
             | HostOperation::Skill(_)
@@ -169,6 +173,40 @@ mod tests {
             .0,
             StatusCode::FORBIDDEN
         );
+        assert_eq!(
+            request(
+                &fixture.router,
+                Method::PUT,
+                "/api/v1/connectors/telegram/telegram/credential",
+                Some(&cookie),
+                Some(user.csrf()),
+                Some(ORIGIN),
+                json!({"bot_token":"123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        for forged in [
+            json!({"account_id":owner.account_id()}),
+            json!({"role":"owner"}),
+            json!({"user_id":"another-user"}),
+        ] {
+            assert_eq!(
+                request(
+                    &fixture.router,
+                    Method::POST,
+                    "/api/v1/account/connectors/telegram/telegram/login-tokens",
+                    Some(&cookie),
+                    Some(user.csrf()),
+                    Some(ORIGIN),
+                    forged
+                )
+                .await
+                .0,
+                StatusCode::BAD_REQUEST
+            );
+        }
         assert_eq!(fixture.host.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             request(

@@ -1,5 +1,6 @@
 //! Albert cognition, session policy and persistent domain state.
 
+pub mod accounts;
 pub mod acl;
 pub mod artifacts;
 pub mod codex_http;

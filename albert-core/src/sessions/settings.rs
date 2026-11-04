@@ -3,13 +3,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{error::SessionResult, ExternalIdentity, UserId};
 use crate::{
-    messaging::settings::MessagingSettings, service::session::titles::TitleSettings,
-    sessions::error::SessionError, sessions::picker_settings::PickerSettings,
+    accounts::TelegramLoginSettings, messaging::settings::MessagingSettings,
+    service::session::titles::TitleSettings, sessions::error::SessionError,
+    sessions::picker_settings::PickerSettings,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionSettings {
+    pub telegram_login: TelegramLoginSettings,
     pub limits: SessionLimits,
     pub messaging: MessagingSettings,
     pub titles: TitleSettings,
@@ -21,6 +23,8 @@ pub struct SessionSettings {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionLimits {
+    pub account_scope_ttl_seconds: u64,
+    pub max_account_scopes: usize,
     pub temporary_max_sessions: usize,
     pub temporary_max_turns: usize,
     pub temporary_max_bytes: usize,
@@ -36,6 +40,8 @@ pub struct SessionLimits {
 impl Default for SessionLimits {
     fn default() -> Self {
         Self {
+            account_scope_ttl_seconds: 3600,
+            max_account_scopes: 4096,
             temporary_max_sessions: 32,
             temporary_max_turns: 10_000,
             temporary_max_bytes: 32 * 1024 * 1024,
@@ -60,13 +66,20 @@ pub struct IdentityLink {
 
 impl SessionSettings {
     pub(crate) fn validate(&self) -> SessionResult<()> {
+        if !self.telegram_login.valid() {
+            return Err(SessionError::InvalidInput(
+                "invalid Telegram login settings",
+            ));
+        }
         self.titles.validate()?;
         self.picker.validate()?;
         self.messaging
             .validate()
             .map_err(|_| SessionError::InvalidInput("invalid messaging settings"))?;
         let limits = &self.limits;
-        if limits.temporary_max_sessions == 0
+        if !(1..=86400).contains(&limits.account_scope_ttl_seconds)
+            || !(1..=65536).contains(&limits.max_account_scopes)
+            || limits.temporary_max_sessions == 0
             || limits.temporary_max_turns == 0
             || limits.temporary_max_bytes == 0
             || !(1..=100).contains(&limits.open_preview_max_records)

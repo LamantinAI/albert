@@ -6,7 +6,10 @@ use std::time::Duration;
 use octo_core::{CogitatorContext, ConnectorId, Envelope, EventKind};
 use serde_json::{json, Value};
 
-use crate::commands::parse;
+use crate::{
+    accounts::AccountRole, commands::parse, sessions::actor::ActorToolPolicy,
+    sessions::SessionContext,
+};
 
 pub const BOOTSTRAP_COMMANDS: [&str; 5] = ["allow", "deny", "allowed", "groupmode", "chatinfo"];
 
@@ -19,10 +22,23 @@ pub fn tag<'a>(env: &'a Envelope, name: &str) -> Option<&'a str> {
 }
 
 pub(crate) fn is_owner(env: &Envelope) -> bool {
+    if let Some(context) = env.context.get::<SessionContext>() {
+        if context.tool_policy() != ActorToolPolicy::ExistingHost {
+            return false;
+        }
+        if let Some(account) = context.account() {
+            return account.is_live() && account.role == AccountRole::Owner;
+        }
+    }
     tag(env, "role") == Some("owner")
 }
 
 pub(crate) fn is_acl_admin(env: &Envelope) -> bool {
+    if env.context.get::<SessionContext>().is_some_and(|context| {
+        context.account().is_some() || context.tool_policy() == ActorToolPolicy::NoTools
+    }) {
+        return is_owner(env);
+    }
     is_owner(env) || tag(env, "acl_admin") == Some("true")
 }
 

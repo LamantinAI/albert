@@ -12,12 +12,12 @@ use octo_connector_web::WebConnector;
 use octo_core::{EventKind, Filter};
 use tracing::{info, warn};
 
-use self::connectors::channels;
+use self::connectors::{channels, configured_telegram};
 use crate::{bootstrap::open_sessions, settings::ControlSettings};
 
 pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
     let config = &settings.base;
-    let has_telegram = config.secret("OCTO_TELEGRAM_TOKEN").is_some();
+    let has_telegram = configured_telegram(config);
     let sessions = open_sessions(config, has_telegram).await?;
     let authority = config
         .authorization
@@ -101,3 +101,32 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
 }
 
 use albert_connector_web::{AuthService, AuthSettings};
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{create_dir_all, write};
+
+    use albert_core::config::Config;
+    use tempfile::tempdir;
+
+    use super::configured_telegram;
+
+    #[test]
+    fn telegram_detection_uses_the_connectors_own_credential_reference() {
+        let dir = tempdir().unwrap();
+        let config = Config::load_control_from(&dir.path().join("albert.toml")).unwrap();
+        let manifest = &config.connectors_manifest;
+        let parent = manifest.parent().unwrap();
+        create_dir_all(parent.join("connectors/private-bot")).unwrap();
+        write(manifest, "[connectors]\ndir='connectors'").unwrap();
+        write(parent.join("connectors/private-bot/private-bot.toml"), "[connector]\nid='private-bot'\ntype='telegram'\ntoken_env='FIXTURE_NAMED_TG_CREDENTIAL'").unwrap();
+        write(
+            dir.path().join(".env"),
+            "FIXTURE_NAMED_TG_CREDENTIAL=123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+        )
+        .unwrap();
+        assert!(configured_telegram(&config));
+        write(dir.path().join(".env"), "FIXTURE_NAMED_TG_CREDENTIAL=\n").unwrap();
+        assert!(!configured_telegram(&config));
+    }
+}

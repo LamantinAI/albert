@@ -61,7 +61,7 @@ impl AlbertCogitator {
                 display: route.clone(),
             };
             let context = match service
-                .messaging_context(&actor, &target.session, &address)
+                .messaging_context_for_message(&id, &actor, &target.session, &address)
                 .await
             {
                 Ok(context) => context,

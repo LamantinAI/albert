@@ -201,6 +201,34 @@ pub fn help(skills: &[SkillCommand], owner: bool, acl_admin: bool) -> String {
     out
 }
 
+/// Account-mode transports keep legacy ACL controls out of their command help.
+pub fn account_help(skills: &[SkillCommand], owner: bool, private: bool) -> String {
+    let mut out = help(skills, owner, false)
+        .lines()
+        .filter(|line| {
+            let name = line
+                .strip_prefix("- /")
+                .and_then(|value| value.split_whitespace().next());
+            !matches!(name, Some("allow" | "deny" | "allowed" | "groupmode"))
+                && (private
+                    || !matches!(
+                        name,
+                        Some("sessions" | "new" | "open" | "rename" | "tmp" | "save" | "end")
+                    ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if private {
+        if !owner {
+            out.push_str(
+                "\n- /cancel — Stop the current task\n- /compact — Compact this conversation",
+            );
+        }
+        out.push_str("\n- /logout — Disconnect Telegram without deleting conversations");
+    }
+    out
+}
+
 /// Skill metadata should remain one readable line, not introduce chat markup.
 fn help_text(text: &str) -> String {
     let mut out = String::new();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, ApiError, errorMessage } from "../../api/client";
+import type { ApiResponse } from "../../api/client";
 import type { components } from "../../api/schema";
 import { mergeProgress, progressDelta, progressIsNewer } from "./progress";
 import { mergeText, restoreText, textDelta } from "./text";
@@ -12,6 +13,7 @@ export type Session = components["schemas"]["SessionView"];
 export type Message = components["schemas"]["MessageView"];
 export type SessionState = components["schemas"]["SessionState"];
 type SessionEvent = components["schemas"]["SessionEvent"];
+type MessagePage = ApiResponse<"/sessions/{id}/messages", "get">;
 
 export function mergeMessages(
   old: Message[],
@@ -45,6 +47,9 @@ export function useConversation(id: string | undefined) {
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const missingRef = useRef(false);
+  const sourceRef = useRef<EventSource | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const epoch = useRef<string | null>(null);
   const generation = useRef(0);
@@ -55,18 +60,48 @@ export function useConversation(id: string | undefined) {
   const progressView = useRef<ProgressView | null>(null);
   currentId.current = id;
   latestState.current = state;
+  const markMissing = useCallback((error: unknown) => {
+    if (!(error instanceof ApiError) || ![404, 410].includes(error.status))
+      return false;
+    missingRef.current = true;
+    setMissing(true);
+    setUnavailable(true);
+    setConnected(false);
+    setError("");
+    sourceRef.current?.close();
+    return true;
+  }, []);
   const refresh = useCallback(
     async (reset = false) => {
-      if (!id || !mounted.current || currentId.current !== id) return;
+      if (
+        !id ||
+        !mounted.current ||
+        currentId.current !== id ||
+        missingRef.current
+      )
+        return;
       const current = generation.current;
-      const [received, page] = await Promise.all([
-        api("/sessions/{id}/state", "get", { path: { id } }),
-        api("/sessions/{id}/messages", "get", {
-          path: { id },
-          query: { limit: 10, order: "desc" },
-        }),
-      ]);
-      if (current !== generation.current) return;
+      let received: SessionState;
+      let page: MessagePage;
+      try {
+        [received, page] = await Promise.all([
+          api("/sessions/{id}/state", "get", { path: { id } }),
+          api("/sessions/{id}/messages", "get", {
+            path: { id },
+            query: { limit: 10, order: "desc" },
+          }),
+        ]);
+      } catch (error) {
+        if (
+          current !== generation.current ||
+          currentId.current !== id ||
+          !mounted.current
+        )
+          return;
+        if (markMissing(error)) return;
+        throw error;
+      }
+      if (current !== generation.current || missingRef.current) return;
       const changedEpoch =
         epoch.current !== null && epoch.current !== received.runtime_epoch;
       if (changedEpoch) progressView.current = null;
@@ -106,7 +141,7 @@ export function useConversation(id: string | undefined) {
       }
       setError("");
     },
-    [id],
+    [id, markMissing],
   );
 
   useEffect(() => {
@@ -115,6 +150,8 @@ export function useConversation(id: string | undefined) {
     unknownAttempt.current = null;
     progressView.current = null;
     epoch.current = null;
+    missingRef.current = false;
+    setMissing(false);
     setUnavailable(false);
     setState(null);
     setMessages([]);
@@ -134,9 +171,10 @@ export function useConversation(id: string | undefined) {
       apiPath(`/sessions/${encodeURIComponent(id)}/events`),
       { withCredentials: true },
     );
+    sourceRef.current = source;
     const eventIds = new Set<string>();
     async function reconcile(reset: boolean) {
-      if (stopped) return;
+      if (stopped || missingRef.current) return;
       requested = true;
       resetRequested ||= reset;
       if (refreshing) return;
@@ -163,7 +201,7 @@ export function useConversation(id: string | undefined) {
       }
     }
     const receive = (event: MessageEvent) => {
-      if (stopped) return;
+      if (stopped || missingRef.current) return;
       try {
         const value = JSON.parse(event.data) as SessionEvent;
         if (value.session_id !== id) return;
@@ -257,12 +295,12 @@ export function useConversation(id: string | undefined) {
     ])
       source.addEventListener(kind, receive as EventListener);
     source.onopen = () => {
-      if (stopped) return;
+      if (stopped || missingRef.current) return;
       setConnected(true);
       void reconcile(false);
     };
     source.onerror = () => {
-      if (stopped) return;
+      if (stopped || missingRef.current) return;
       setConnected(false);
       void reconcile(false);
     };
@@ -272,17 +310,37 @@ export function useConversation(id: string | undefined) {
       generation.current += 1;
       mounted.current = false;
       source.close();
+      if (sourceRef.current === source) sourceRef.current = null;
     };
   }, [id, refresh]);
 
   async function older() {
-    if (!id || !cursor || !mounted.current || currentId.current !== id) return;
+    if (
+      !id ||
+      !cursor ||
+      !mounted.current ||
+      currentId.current !== id ||
+      missingRef.current
+    )
+      return;
     const current = generation.current;
-    const page = await api("/sessions/{id}/messages", "get", {
-      path: { id },
-      query: { after: cursor, limit: 10, order: "desc" },
-    });
-    if (current !== generation.current) return;
+    let page: MessagePage;
+    try {
+      page = await api("/sessions/{id}/messages", "get", {
+        path: { id },
+        query: { after: cursor, limit: 10, order: "desc" },
+      });
+    } catch (error) {
+      if (
+        current !== generation.current ||
+        currentId.current !== id ||
+        !mounted.current
+      )
+        return;
+      if (markMissing(error)) return;
+      throw error;
+    }
+    if (current !== generation.current || missingRef.current) return;
     setMessages((old) => mergeMessages(old, page.items, true));
     setCursor(page.next_cursor ?? null);
     setHasMore(page.has_more);
@@ -295,6 +353,7 @@ export function useConversation(id: string | undefined) {
     error,
     connected,
     unavailable,
+    missing,
     events,
     refresh,
     older,

@@ -11,11 +11,18 @@ type Edits = Record<string, string>;
 function scalar(field: ConfigField, text: string): unknown {
   if (text === "" || (field.kind === "boolean" && text === "default"))
     return null;
+  if (field.kind === "text_list")
+    return text
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
   if (field.kind === "text") return text;
   if (field.kind === "boolean") return text === "true";
   const number = Number(text);
   if (
-    !Number.isSafeInteger(number) ||
+    (field.kind === "number"
+      ? !Number.isFinite(number)
+      : !Number.isSafeInteger(number)) ||
     (field.minimum != null && number < field.minimum) ||
     (field.maximum != null && number > field.maximum)
   ) {
@@ -64,7 +71,10 @@ export function useStructuredDraft(
     if (
       !current.document ||
       current.document.redacted ||
-      current.document.path !== "albert"
+      !(
+        current.document.path === "albert" ||
+        current.document.path.startsWith("connector:")
+      )
     )
       return null;
     const request = ++generation.current;
@@ -84,7 +94,7 @@ export function useStructuredDraft(
         return { path, value: scalar(field, text) };
       });
       const result = await api("/configuration/{id}/drafts", "post", {
-        path: { id: "albert" },
+        path: { id: current.document.path },
         body: { content: source, revision, changes },
         signal: abort.signal,
       });
@@ -128,7 +138,7 @@ export function useStructuredDraft(
       !active ||
       !document ||
       document.redacted ||
-      document.path !== "albert"
+      !(document.path === "albert" || document.path.startsWith("connector:"))
     ) {
       setPending(false);
       return;

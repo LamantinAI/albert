@@ -4,7 +4,7 @@ use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 
 use crate::{db::error::DatabaseError, db::error::DatabaseResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 8;
+pub(super) const SCHEMA_VERSION: i64 = 9;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -32,6 +32,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("../../../migrations/0007_control_applications.sql"),
     ),
     (8, include_str!("../../../migrations/0008_web_starts.sql")),
+    (
+        9,
+        include_str!("../../../migrations/0009_telegram_accounts.sql"),
+    ),
 ];
 fn checksum(sql: &str) -> String {
     format!("{:x}", Sha256::digest(sql.as_bytes()))

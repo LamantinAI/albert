@@ -118,8 +118,8 @@ npm --prefix web/albert-panel run build:embedded
 cargo build --locked --release
 
 # 2. stage: binary + albert.toml + soul.md/system.md + skills/ + config/ + .env + the
-#    unit; set the real owner_chat in config/connectors/telegram/telegram.toml and the
-#    account in config/connectors/calendar/calendar.toml (see configuration.md).
+#    unit; configure the calendar account in config/connectors/calendar/calendar.toml.
+#    Connect Telegram and issue your personal login token in the panel after startup.
 
 # 3. ship (tar over ssh keeps hidden files + perms; no rsync needed)
 tar -C stage --exclude=albert.service -czf - . \
@@ -169,9 +169,10 @@ restart).
 
 The repo ships **placeholder** manifests. On the target set the real values:
 
-- `config/connectors/telegram/telegram.toml` — `owner_chat` = your chat id
-  (`@userinfobot`). The ACL starts empty and drops everyone (including you) until
-  the owner is seeded; a wrong id locks you out (the safe failure).
+- Telegram — save the BotFather credential inside the selected Telegram instance under **Settings → Connections**, then
+  create a personal login token there and send `/login <token>` privately to the
+  bot. `owner_chat` and allowlists no longer grant Albert permissions. Existing
+  history is preserved; see [Telegram account access](telegram-accounts.md).
 - `config/connectors/calendar/calendar.toml` — your account: `login` (basic auth) or
   the Google `collection` + client; the secret stays in `.env`.
 - `.env` — the actual secret values (LLM key, Telegram token, calendar credentials).

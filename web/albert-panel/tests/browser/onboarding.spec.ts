@@ -40,9 +40,9 @@ test("settings overview and expandable sidebar sections remain consistent", asyn
     page.getByRole("navigation", { name: "Configuration sections" }),
   ).toHaveCount(0);
   await page.goto("/ui/settings?document=connectors");
-  await expect(page).toHaveURL(/\/settings\/connections\?document=connectors$/);
+  await expect(page).toHaveURL(/\/settings\/connections\/advanced$/);
   await expect(
-    page.getByRole("heading", { name: "Connections", exact: true }),
+    page.getByRole("heading", { name: "Advanced connections", exact: true }),
   ).toBeVisible();
 });
 
@@ -61,11 +61,11 @@ test("a configured profile enters a model-less first chat with clear connection 
     page.getByRole("heading", { name: "Connect a model to start" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
+    page.getByRole("button", { name: "Subscription", exact: true }),
   ).toBeEnabled();
   await expect(page.getByText("Coming soon", { exact: true })).toHaveCount(0);
-  await page.getByRole("link", { name: "Use an API key", exact: true }).click();
-  await expect(page).toHaveURL(/\/models\?connect=api$/);
+  await page.getByRole("button", { name: "API", exact: true }).click();
+  await expect(page).toHaveURL(/\/models\?connect=api(?:&|$)/);
   await expect(
     page.getByRole("heading", { name: "Connect with an API key" }),
   ).toBeVisible();
@@ -110,10 +110,10 @@ test("ordinary users see an owner-required explanation rather than administrativ
     page.getByText(/workspace owner needs to connect a model/),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Use an API key", exact: true }),
+    page.getByRole("button", { name: "API", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
+    page.getByRole("button", { name: "Subscription", exact: true }),
   ).toHaveCount(0);
 });
 
@@ -134,7 +134,7 @@ test("an existing empty chat also explains its missing model with the same widge
     page.getByRole("region", { name: "Model connection" }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("link", { name: "Use an API key", exact: true }),
+    page.getByRole("button", { name: "API", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("textbox", { name: "Message Albert", exact: true }),
@@ -253,15 +253,13 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
     return route.fulfill({ json: attempt });
   });
   await page.goto("/ui/chats");
-  await page
-    .getByRole("button", { name: "Sign in with OpenAI", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   const dialog = page.locator(".subscription-dialog");
   await expect(
     dialog.getByRole("link", { name: "Open OpenAI sign-in", exact: true }),
   ).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
+    dialog.getByRole("button", { name: "Subscription", exact: true }),
   ).toHaveCount(0);
   await expect(
     dialog.getByLabel("Subscription provider model ID", { exact: true }),
@@ -384,13 +382,12 @@ test("connected subscription resumes catalog and reconnect requires confirmation
     });
   });
   await page.goto("/ui/models");
-  await page
-    .getByRole("button", { name: "Connect OpenAI subscription", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   const dialog = page.locator(".subscription-dialog");
   await expect(
     dialog.getByRole("heading", {
-      name: "Choose Albert’s model",
+      name: "Add subscription model",
       exact: true,
     }),
   ).toBeVisible();
@@ -430,9 +427,8 @@ test("invalid saved credentials offer explicit reconnect without a model entry f
     }),
   );
   await page.goto("/ui/models");
-  await page
-    .getByRole("button", { name: "Connect OpenAI subscription", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   const dialog = page.locator(".subscription-dialog");
   await expect(
     dialog.getByRole("button", {

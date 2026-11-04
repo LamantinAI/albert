@@ -142,7 +142,7 @@ the code body.
 
 ## Secrets & per-target config
 
-- The repo ships **placeholder** manifests (`owner_chat`, Yandex `login`). Real
+- The repo ships **placeholder** manifests (credential references and calendar `login`). Real
   values live only on the target machine, never committed.
 - Runtime state is gitignored: `state/` (scheduler alarms) and
   `config/connectors/telegram/telegram_acl.json` (the mutable ACL).

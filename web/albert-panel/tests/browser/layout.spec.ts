@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { readyFixture } from "./fixture";
+import { connectorFixture } from "./connector-fixture";
 
 for (const viewport of [
   { width: 1512, height: 982 },
@@ -12,21 +12,31 @@ for (const viewport of [
     test("long external identities wrap inside their row and the workspace", async ({
       page,
     }) => {
-      await readyFixture(page);
+      await connectorFixture(page, [
+        {
+          id: "telegram",
+          kind: "telegram",
+          label: "Telegram",
+          settings_mode: "structured",
+        },
+      ]);
       const identity = `external-member-${"abcdefghij".repeat(16)}`;
-      await page.route("**/api/v1/account/identities", (route) =>
-        route.fulfill({
-          json: {
-            items: [
-              { connector: "telegram", external_actor_id: identity },
-              { connector: "web", external_actor_id: "bootstrap-owner" },
-            ],
-          },
-        }),
+      await page.route(
+        "**/api/v1/account/connectors/telegram/telegram",
+        (route) =>
+          route.fulfill({
+            json: {
+              connector_id: "telegram",
+              connected: true,
+              bot_username: "fixture_bot",
+              requires_restart: false,
+              bindings: [{ actor_id: identity, chat_id: "7", created_at: 1 }],
+            },
+          }),
       );
-      await page.goto("/ui/account");
+      await page.goto("/ui/settings/connections/connector/telegram");
+      await expect(page.getByText(identity, { exact: true })).toBeVisible();
       const value = page.getByText(identity, { exact: true });
-      await expect(value).toBeVisible();
       const bounds = await value.evaluate((node) => {
         const row = node.parentElement!;
         const content = document.querySelector(".workspace-content")!;
@@ -45,47 +55,36 @@ for (const viewport of [
       });
     });
 
-    test("connector action aligns with its input and is separated from document selection", async ({
+    test("connector list and creation controls stay within their content area", async ({
       page,
     }) => {
-      await readyFixture(page);
-      await page.route("**/api/v1/configuration**", (route) =>
-        route.fulfill({
-          json: new URL(route.request().url()).pathname.endsWith(
-            "/configuration",
-          )
-            ? { items: ["connectors"], revision: "r1" }
-            : {
-                path: "connectors",
-                content: 'timezone = "UTC"',
-                revision: "r1",
-                redacted: false,
-              },
-        }),
-      );
+      await connectorFixture(page, [
+        {
+          id: "telegram",
+          kind: "telegram",
+          label: "Telegram",
+          settings_mode: "structured",
+        },
+      ]);
       await page.goto("/ui/settings/connections");
-      const input = page.getByRole("textbox", { name: "New connector ID" });
-      const action = page.getByRole("button", {
-        name: "Add connector",
-        exact: true,
+      await expect(page.locator(".connector-row")).toBeVisible();
+      await expect(page.getByLabel("Bot token", { exact: true })).toHaveCount(
+        0,
+      );
+      await page
+        .getByRole("link", { name: "Add connector", exact: true })
+        .click();
+      await expect(
+        page.getByRole("textbox", { name: "Connector name" }),
+      ).toBeVisible();
+      const fits = await page.locator(".connector-create").evaluate((card) => {
+        const box = card.getBoundingClientRect();
+        return [...card.querySelectorAll("input,button")].every((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.left >= box.left && rect.right <= box.right;
+        });
       });
-      await expect(input).toBeVisible();
-      await expect(action).toBeVisible();
-      const inputRect = (await input.boundingBox())!;
-      const actionRect = (await action.boundingBox())!;
-      expect(
-        Math.abs(
-          inputRect.y + inputRect.height - actionRect.y - actionRect.height,
-        ),
-      ).toBeLessThan(2);
-      const gap = await page.locator(".connector-form").evaluate((node) => {
-        const selector = document.querySelector('[role="combobox"]')!;
-        return (
-          node.getBoundingClientRect().top -
-          selector.getBoundingClientRect().bottom
-        );
-      });
-      expect(gap).toBeGreaterThanOrEqual(16);
+      expect(fits).toBe(true);
     });
   });
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { SettingsList, SettingsRow } from "../../components/SettingsList";
+import { Icon } from "../../components/Icon";
 import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Button, EmptyState, Notice, PageHeading } from "../../components/ui";
@@ -161,8 +163,7 @@ export function Approvals() {
     <div className="workspace-body">
       {dialog}
       <PageHeading
-        eyebrow="Workspace / Approvals"
-        title="Changes that need your decision."
+        title="Approvals"
         actions={
           <Button
             disabled={!!busy}
@@ -187,45 +188,55 @@ export function Approvals() {
           <p>New requests appear here while this page is open.</p>
         </EmptyState>
       ) : (
-        <section className="card" aria-label="Pending approvals">
+        <SettingsList label="Pending approvals">
           {items.map((item) => {
             const shown = presentation(item.summary);
             const expired =
               item.expires_at != null && item.expires_at <= Date.now() / 1000;
             return (
-              <article className="data-row" key={item.id}>
-                <div>
-                  <h2>{shown.action}</h2>
-                  <p>{shown.resource}</p>
-                  {shown.objects.length > 0 && (
-                    <p>Affected objects: {shown.objects.join(", ")}</p>
-                  )}
-                  <small className="muted">
+              <SettingsRow
+                key={item.id}
+                className="data-row"
+                headingLevel="h2"
+                leading={<Icon name="shield" />}
+                title={shown.action}
+                description={
+                  <>
+                    <span>{shown.resource}</span>
+                    {shown.objects.length > 0 && (
+                      <span>Affected objects: {shown.objects.join(", ")}</span>
+                    )}
+                  </>
+                }
+                metadata={
+                  <>
                     {item.connector}
                     {item.expires_at != null
                       ? ` · ${expired ? "Expired" : "Expires"} ${new Date(item.expires_at * 1000).toLocaleString()}`
                       : ""}
-                  </small>
-                </div>
-                <div className="row-actions">
-                  <Button
-                    variant="danger"
-                    disabled={!!busy || expired || item.state !== "pending"}
-                    onClick={() => void decide(item, true)}
-                  >
-                    {busy === item.id ? "Recording…" : "Approve"}
-                  </Button>
-                  <Button
-                    disabled={!!busy || expired || item.state !== "pending"}
-                    onClick={() => void decide(item, false)}
-                  >
-                    Decline
-                  </Button>
-                </div>
-              </article>
+                  </>
+                }
+                actions={
+                  <>
+                    <Button
+                      variant="danger"
+                      disabled={!!busy || expired || item.state !== "pending"}
+                      onClick={() => void decide(item, true)}
+                    >
+                      {busy === item.id ? "Recording…" : "Approve"}
+                    </Button>
+                    <Button
+                      disabled={!!busy || expired || item.state !== "pending"}
+                      onClick={() => void decide(item, false)}
+                    >
+                      Decline
+                    </Button>
+                  </>
+                }
+              />
             );
           })}
-        </section>
+        </SettingsList>
       )}
     </div>
   );

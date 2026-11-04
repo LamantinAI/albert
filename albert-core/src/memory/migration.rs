@@ -9,7 +9,7 @@ use serde_json::{from_value, json, Value};
 use super::{MemoryError, INITIATIVE};
 
 pub const NAME: &str = "albert";
-pub const BODY: &str = "Альберт — персональный ассистент на Octo с памятью kaeru. Инициатива albert — его память по умолчанию: контекст общения, факты и задачи пользователя.";
+pub const BODY: &str = "Albert is a personal assistant built on Octo with kaeru memory. The albert initiative is its default memory for conversation context, user facts and tasks.";
 
 /// Both backends use the same ordinary cite; kaeru attaches its initiative
 /// through the existing capture path. No private schema or separate registry.

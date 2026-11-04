@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useClientContext } from "../../app/context";
 import { Dialog } from "../../components/Dialog";
+import { SettingsBack } from "../../components/SettingsActions";
 import { Button, Notice } from "../../components/ui";
 import { useDialogs } from "../../components/useDialogs";
 import {
@@ -22,7 +23,9 @@ const pending = (attempt: Attempt | null) =>
 export function OpenAiLogin({
   onClose,
   onConnected,
+  intent = "onboard",
 }: {
+  intent?: "onboard" | "add";
   onClose: () => void;
   onConnected: () => void | Promise<void>;
 }) {
@@ -233,7 +236,7 @@ export function OpenAiLogin({
             generation: catalog.generation,
             catalog_revision: catalog.revision,
             slug: selected,
-            prefer: true,
+            prefer: intent === "onboard",
           },
         }),
       );
@@ -260,7 +263,7 @@ export function OpenAiLogin({
     }
   }
   async function close() {
-    if (busy) return;
+    if (busy || connection?.phase === "applying") return;
     setCallback("");
     setBusy(true);
     try {
@@ -270,6 +273,10 @@ export function OpenAiLogin({
             path: { id: attempt.id },
           }),
         );
+      if (intent === "add" || done || connection?.selected_model_id) {
+        await onConnected();
+        await refresh();
+      }
       current.current = null;
       onClose();
     } catch (error) {
@@ -300,10 +307,12 @@ export function OpenAiLogin({
   const retryApplying = Boolean(
     connection?.phase === "apply_failed" &&
     connection.selected_model_id &&
-    !selected,
+    (!selected || selected === connection.selected_slug),
   );
   const title = selecting
-    ? "Choose Albert’s model"
+    ? intent === "add"
+      ? "Add subscription model"
+      : "Choose Albert’s model"
     : done
       ? "Model connected"
       : applying
@@ -407,13 +416,12 @@ export function OpenAiLogin({
             </>
           ) : awaiting ? (
             <>
-              <Button
-                type="button"
+              <SettingsBack
                 disabled={busy}
                 onClick={() => setAuthScreen("authorize")}
               >
                 Back
-              </Button>
+              </SettingsBack>
               <Button
                 form={formId}
                 type="submit"
@@ -429,8 +437,9 @@ export function OpenAiLogin({
                 className="subscription-footer-note"
                 id={`${formId}-preference`}
               >
-                This sets Albert’s preferred model for future replies across
-                chats
+                {intent === "add"
+                  ? "Add to the pool without changing the current preferred model"
+                  : "This sets Albert’s preferred model for future replies across chats"}
               </p>
               <div className="subscription-footer-actions">
                 <Button disabled={busy} onClick={() => void close()}>
@@ -444,14 +453,16 @@ export function OpenAiLogin({
                 >
                   {retryApplying
                     ? "Retry applying model settings"
-                    : "Use selected model"}
+                    : intent === "add"
+                      ? "Add model"
+                      : "Use selected model"}
                 </Button>
               </div>
             </div>
           ) : (
             <>
-              <Button disabled={busy} onClick={() => void close()}>
-                {pending(attempt) ? "Cancel sign-in" : "Cancel"}
+              <Button disabled={busy || applying} onClick={() => void close()}>
+                {pending(attempt) ? "Cancel sign-in" : "Close"}
               </Button>
               {terminal && (
                 <Button
@@ -468,7 +479,7 @@ export function OpenAiLogin({
                   disabled={busy}
                   onClick={() => void finish()}
                 >
-                  Open chat
+                  {intent === "add" ? "Done" : "Open chat"}
                 </Button>
               )}
             </>

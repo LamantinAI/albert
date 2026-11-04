@@ -1,5 +1,17 @@
 export type IconName =
+  | "globe"
+  | "folder"
+  | "database"
+  | "calendar"
+  | "mail"
+  | "mic"
+  | "volume"
+  | "image"
+  | "telegram"
   | "plus"
+  | "edit"
+  | "trash"
+  | "upload"
   | "chats"
   | "models"
   | "skills"
@@ -28,7 +40,21 @@ export type IconName =
   | "shield";
 
 const paths: Record<IconName, string> = {
+  telegram: "m3 10 18-7-7 18-3-7-8-4Zm8 4L21 3",
+  globe:
+    "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18Z",
+  folder: "M3 7V4h6l3 3h9v13H3V7Zm0 3h18",
+  database:
+    "M20 5c0 2-4 3-8 3S4 7 4 5s4-3 8-3 8 1 8 3Zm0 0v14c0 2-4 3-8 3s-8-1-8-3V5M4 12c0 2 4 3 8 3s8-1 8-3",
+  calendar: "M4 5h16v16H4V5Zm0 5h16M8 2v6M16 2v6M8 14h2M14 14h2M8 18h2",
+  mail: "M3 5h18v14H3V5Zm0 0 9 8 9-8",
+  mic: "M9 4a3 3 0 0 1 6 0v8a3 3 0 0 1-6 0V4ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8",
+  volume: "M3 9h4l5-5v16l-5-5H3V9Zm13-2a7 7 0 0 1 0 10M19 4a11 11 0 0 1 0 16",
+  image: "M3 3h18v18H3V3Zm0 14 6-6 5 5 3-3 4 4M16 7h.01",
   plus: "M12 5v14M5 12h14",
+  edit: "m16 3 5 5-12 12-6 1 1-6L16 3Zm-2 2 5 5",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
+  upload: "M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6",
   chats: "M5 4h14a1 1 0 0 1 1 1v12H9l-5 3V5a1 1 0 0 1 1-1Z M8 9h8M8 13h5",
   models: "m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5",
   skills: "M5 4h11l3 3v13H5V4Zm10 0v5h4M8 13h8M8 17h5",

@@ -53,7 +53,7 @@ impl AlbertCogitator {
         ) else {
             return Ok(None);
         };
-        if !session.is_live() {
+        if !session.authorized().await {
             return Err(());
         }
         let lease = history
@@ -337,12 +337,7 @@ impl AlbertCogitator {
             let turns = self.strict_history(key).await?;
             return Ok((to_messages(&turns), None, turns));
         }
-        let mut window = self
-            .history
-            .context(key)
-            .await
-            .map_err(|error| error.to_string())?;
-        window.messages.retain(|message| message.id <= boundary);
+        let window = self.context_window(key, Some(boundary)).await?;
         let revision = window.compact.as_ref().map(|compact| compact.id);
         let actions = window
             .messages

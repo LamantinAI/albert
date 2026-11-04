@@ -55,11 +55,19 @@ impl AlbertCogitator {
         if !settings.enabled && !force {
             return Ok(CompactOutcome::Unchanged);
         }
-        let mut window = self
+        let raw = self
             .history
             .context(channel)
             .await
             .map_err(|e| e.to_string())?;
+        let storage_revision = raw.compact.as_ref().map(|c| c.id);
+        let raw_boundary = through.unwrap_or_else(|| raw.through_id());
+        let group = self.group_channel(channel).await?;
+        let mut window = if group {
+            self.context_window(channel, through).await?
+        } else {
+            raw
+        };
         if let Some(boundary) = through {
             window.messages.retain(|message| message.id <= boundary);
         }
@@ -81,7 +89,11 @@ impl AlbertCogitator {
         if !force {
             progress.progress("Compacting conversation history before continuing. Original messages will remain in history.").await;
         }
-        let boundary = window.through_id();
+        let boundary = if group && !preserve_latest {
+            raw_boundary
+        } else {
+            window.through_id()
+        };
         let messages = window_messages(&window);
         let before = settings.messages_tokens(&messages);
         let max_tokens = settings.compact_output_tokens.min(
@@ -93,7 +105,7 @@ impl AlbertCogitator {
             return Err("No room for a compact under the configured context budget.".into());
         }
         let prompt = Message::system(format!("Compact the preceding conversation into at most {max_tokens} tokens. Preserve actionable detail and uncertainty; do not pad the result."));
-        let guidance = format!("{INSTRUCTIONS}\n\nConfigured compaction guidance:\n{}\n\nOwner instructions for this invocation:\n{}", settings.compact_prompt, options.instructions);
+        let guidance = format!("{INSTRUCTIONS}\n\nConfigured compaction guidance:\n{}\n\nOwner instructions for this invocation:\n{}", if group { "" } else { &settings.compact_prompt }, options.instructions);
         let snapshot = self.models.snapshot();
         let batches = batches(messages, &settings)?;
         let total_passes = batches.len();
@@ -184,12 +196,7 @@ impl AlbertCogitator {
         }
         let saved = self
             .history
-            .save_compact(
-                channel,
-                window.compact.as_ref().map(|c| c.id),
-                boundary,
-                &result,
-            )
+            .save_compact(channel, storage_revision, boundary, &result)
             .await
             .map_err(|e| e.to_string())?;
         info!(
@@ -200,6 +207,9 @@ impl AlbertCogitator {
             return Err(
                 "Conversation compact changed concurrently; retry with the latest context.".into(),
             );
+        }
+        if group {
+            self.mark_group_compact(channel, boundary, &result).await?;
         }
         progress
             .progress(format!(

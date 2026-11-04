@@ -47,6 +47,7 @@ impl SessionService {
             _ => return Err(SessionError::Denied),
         };
         let context = SessionContext {
+            account: None,
             actor_tools: None,
             lease: self.lease_for_in(&mut tx, session_id).await?,
             cleanup_scope: None,

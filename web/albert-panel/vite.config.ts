@@ -17,6 +17,11 @@ function swaggerAssets(): Plugin {
       new URL(`./node_modules/swagger-ui-dist/${source}`, import.meta.url),
     ),
   }));
+  resources.push({
+    name: "favicon.svg",
+    type: "image/svg+xml",
+    bytes: readFileSync(new URL("./public/favicon.svg", import.meta.url)),
+  });
   for (const name of ["index.html", "bootstrap.js"]) {
     resources.push({
       name,

@@ -5,7 +5,7 @@ use rig::tool::ToolDyn;
 
 use crate::{
     cogitator::retention::fence_tools, scratchpad::PadScope, scratchpad::ScratchpadStore,
-    sessions::SessionContext,
+    sessions::actor::ActorToolPolicy, sessions::SessionContext,
 };
 
 pub(super) fn chat_tools(
@@ -13,6 +13,12 @@ pub(super) fn chat_tools(
     scope: PadScope,
     session: Option<SessionContext>,
 ) -> Vec<Box<dyn ToolDyn>> {
+    if session
+        .as_ref()
+        .is_some_and(|context| context.tool_policy() == ActorToolPolicy::NoTools)
+    {
+        return Vec::new();
+    }
     let pad = store.scoped_handle(scope);
     let tools: Vec<Box<dyn ToolDyn>> = vec![
         Box::new(pad.goal()),

@@ -42,9 +42,7 @@ async function authorizeFixture(page: Page) {
     return route.fulfill({ json: attempt });
   });
   await page.goto("/ui/chats");
-  await page
-    .getByRole("button", { name: "Sign in with OpenAI", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   const dialog = page.locator(".subscription-dialog");
   await expect(
     dialog.getByRole("link", { name: "Open OpenAI sign-in", exact: true }),
@@ -105,9 +103,7 @@ test("cancelling or navigating away releases the authorization attempt", async (
     .click();
   await expect(fixture.dialog).not.toBeVisible();
   expect(fixture.cancels()).toBe(1);
-  await page
-    .getByRole("button", { name: "Sign in with OpenAI", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   await expect(
     fixture.dialog.getByRole("link", {
       name: "Open OpenAI sign-in",
@@ -161,31 +157,32 @@ for (const viewport of [
       }),
     );
     await page.goto("/ui/models");
+    await page.getByRole("button", { name: "Add model", exact: true }).click();
     await page
-      .getByRole("button", { name: "Connect OpenAI subscription", exact: true })
+      .getByRole("button", { name: "Subscription", exact: true })
       .click();
     const dialog = page.locator(".subscription-dialog");
     await expect(
       dialog.getByRole("heading", {
-        name: "Choose Albert’s model",
+        name: "Add subscription model",
         exact: true,
       }),
     ).toBeVisible();
     await expect(dialog.getByRole("heading")).toHaveCount(1);
     await expect(dialog.locator("footer")).toHaveCount(1);
     const use = dialog.getByRole("button", {
-      name: "Use selected model",
+      name: "Add model",
       exact: true,
     });
     await expect(use).toBeDisabled();
     await expect(use).toHaveAccessibleDescription(
-      /preferred model for future replies across chats/,
+      /without changing the current preferred model/,
     );
     await expect(dialog.locator(".subscription-footer-note")).toBeInViewport();
     // Selecting by the description proves the full row is the label, including a
     // code-mode-only catalog item that the backend has declared selectable.
     await dialog
-      .locator(".subscription-choice-row")
+      .locator(".settings-row-choice")
       .first()
       .getByText(models[0].description, { exact: true })
       .click();
@@ -284,16 +281,14 @@ test("expanded model details and unavailable reasons keep the mobile actions rea
     }),
   );
   await page.goto("/ui/chats");
-  await page
-    .getByRole("button", { name: "Sign in with OpenAI", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Subscription", exact: true }).click();
   const dialog = page.locator(".subscription-dialog");
   const radio = dialog.getByRole("radio", {
     name: model.name,
     exact: true,
   });
   await radio.check();
-  const details = dialog.locator(".subscription-model-details").first();
+  const details = dialog.locator(".settings-row-disclosure").first();
   await details.locator("summary").focus();
   await page.keyboard.press("Enter");
   await expect(details).toHaveAttribute("open", "");

@@ -8,7 +8,8 @@ use crate::{
     api::host::ConfigOperation, api::host::HostOperation, api::host::HostResponse,
     api::host::ModelOperation, api::host::OpenAiLoginOperation, api::host::ProfileOperation,
     api::host::SessionOperation, api::host::SkillOperation, api::host::SubscriptionOperation,
-    api::models::PageQuery, api::principal::Principal, api::state::ApiState,
+    api::host::TelegramOperation, api::models::PageQuery, api::models::TelegramTokenRequest,
+    api::principal::Principal, api::state::ApiState,
 };
 
 pub(super) async fn host_request(
@@ -22,6 +23,29 @@ pub(super) async fn host_request(
 ) -> ApiResult<HostResponse> {
     let resource = || id(params, "id");
     let operation = match (spec.method, spec.path) {
+        ("GET", "/connectors") => HostOperation::Connectors,
+        ("GET", "/account/telegram/connections") => {
+            HostOperation::Telegram(TelegramOperation::List)
+        }
+        ("GET", "/account/connectors/{id}/telegram") => {
+            HostOperation::Telegram(TelegramOperation::Status { id: resource()? })
+        }
+        ("PUT", "/connectors/{id}/telegram/credential") => {
+            HostOperation::Telegram(TelegramOperation::Credential {
+                id: resource()?,
+                input: parse(body)?,
+            })
+        }
+        ("POST", "/account/connectors/{id}/telegram/login-tokens") => {
+            let _: TelegramTokenRequest = parse(body)?;
+            HostOperation::Telegram(TelegramOperation::Issue { id: resource()? })
+        }
+        ("DELETE", "/account/connectors/{id}/telegram/login-tokens/current") => {
+            HostOperation::Telegram(TelegramOperation::RevokeToken { id: resource()? })
+        }
+        ("DELETE", "/account/connectors/{id}/telegram/binding") => {
+            HostOperation::Telegram(TelegramOperation::Disconnect { id: resource()? })
+        }
         ("POST", "/openai-login-attempts") => {
             HostOperation::OpenAiLogin(OpenAiLoginOperation::Start(parse(body)?))
         }

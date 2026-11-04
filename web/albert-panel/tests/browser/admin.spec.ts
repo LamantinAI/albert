@@ -2,7 +2,8 @@
 import { expect, test } from "@playwright/test";
 
 import type { components } from "../../src/api/schema";
-import { clientContext } from "./fixture";
+import { clientContext, readyFixture } from "./fixture";
+import { connectorFixture } from "./connector-fixture";
 
 test("owner changes model priority and preference without receiving stored keys", async ({
   page,
@@ -113,6 +114,7 @@ test("skill import, validated editing and enable state are explicit server mutat
   await expect(
     page.getByText("Skill bundle imported and validated."),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
   await page.getByRole("button", { name: "Disable", exact: true }).click();
   await expect(page.locator(".data-row").first()).toContainText("Disabled");
   await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -235,90 +237,55 @@ test("configuration saves before applying, reconciles an unknown outcome and kee
   ).toBeVisible();
 });
 
-test("account shows configured identities without an unsupported linking action", async ({
+test("account keeps profile and login settings while connector identities stay in their connector", async ({
   page,
 }) => {
-  await page.route("**/api/v1/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/sessions") && route.request().method() === "GET")
-      return route.fulfill({
-        json: { items: [], has_more: false, next_cursor: null },
-      });
-    if (path.endsWith("/context"))
-      return route.fulfill({ json: clientContext() });
-    if (path.endsWith("/account/identities"))
-      return route.fulfill({
-        json: {
-          items: [
-            { connector: "telegram", external_actor_id: "configured-owner" },
-          ],
-        },
-      });
-    return route.fulfill({ status: 404 });
-  });
+  const fixture = await readyFixture(page);
   await page.goto("/ui/account");
   await expect(
-    page.getByText("configured-owner", { exact: true }),
+    page.getByRole("heading", { name: "Profile", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /Link identity|Link Telegram/ }),
+    page.getByRole("heading", { name: "Login credentials", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Verified identities", exact: true }),
   ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Telegram", exact: true }),
+  ).toHaveCount(0);
+  expect(
+    fixture.requests.some((request) => request.path === "/account/identities"),
+  ).toBe(false);
 });
 
 test("a connector draft uses its own resource and validates before saving", async ({
   page,
 }) => {
-  let saved: unknown;
-  await page.route("**/api/v1/**", async (route) => {
-    const path = decodeURIComponent(new URL(route.request().url()).pathname);
-    if (path.endsWith("/sessions") && route.request().method() === "GET")
-      return route.fulfill({
-        json: { items: [], has_more: false, next_cursor: null },
-      });
-    if (path.endsWith("/context"))
-      return route.fulfill({ json: clientContext() });
-    if (path.endsWith("/configuration"))
-      return route.fulfill({
-        json: { items: ["connectors"], revision: "all-1" },
-      });
-    if (path.endsWith("/configuration-validations"))
-      return route.fulfill({
-        json: { valid: true, issues: [], requires_restart: true },
-      });
-    const connector = path.endsWith("/configuration/connector:telegram");
-    if (connector && route.request().method() === "PUT")
-      saved = route.request().postDataJSON();
-    return route.fulfill({
-      json: {
-        path: connector ? "connector:telegram" : "connectors",
-        content: saved ? (saved as { content: string }).content : "",
-        revision: saved ? "new-1" : "empty-1",
-        redacted: false,
-      },
-    });
-  });
-  await page.goto("/ui/settings/connections");
-  await page.getByLabel("New connector ID").fill("telegram");
-  await page.getByRole("button", { name: "Add connector" }).click();
-  const editor = page.getByRole("textbox", {
-    name: "connector:telegram",
-    exact: true,
-  });
-  await expect(editor).toHaveValue("");
-  const content =
-    '[connector]\nid = "telegram"\ntype = "telegram"\ntoken_env = "TELEGRAM_TOKEN"\nowner_chat = 1';
-  await editor.fill(content);
+  const fixture = await connectorFixture(page, [
+    {
+      id: "browser",
+      kind: "browser",
+      label: "Browser",
+      settings_mode: "structured",
+    },
+  ]);
+  await page.goto("/ui/settings/connections/browser");
+  await page.getByRole("combobox", { name: "Headless mode" }).click();
+  await page.getByRole("option", { name: "Off", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Save", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "Validate changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText(/Saved on disk/)).toBeVisible();
-  expect(saved).toEqual({
-    path: "connector:telegram",
-    content,
-    revision: "empty-1",
+  expect(fixture.writes).toHaveLength(1);
+  expect(fixture.writes[0]).toMatchObject({
+    id: "connector:browser",
+    revision: "r1",
   });
+  expect(fixture.writes[0].content).toContain("headless = false");
+  expect(fixture.writes[0].content).toContain("# retained comment");
 });
 
 test("a process application keeps polling through restarting to its confirmed outcome", async ({

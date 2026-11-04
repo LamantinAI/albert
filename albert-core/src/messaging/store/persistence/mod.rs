@@ -6,14 +6,15 @@ use sqlx::{query, query_as, query_scalar, Sqlite, Transaction};
 
 use super::{AdmissionReceipt, MessageStore};
 use crate::{
-    messaging::contract::ContentRef, messaging::contract::ContextAttachment,
-    messaging::contract::DestinationSpec, messaging::contract::DisplayRoute,
-    messaging::contract::MessageDraft, messaging::contract::MessageEnvelope,
-    messaging::contract::ResolvedDestination, messaging::contract::ReturnAddress,
-    messaging::contract::TrustedSource, messaging::contract::WorkReportPolicy,
-    messaging::contract::CONTRACT_VERSION, messaging::contract::MESSAGE_MARKER,
-    messaging::policy::draft, messaging::policy::private_session, messaging::policy::RouteGuard,
-    messaging::MessagingError, messaging::MessagingResult,
+    accounts::record_message_authority, messaging::contract::ContentRef,
+    messaging::contract::ContextAttachment, messaging::contract::DestinationSpec,
+    messaging::contract::DisplayRoute, messaging::contract::MessageDraft,
+    messaging::contract::MessageEnvelope, messaging::contract::ResolvedDestination,
+    messaging::contract::ReturnAddress, messaging::contract::TrustedSource,
+    messaging::contract::WorkReportPolicy, messaging::contract::CONTRACT_VERSION,
+    messaging::contract::MESSAGE_MARKER, messaging::policy::draft,
+    messaging::policy::private_session, messaging::policy::RouteGuard, messaging::MessagingError,
+    messaging::MessagingResult,
 };
 
 /// Host-authored record, explicitly attributed as session message data. Neither
@@ -180,6 +181,7 @@ impl MessageStore {
         query("INSERT INTO albert_messages(message_id,actor_id,source_session,source_record,envelope,digest,created_at,deadline_unix_ms) VALUES(?,?,?,?,?,?,?,?)")
             .bind(proposal.id.as_str()).bind(actor).bind(source.context.session_id().as_str())
             .bind(reference.record_id).bind(envelope_json).bind(digest).bind(now).bind(proposal.deadline_unix_ms).execute(&mut **tx).await?;
+        record_message_authority(tx, proposal.id.as_str(), source.context()).await?;
         let resolved = match proposal.destination {
             DestinationSpec::FixedSession { .. } => {
                 self.admit_in(tx, &record.envelope, &target).await?;

@@ -81,26 +81,39 @@ impl AlbertCogitator {
             return;
         }
         let session = incoming.context.get::<SessionContext>().cloned();
-        let active = self.active_reminders(ctx, session.as_ref()).await;
-        let pad = self.scratchpad.render_scoped(&scratchpad_scope(
-            &Self::logical_conversation(&channel, Some(incoming.source.as_str())),
-            owner,
-        ));
-        let stored = if let Some(actions) = incoming.context.get::<FrozenActions>() {
+        let restricted = session.as_ref().is_some_and(SessionContext::chat_only);
+        let group = session
+            .as_ref()
+            .is_some_and(|session| !session.is_private());
+        let public = restricted || group;
+        let active = if public {
+            String::new()
+        } else {
+            self.active_reminders(ctx, session.as_ref()).await
+        };
+        let pad = if group {
+            String::new()
+        } else {
+            self.scratchpad.render_scoped(&scratchpad_scope(
+                &Self::logical_conversation(&channel, Some(incoming.source.as_str())),
+                owner,
+            ))
+        };
+        let stored = if group {
+            Vec::new()
+        } else if let Some(actions) = incoming.context.get::<FrozenActions>() {
             actions.0.clone()
         } else {
             self.visible_turns(&channel).await.unwrap_or_default()
         };
-        let restricted = incoming
-            .context
-            .get::<SessionContext>()
-            .is_some_and(SessionContext::chat_only);
-        let soul = if restricted {
+        let soul = if group && !restricted {
+            "You are Albert, a helpful assistant in a shared group. Reply in the user's language. Tools reflect this actor's verified permissions. Keep private account history, credentials and unrelated work confidential. Discover connector contracts before use.".into()
+        } else if public {
             "You are Albert, a helpful assistant. Reply in the user's language. Use only this conversation and its scoped scratchpad; you have no global memory, filesystem or connector access.".into()
         } else {
             self.prompt.base()
         };
-        let skills = if restricted {
+        let skills = if public {
             String::new()
         } else {
             self.skills.catalog()
@@ -163,6 +176,20 @@ impl AlbertCogitator {
         }
         // A failed End keeps the existing volatile evidence fenced in RAM.
         // Only the trusted successful-close event purges this slot and feed.
+        if let Some(session) = incoming.context.get::<SessionContext>() {
+            if !session.authorized().await {
+                let records = tool_trace(&feed.checkpoint()).into_iter().collect();
+                if let Err(error) = self
+                    .append_host(&channel, scope, "revoked-checkpoint", records)
+                    .await
+                {
+                    warn!(%error, "could not retain revoked attempt tool evidence");
+                }
+                self.end_feedback(&incoming, ctx).await;
+                locked.active = None;
+                return;
+            }
+        }
         if incoming
             .context
             .get::<SessionContext>()

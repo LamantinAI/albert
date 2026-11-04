@@ -52,24 +52,31 @@ impl Panel {
         if caller.must_rotate() {
             return Err(ApiError::forbidden());
         }
-        let identity = if caller.account_id() == "bootstrap-owner" {
+        // Legacy owner_chat is attribution for the existing journal only. It
+        // never grants Telegram access; native /login is still mandatory.
+        let legacy = if caller.account_id() == "bootstrap-owner" {
             configured_owner(&self.runtime.base.connectors_manifest)
-                .map(|(connector, actor)| ExternalIdentity::new(&connector, &actor))
-                .transpose()
-                .map_err(|_| ApiError::internal())?
-                .unwrap_or(
-                    ExternalIdentity::new("web", caller.account_id())
+        } else {
+            None
+        };
+        let existing: Option<(String,)> = if let Some((connector, actor)) = legacy {
+            query_as("SELECT user_id FROM albert_identity_bindings WHERE connector_id=? AND external_actor_id=?")
+                .bind(connector).bind(actor).fetch_optional(self.runtime.sessions.database().pool()).await.map_err(|_|ApiError::internal())?
+        } else {
+            None
+        };
+        let user = if let Some((user,)) = existing {
+            UserId::parse(&user).map_err(|_| ApiError::internal())?
+        } else {
+            self.runtime
+                .sessions
+                .resolve_identity(
+                    &ExternalIdentity::new("web", caller.account_id())
                         .map_err(|_| ApiError::internal())?,
                 )
-        } else {
-            ExternalIdentity::new("web", caller.account_id()).map_err(|_| ApiError::internal())?
+                .await
+                .map_err(|_| ApiError::internal())?
         };
-        let user = self
-            .runtime
-            .sessions
-            .resolve_identity(&identity)
-            .await
-            .map_err(|_| ApiError::internal())?;
         match self
             .auth
             .bind_profile(

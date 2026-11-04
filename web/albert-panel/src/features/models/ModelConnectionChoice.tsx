@@ -1,15 +1,18 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useClientContext } from "../../app/context";
-import { Icon } from "../../components/Icon";
-import { Button, Notice } from "../../components/ui";
+import { Notice } from "../../components/ui";
+import { SettingsChoices } from "../../components/SettingsActions";
 
 import { OpenAiLogin } from "./OpenAiLogin";
+import { modelChoices } from "./modelChoices";
 
 export function ModelConnectionChoice() {
   const [openai, setOpenai] = useState(false);
   const { context } = useClientContext();
+  const navigate = useNavigate();
+  const location = useLocation();
   const canConfigure = !!context?.caps.manage_models;
   if (context?.setup.model_ready)
     return (
@@ -45,25 +48,16 @@ export function ModelConnectionChoice() {
         <OpenAiLogin onClose={() => setOpenai(false)} onConnected={() => {}} />
       )}
       {canConfigure ? (
-        <div className="model-connection-options">
-          <article className="model-connection-option">
-            <Icon name="spark" size={24} />
-            <div className="model-connection-title">
-              <h2>OpenAI</h2>
-            </div>
-            <p>Sign in with your ChatGPT subscription.</p>
-            <Button onClick={() => setOpenai(true)}>Sign in with OpenAI</Button>
-          </article>
-          <article className="model-connection-option">
-            <Icon name="models" size={24} />
-            <h2>API key</h2>
-            <p>Connect OpenRouter or another OpenAI-compatible provider.</p>
-            <Link to="/models?connect=api" className="button button-primary">
-              Use an API key
-              <Icon name="arrow" size={15} />
-            </Link>
-          </article>
-        </div>
+        <SettingsChoices
+          label="Model connection methods"
+          choices={modelChoices(
+            () =>
+              navigate(
+                `/models?connect=api&return_to=${encodeURIComponent(location.pathname + location.search)}`,
+              ),
+            () => setOpenai(true),
+          )}
+        />
       ) : (
         <Notice>
           A workspace owner needs to connect a model before you can chat.

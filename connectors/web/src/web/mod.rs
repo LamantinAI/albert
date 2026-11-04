@@ -4,6 +4,7 @@ mod assets;
 mod mount;
 mod profile;
 pub(crate) mod sessions;
+mod telegram;
 
 pub use profile::configured_owner;
 
@@ -40,6 +41,7 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(runtime: Arc<AgentRuntime>, auth: Arc<AuthService>) -> Arc<Self> {
+        auth.attach_accounts(runtime.sessions.accounts().clone());
         let gate = Arc::new(Mutex::new(()));
         let models = ModelService::new(runtime.path.clone(), runtime.base.clone(), gate.clone());
         let openai_login = OpenAiLoginService::new(runtime.clone(), auth.clone(), models.clone());
@@ -67,6 +69,10 @@ impl Host for Panel {
         operation: HostOperation,
     ) -> ApiResult<HostResponse> {
         match operation {
+            HostOperation::Connectors => Ok(HostResponse::Connectors(
+                self.control.connector_catalog(caller)?,
+            )),
+            HostOperation::Telegram(operation) => self.telegram_operation(caller, operation).await,
             HostOperation::OpenAiSubscription(operation) => match operation {
                 SubscriptionOperation::Connection => Ok(HostResponse::SubscriptionConnection(
                     self.openai_login.subscription_connection(caller).await?,

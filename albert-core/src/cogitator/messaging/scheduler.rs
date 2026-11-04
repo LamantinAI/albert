@@ -122,7 +122,8 @@ impl AlbertCogitator {
                 continue;
             }
             let context = match service
-                .messaging_context(
+                .messaging_context_for_message(
+                    &id,
                     &entry.envelope.actor,
                     &target,
                     &entry.envelope.return_address,

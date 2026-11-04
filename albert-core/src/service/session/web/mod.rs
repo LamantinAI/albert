@@ -223,6 +223,7 @@ impl SessionService {
         }
         let lease = self.lease_for_in(&mut tx, id).await?;
         let context = SessionContext {
+            account: None,
             actor_tools: Some(actor.tools),
             lease,
             cleanup_scope: None,
@@ -264,6 +265,7 @@ impl SessionService {
             return Err(SessionError::Denied);
         }
         let context = SessionContext {
+            account: None,
             actor_tools: Some(ActorToolPolicy::ExistingHost),
             lease: self.lease_for_in(&mut tx, id).await?,
             cleanup_scope: None,

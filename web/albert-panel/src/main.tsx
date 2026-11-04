@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import { App } from "./app/App";
+import { stabilizeDocumentIcons } from "./app/documentIcons";
 import "./styles/fonts.css";
 import "./styles/tokens.css";
 import "./styles/base.css";
@@ -16,5 +17,7 @@ import "./styles/admin.css";
 import "./styles/overlays.css";
 import "./styles/subscription.css";
 import "./styles/progress.css";
+import "./styles/settings-list.css";
 
+stabilizeDocumentIcons();
 createRoot(document.getElementById("root")!).render(<App />);

@@ -9,9 +9,9 @@ use super::{
 };
 use crate::{
     acl::command as acl_command, acl::is_acl_admin, acl::is_owner, acl::should_respond, acl::tag,
-    commands::help, commands::parse, commands::seed, sessions::acceptance::SourceReceipt,
-    sessions::presentation::PresentationDetached, sessions::presentation::PresentationOpened,
-    sessions::SessionContext, sessions::SessionEnded,
+    commands::account_help, commands::help, commands::parse, commands::seed,
+    sessions::acceptance::SourceReceipt, sessions::presentation::PresentationDetached,
+    sessions::presentation::PresentationOpened, sessions::SessionContext, sessions::SessionEnded,
 };
 
 impl AlbertCogitator {
@@ -144,6 +144,11 @@ impl AlbertCogitator {
             && tag(&incoming, "forwarded") != Some("true")
         {
             let owner = is_owner(&incoming);
+            let personal_control = if let Some(session) = incoming.context.get::<SessionContext>() {
+                session.is_private() && session.account().is_some() && session.authorized().await
+            } else {
+                false
+            };
             let command_text = tag(&incoming, "command_text").unwrap_or(&input.text);
             let invocation = parse(command_text);
             let command = invocation
@@ -174,7 +179,7 @@ impl AlbertCogitator {
             }
 
             if command == "compact" {
-                if !owner {
+                if !owner && !personal_control {
                     self.emit_reply(
                         &incoming,
                         "Only the owner can compact this conversation.".into(),
@@ -199,7 +204,7 @@ impl AlbertCogitator {
                 return;
             }
 
-            if !owner && matches!(command, "cancel" | "restart") {
+            if !owner && (command == "restart" || (command == "cancel" && !personal_control)) {
                 self.emit_reply(
                     &incoming,
                     "Only the owner can use this command.".into(),
@@ -208,10 +213,9 @@ impl AlbertCogitator {
                 .await;
                 return;
             }
-            // Owner-only /cancel: stop this channel's in-flight turn — abort its task AND
-            // cancel the connector work it started (forkd scripts) — with no successor.
-            // Non-owners can't halt Albert, so for them it falls through as ordinary text.
-            if owner && command == "cancel" {
+            // The owner may stop group work; registered users control only
+            // their own private session, never another participant's group task.
+            if (owner || personal_control) && command == "cancel" {
                 let stopped = self.cancel_channel(&turn_key(&incoming), ctx).await;
                 let msg = if stopped {
                     "Stopped."
@@ -252,7 +256,14 @@ impl AlbertCogitator {
                 } else {
                     self.skills.commands()
                 };
-                let reply = help(&skills, owner, is_acl_admin(&incoming));
+                let reply = match incoming
+                    .context
+                    .get::<SessionContext>()
+                    .filter(|s| s.account().is_some())
+                {
+                    Some(session) => account_help(&skills, owner, session.is_private()),
+                    None => help(&skills, owner, is_acl_admin(&incoming)),
+                };
                 self.finish_reflex(&incoming, input.text, reply, ctx, false)
                     .await;
                 return;

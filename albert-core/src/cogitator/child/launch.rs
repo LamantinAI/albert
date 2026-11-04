@@ -1,6 +1,6 @@
 use std::{
-    collections::HashSet, fs::create_dir_all, panic::AssertUnwindSafe, path::PathBuf,
-    sync::atomic::Ordering, sync::Arc, time::Duration,
+    collections::HashSet, fs::create_dir_all, future::pending, panic::AssertUnwindSafe,
+    path::PathBuf, sync::atomic::Ordering, sync::Arc, time::Duration,
 };
 
 use futures::FutureExt;
@@ -271,6 +271,7 @@ impl AlbertCogitator {
                 .catch_unwind();
                 select! {
                     biased;
+                    _ = async { match &owned_run.session { Some(s) => s.access_cancelled().await, None => pending::<()>().await } } => json!({"status":"cancelled","reason":"Account access changed."}),
                     _ = cancelled.changed() => json!({"status":"cancelled"}),
                     _ = ctx.shutdown.cancelled() => json!({"status":"cancelled"}),
                     _ = sleep(Duration::from_secs(seconds)) => json!({"status":"timed_out"}),

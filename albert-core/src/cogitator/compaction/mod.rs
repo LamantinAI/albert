@@ -59,8 +59,7 @@ impl AlbertCogitator {
         channel: &str,
     ) -> Result<(Vec<Message>, Option<i64>), String> {
         if self.history.retains_context() {
-            self.history
-                .context(channel)
+            self.context_window(channel, None)
                 .await
                 .map(|window| {
                     let revision = window.compact.as_ref().map(|c| c.id);

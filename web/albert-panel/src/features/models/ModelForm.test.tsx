@@ -1,11 +1,24 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { UnsavedChangesProvider } from "../../app/UnsavedChanges";
 
 import { ModelForm } from "./ModelForm";
 
+function renderForm(form: ReactNode) {
+  const router = createMemoryRouter([
+    {
+      path: "*",
+      element: <UnsavedChangesProvider>{form}</UnsavedChangesProvider>,
+    },
+  ]);
+  return render(<RouterProvider router={router} />);
+}
+
 it("preserves a host-managed subscription endpoint when editing its model metadata", async () => {
   const save = vi.fn().mockResolvedValue(undefined);
-  render(
+  renderForm(
     <ModelForm
       initial={{
         config: {
@@ -42,7 +55,7 @@ it("preserves a host-managed subscription endpoint when editing its model metada
 
 it("lets the server allocate an independent credential for a new model", async () => {
   const save = vi.fn().mockResolvedValue(undefined);
-  render(<ModelForm onSave={save} />);
+  renderForm(<ModelForm onSave={save} />);
   expect(screen.getByLabelText("Credential name")).toHaveValue("");
   expect(screen.getByLabelText("Credential name")).not.toBeRequired();
   fireEvent.change(screen.getByLabelText("Model ID"), {

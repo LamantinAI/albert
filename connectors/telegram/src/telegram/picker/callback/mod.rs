@@ -58,10 +58,26 @@ impl SessionTelegramPolicy {
         let identity =
             ExternalIdentity::new(frame.connector.as_str(), &frame.actor_id.to_string())?;
         let reply = ReplyRoute::new(frame.connector.as_str(), &message.chat_id.to_string(), None)?;
-        let context = self
+        let mut context = self
             .service
             .picker_context(identity, reply, &ticket.binding.user)
             .await?;
+        if let Some(accounts) = &self.accounts {
+            let actor = i64::try_from(frame.actor_id).map_err(|_| SessionError::Denied)?;
+            let grant = accounts
+                .actor(frame.connector.as_str(), frame.bot_id, actor)
+                .await
+                .map_err(|_| SessionError::Denied)?
+                .ok_or(SessionError::Denied)?;
+            if context
+                .user_id()
+                .is_none_or(|user| user.as_str() != grant.user_id)
+                || !grant.valid().await
+            {
+                return Err(SessionError::Denied);
+            }
+            context = context.with_account(grant);
+        }
         if !self
             .picker
             .registry

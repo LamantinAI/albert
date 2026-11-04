@@ -1,5 +1,12 @@
+use super::models::{ConnectorList, ConnectorTypeView, ConnectorView};
+
 use serde_json::{json, to_value, Value};
 use utoipa::OpenApi;
+
+use super::models::{
+    TelegramBindingView, TelegramConnectionList, TelegramConnectionView, TelegramCredentialWrite,
+    TelegramLoginTokenView, TelegramTokenRequest,
+};
 
 use super::{
     models::AccountRole, models::AccountView, models::ApiErrorBody, models::ApiErrorDetail,
@@ -27,6 +34,15 @@ use super::{
 
 #[derive(OpenApi)]
 #[openapi(components(schemas(
+    ConnectorView,
+    ConnectorList,
+    ConnectorTypeView,
+    TelegramCredentialWrite,
+    TelegramTokenRequest,
+    TelegramLoginTokenView,
+    TelegramBindingView,
+    TelegramConnectionView,
+    TelegramConnectionList,
     SubscriptionApplyRequest,
     SubscriptionSelection,
     SubscriptionConnectionView,
@@ -110,6 +126,43 @@ struct ApiDoc;
 /// This route inventory also drives router registration; request/response shapes
 /// come from Rust DTO schemas, not a second handwritten TypeScript contract.
 pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
+    ("GET", "/connectors", None, "ConnectorList"),
+    (
+        "GET",
+        "/account/telegram/connections",
+        None,
+        "TelegramConnectionList",
+    ),
+    (
+        "GET",
+        "/account/connectors/{id}/telegram",
+        None,
+        "TelegramConnectionView",
+    ),
+    (
+        "PUT",
+        "/connectors/{id}/telegram/credential",
+        Some("TelegramCredentialWrite"),
+        "TelegramConnectionView",
+    ),
+    (
+        "POST",
+        "/account/connectors/{id}/telegram/login-tokens",
+        Some("TelegramTokenRequest"),
+        "TelegramLoginTokenView",
+    ),
+    (
+        "DELETE",
+        "/account/connectors/{id}/telegram/login-tokens/current",
+        None,
+        "EmptyObject",
+    ),
+    (
+        "DELETE",
+        "/account/connectors/{id}/telegram/binding",
+        None,
+        "TelegramConnectionView",
+    ),
     (
         "POST",
         "/openai-login-attempts",

@@ -94,6 +94,25 @@ export async function readyFixture(page: Page, context = clientContext()) {
         body: JSON.stringify(value),
       });
     if (path === "/context") return json(context);
+    if (path === "/model-pool")
+      return json({ revision: "r1", preferred: null, models: [], roles: [] });
+    if (path === "/account/telegram/connections") return json({ items: [] });
+    if (path === "/connectors")
+      return json({
+        items: [
+          {
+            id: "telegram",
+            kind: "telegram",
+            label: "Telegram",
+            settings_mode: "structured",
+          },
+        ],
+        available_types: [
+          { kind: "telegram", label: "Telegram" },
+          { kind: "http", label: "HTTP service" },
+          { kind: "browser", label: "Browser" },
+        ],
+      });
     if (path === "/session-starts" && method === "POST")
       return json(admit(body!));
     if (path === `/session-starts/${startId}` && startId)

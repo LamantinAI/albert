@@ -87,6 +87,14 @@ impl AuthService {
             return Err(AuthError::Conflict);
         }
         tx.commit().await?;
+        if let Some(authority) = self
+            .accounts
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            authority.invalidate_account(id);
+        }
         view(
             by_id(&self.pool, id)
                 .await?

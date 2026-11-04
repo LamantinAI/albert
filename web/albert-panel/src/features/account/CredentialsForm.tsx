@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 
 import { api, errorMessage } from "../../api/client";
 import { useClientContext } from "../../app/context";
+import { useUnsavedChanges } from "../../app/UnsavedChanges";
 import { Button, Field, Notice } from "../../components/ui";
 
 export function CredentialsForm({ forced = false }: { forced?: boolean }) {
@@ -14,6 +15,11 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [baseline, setBaseline] = useState(username);
+  const markSaved = useUnsavedChanges(
+    username !== baseline || !!current || !!password || !!confirmation,
+    JSON.stringify([username, current, password, confirmation]),
+  );
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -31,6 +37,8 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
           new_username: username.trim(),
         },
       });
+      markSaved();
+      setBaseline(username);
       setCurrent("");
       setPassword("");
       setConfirmation("");
@@ -45,6 +53,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
   return (
     <form className="form-stack credentials-form" onSubmit={submit}>
       <Field
+        disabled={busy}
         label="Username"
         required
         autoComplete="username"
@@ -52,6 +61,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
         onChange={(event) => setUsername(event.target.value)}
       />
       <Field
+        disabled={busy}
         label="Current password"
         type="password"
         autoComplete="current-password"
@@ -60,6 +70,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
         onChange={(event) => setCurrent(event.target.value)}
       />
       <Field
+        disabled={busy}
         label="New password"
         type="password"
         autoComplete="new-password"
@@ -70,6 +81,7 @@ export function CredentialsForm({ forced = false }: { forced?: boolean }) {
         hint="Use at least 12 characters. Choose a password you do not use elsewhere."
       />
       <Field
+        disabled={busy}
         label="Confirm new password"
         type="password"
         autoComplete="new-password"

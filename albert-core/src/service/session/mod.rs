@@ -28,8 +28,8 @@ use octo_history::{
 
 use self::{native_routes::NativeSeen, titles::TitleJobs};
 use crate::{
-    db::entity::PrivateRouteKey, db::error::DatabaseError, db::Database,
-    history::sessions::SessionHistory, messaging::transport::AdapterRegistry,
+    accounts::AccountAuthority, db::entity::PrivateRouteKey, db::error::DatabaseError,
+    db::Database, history::sessions::SessionHistory, messaging::transport::AdapterRegistry,
     sessions::error::SessionError, sessions::error::SessionResult, sessions::lease::ScopeRegistry,
     sessions::lease::SessionLease, sessions::presentation::PresentationRegistry,
     sessions::settings::SessionSettings, sessions::SessionContext,
@@ -37,6 +37,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct SessionService {
+    accounts: AccountAuthority,
     history: Arc<SqliteHistory>,
     database: Database,
     settings: SessionSettings,
@@ -50,6 +51,9 @@ pub struct SessionService {
 }
 
 impl SessionService {
+    pub fn accounts(&self) -> &AccountAuthority {
+        &self.accounts
+    }
     pub fn presentations(&self) -> &PresentationRegistry {
         &self.presentations
     }

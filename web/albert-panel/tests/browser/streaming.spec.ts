@@ -152,9 +152,7 @@ test("settings expand in sidebar and model status does not reserve a redundant h
     .getByRole("navigation", { name: "Settings navigation" })
     .getByRole("link", { name: "Models", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Your model pool." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Models" })).toBeVisible();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
   await settings.click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");

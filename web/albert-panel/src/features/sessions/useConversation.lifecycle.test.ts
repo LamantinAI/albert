@@ -2,6 +2,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { useConversation } from "./useConversation";
+import { ApiError } from "../../api/client";
 import type { SessionState } from "./useConversation";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -110,6 +111,37 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+for (const status of [404, 410]) {
+  test(`a removed session (${status}) closes its stream without becoming a user-facing error`, async () => {
+    api.mockRejectedValue(
+      new ApiError(
+        status,
+        "session_ended",
+        "This chat is no longer available.",
+      ),
+    );
+    const { result } = renderHook(() => useConversation("one"));
+    await waitFor(() => expect(result.current.missing).toBe(true));
+    expect(result.current.error).toBe("");
+    expect(Source.instances[0].close).toHaveBeenCalled();
+    const reads = api.mock.calls.length;
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(api.mock.calls).toHaveLength(reads);
+  });
+}
+
+test("a permission failure is distinct from a removed session", async () => {
+  api.mockRejectedValue(
+    new ApiError(403, "forbidden", "Access is no longer permitted."),
+  );
+  const { result } = renderHook(() => useConversation("one"));
+  await waitFor(() => expect(result.current.unavailable).toBe(true));
+  expect(result.current.missing).toBe(false);
+  expect(result.current.error).toBe("Access is no longer permitted.");
 });
 
 test("progress updates do not reload transcripts and old attempts cannot replace current activity", async () => {

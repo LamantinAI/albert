@@ -89,6 +89,9 @@ async fn buffered_completion(
     {
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
+    if model == "account-hold" {
+        sleep(Duration::from_secs(10)).await;
+    }
     if model == "hanging" {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -304,7 +307,11 @@ pub(super) async fn setup(first: &str) -> (Arc<AlbertCogitator>, CogitatorContex
             tools: true,
             reasoning: None,
             reasoning_effort: None,
-            request_timeout_ms: if id == "hanging" { 20 } else { 2000 },
+            request_timeout_ms: match id {
+                "hanging" => 20,
+                "account-hold" => 10000,
+                _ => 2000,
+            },
         })
         .collect(),
     });

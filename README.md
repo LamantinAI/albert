@@ -85,7 +85,7 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   reloading a connector's manifest, or its whole self (history + memory persist).
 - **[Model pool](docs/model-pool.md)** — owner-controlled live selection, explicit
   capabilities and bounded fallback without automatically replaying tool actions.
-- **Config-driven connectors** — Telegram (sender-aware ACL, `/chatinfo`, owner-only `/groupmode`,
+- **Config-driven connectors** — Telegram (account-bound token login, `/chatinfo`,
   replies only when addressed in groups), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
   a **scheduler**, **storage**, **forkd**, **search** (web search over several engines —
   DuckDuckGo now, Yandex next; the manifest sets the default and Albert can pick per
@@ -139,8 +139,10 @@ Telegram bot token and, optionally, calendar credentials.
 
 2. **Config** — edit `albert.toml` (model, timezone, cadence, paths) and the connector
    manifests:
-   - `config/connectors/telegram/telegram.toml` — set `owner_chat` to **your** chat id
-     (ask `@userinfobot`), or the ACL locks everyone out including you.
+   - Telegram — connect the bot inside its own page under **Settings → Connections**, create a personal
+     login token in the same connector settings, then send `/login <token>` in the
+     bot's private chat. Existing conversations are preserved. See
+     [Telegram account access](docs/telegram-accounts.md).
    - `config/connectors/calendar/calendar.toml` — set your account (`login`, or the
      Google `collection` + client).
 

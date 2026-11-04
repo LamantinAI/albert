@@ -1,6 +1,8 @@
 //! Adapter labels for supervised Telegram I/O; session ownership remains in
 //! SessionService, independently of this transport's cleanup lifecycle.
 
+mod account_delivery;
+mod accounts;
 mod commands;
 mod navigation;
 pub(crate) mod picker;

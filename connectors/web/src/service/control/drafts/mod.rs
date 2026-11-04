@@ -1,14 +1,16 @@
 //! Lossless owner-only transformations of an unsaved configuration draft.
 mod comments;
+#[cfg(test)]
+mod connectors;
 mod fields;
 
 use std::collections::HashSet;
 
 use serde_json::{json, Value};
-use toml_edit::{DocumentMut, InlineTable, Item, Table, Value as TomlValue};
+use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value as TomlValue};
 
 use self::{comments::comments, comments::retain_removed_comments, fields::fields};
-use super::{redact, ControlService};
+use super::{connector_fields::connector_fields, redact, ControlService};
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::models::ConfigDraftInput,
     api::models::ConfigDraftView, api::models::ConfigField, api::models::ConfigFieldKind,
@@ -19,6 +21,15 @@ fn scalar(value: &TomlValue, field: &ConfigField) -> ApiResult<Value> {
         ConfigFieldKind::Boolean => value.as_bool().map(|v| json!(v)),
         ConfigFieldKind::Integer => value.as_integer().map(|v| json!(v)),
         ConfigFieldKind::Text => value.as_str().map(|v| json!(v)),
+        ConfigFieldKind::Number => value
+            .as_float()
+            .or_else(|| value.as_integer().map(|n| n as f64))
+            .filter(|n| n.is_finite())
+            .map(|v| json!(v)),
+        ConfigFieldKind::TextList => value
+            .as_array()
+            .and_then(|items| items.iter().map(|v| v.as_str()).collect::<Option<Vec<_>>>())
+            .map(|v| json!(v)),
     }
     .ok_or_else(|| {
         ApiError::invalid(format!(
@@ -40,13 +51,31 @@ fn scalar(value: &TomlValue, field: &ConfigField) -> ApiResult<Value> {
 fn validate(value: &Value, field: &ConfigField) -> ApiResult<()> {
     let valid = match field.kind {
         ConfigFieldKind::Boolean => value.is_boolean(),
-        ConfigFieldKind::Text => value.is_string(),
+        ConfigFieldKind::Text => value
+            .as_str()
+            .is_some_and(|s| field.required != Some(true) || !s.trim().is_empty()),
+        ConfigFieldKind::Number => value.as_f64().is_some_and(|n| {
+            n.is_finite()
+                && field.minimum.is_none_or(|min| n >= min as f64)
+                && field.maximum.is_none_or(|max| n <= max as f64)
+        }),
+        ConfigFieldKind::TextList => value.as_array().is_some_and(|a| {
+            a.len() <= 256
+                && a.iter()
+                    .all(|v| v.as_str().is_some_and(|s| s.len() <= 4096))
+        }),
         ConfigFieldKind::Integer => value.as_i64().is_some_and(|number| {
             field.minimum.is_none_or(|min| number >= min)
                 && field.maximum.is_none_or(|max| number <= max)
         }),
     };
-    if valid {
+    if valid
+        && field.choices.as_ref().is_none_or(|options| {
+            value
+                .as_str()
+                .is_some_and(|v| options.iter().any(|option| option == v))
+        })
+    {
         Ok(())
     } else {
         Err(ApiError::invalid(format!(
@@ -112,16 +141,33 @@ fn assign(item: &mut Item, path: &[&str], value: Option<TomlValue>) -> ApiResult
         };
         table.insert(key, child);
     }
+    let removing = value.is_none();
     assign(
         table
             .get_mut(key)
             .ok_or_else(|| ApiError::invalid("Cannot create this setting group."))?,
         rest,
         value,
-    )
+    )?;
+    if removing
+        && table
+            .get(key)
+            .and_then(Item::as_table_like)
+            .is_some_and(|child| child.is_empty())
+    {
+        table.remove(key);
+    }
+    Ok(())
 }
 
 fn transform(input: ConfigDraftInput) -> ApiResult<ConfigDraftView> {
+    transform_fields(input, fields())
+}
+
+fn transform_fields(
+    input: ConfigDraftInput,
+    mut fields: Vec<ConfigField>,
+) -> ApiResult<ConfigDraftView> {
     if input.content.len() > 1024 * 1024 || input.changes.len() > 64 {
         return Err(ApiError::invalid(
             "Configuration draft exceeds its size limit.",
@@ -135,7 +181,6 @@ fn transform(input: ConfigDraftInput) -> ApiResult<ConfigDraftView> {
     let mut doc = input.content.parse::<DocumentMut>().map_err(|_| {
         ApiError::invalid("The draft is not valid TOML. Correct it in Raw before using the form.")
     })?;
-    let mut fields = fields();
     let mut changed = false;
     let mut paths = HashSet::new();
     let mut removed_comments = Vec::new();
@@ -152,20 +197,37 @@ fn transform(input: ConfigDraftInput) -> ApiResult<ConfigDraftView> {
             .map(|value| scalar(value, field))
             .transpose()?;
         if edit.value.is_null() {
+            if field.required == Some(true) && field.default_value.is_null() {
+                return Err(ApiError::invalid(format!("{} is required.", field.label)));
+            }
             if old.is_some() {
                 removed_comments.extend(comments(doc.as_item(), &path));
+                for end in 1..path.len() {
+                    removed_comments.extend(comments(doc.as_item(), &path[..end]));
+                }
                 assign(doc.as_item_mut(), &path, None)?;
                 changed = true;
             }
         } else {
             validate(&edit.value, field)?;
-            if old.as_ref() == Some(&edit.value) {
+            if old.as_ref() == Some(&edit.value)
+                || (matches!(field.kind, ConfigFieldKind::Number)
+                    && old.as_ref().and_then(Value::as_f64) == edit.value.as_f64())
+            {
                 continue;
             }
             let value = match field.kind {
                 ConfigFieldKind::Boolean => TomlValue::from(edit.value.as_bool().unwrap()),
                 ConfigFieldKind::Integer => TomlValue::from(edit.value.as_i64().unwrap()),
                 ConfigFieldKind::Text => TomlValue::from(edit.value.as_str().unwrap()),
+                ConfigFieldKind::Number => TomlValue::from(edit.value.as_f64().unwrap()),
+                ConfigFieldKind::TextList => {
+                    let mut array = Array::new();
+                    for value in edit.value.as_array().unwrap() {
+                        array.push(value.as_str().unwrap());
+                    }
+                    TomlValue::Array(array)
+                }
             };
             assign(doc.as_item_mut(), &path, Some(value))?;
             changed = true;
@@ -198,8 +260,8 @@ impl ControlService {
         id: &str,
         input: ConfigDraftInput,
     ) -> ApiResult<ConfigDraftView> {
-        if id != "albert" {
-            return Err(ApiError::invalid("Structured fields are available for the agent configuration. Use the specialized editor or Raw for other documents."));
+        if id != "albert" && !id.starts_with("connector:") {
+            return Err(ApiError::invalid("This document has no field editor."));
         }
         let _gate = self.gate.lock().await;
         let current = self.document(id)?;
@@ -211,7 +273,29 @@ impl ControlService {
         if current.redacted {
             return Err(ApiError::invalid("Inline secrets are redacted. Use credential controls before editing this document."));
         }
-        transform(input)
+        if id == "albert" {
+            return transform(input);
+        }
+        let kind = self
+            .connector_header(id, &input.content)
+            .map_err(ApiError::invalid)?;
+        if !current.content.trim().is_empty()
+            && self
+                .connector_header(id, &current.content)
+                .map_err(ApiError::invalid)?
+                != kind
+        {
+            return Err(ApiError::invalid(
+                "Connector type cannot change through the field editor.",
+            ));
+        }
+        let fields = connector_fields(&kind);
+        if fields.is_empty() {
+            return Err(ApiError::invalid(
+                "This connector currently requires Raw configuration.",
+            ));
+        }
+        transform_fields(input, fields)
     }
 }
 

@@ -5,7 +5,7 @@ use albert_core::{
     sessions::acceptance::SourceReceipt, sessions::actor::ActorToolPolicy,
     sessions::SessionContext,
 };
-use octo_approval::{Access, Origin, ScopeBinding};
+use octo_approval::{Access, Origin};
 use octo_core::{ChannelId, ChannelMetadata, ConnectorId, Envelope, EventKind};
 use octo_history::{AppendReceipt, RequestBinding, SessionId};
 use serde_json::to_vec;
@@ -163,6 +163,17 @@ impl SessionHost {
             .unwrap()
             .clone()
             .ok_or_else(|| ApiError::unavailable("Web transport is starting."))?;
+        let grant = self
+            .runtime
+            .sessions
+            .accounts()
+            .account(&actor.account_id)
+            .await
+            .map_err(|_| ApiError::forbidden())?;
+        let context = context.clone().with_account(grant);
+        if !context.authorized().await {
+            return Err(ApiError::forbidden());
+        }
         let (accepted, receipt) = SourceReceipt::channel();
         let channel = context.reply_route().channel();
         let owner = actor.tools == ActorToolPolicy::ExistingHost;
@@ -186,15 +197,17 @@ impl SessionHost {
                 },
                 Access::owner(),
             );
-            if let Some(epoch) = context.scope_epoch() {
+            if let Some(binding) = self
+                .runtime
+                .sessions
+                .scope_registry()
+                .binding(&context)
+                .map_err(session_error)?
+            {
                 ingress = self
                     .runtime
                     .authority
-                    .bind_scope(
-                        &ingress,
-                        ScopeBinding::new(context.root_history_key(), epoch.to_owned())
-                            .map_err(|_| ApiError::forbidden())?,
-                    )
+                    .bind_scope(&ingress, binding)
                     .map_err(|_| ApiError::forbidden())?;
             }
             envelope = envelope.with_context(ingress);

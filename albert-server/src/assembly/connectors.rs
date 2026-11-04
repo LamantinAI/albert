@@ -1,10 +1,10 @@
 //! Existing connector configuration and ACL semantics stay in their adapters.
-use std::sync::Arc;
+use std::{fs::read_to_string, sync::Arc};
 
 use albert_connector_console::ConsoleConnector;
 use albert_connector_telegram::SessionTelegramPolicy;
 use albert_core::{
-    config::Config, error::Result, messaging::transport::AdapterKind,
+    config::Config, error::Result, manifests::connector_files, messaging::transport::AdapterKind,
     messaging::transport::AdapterRegistry, service::session::SessionService,
 };
 use octo_approval::Authority;
@@ -22,10 +22,35 @@ use octo_connector_telegram::factory_with_policy as telegram_factory;
 use octo_connector_transcribe::factory as transcribe_factory;
 use octo_core::{Octo, OctoBuilder};
 use octo_openai_auth::SubscriptionAuth;
+use toml::Value;
 use tracing::warn;
 
 use super::report_factory::ReportFactory;
 use crate::{sql::console_sql_connectors, sql::protected_paths};
+
+pub(super) fn configured_telegram(config: &Config) -> bool {
+    connector_files(&config.connectors_manifest)
+        .into_iter()
+        .any(|path| {
+            let Some(header) = read_to_string(path)
+                .ok()
+                .and_then(|text| text.parse::<Value>().ok())
+            else {
+                return false;
+            };
+            let Some(connector) = header.get("connector") else {
+                return false;
+            };
+            if connector.get("type").and_then(Value::as_str) != Some("telegram") {
+                return false;
+            }
+            let reference = connector
+                .get("token_env")
+                .and_then(Value::as_str)
+                .unwrap_or("OCTO_TELEGRAM_TOKEN");
+            config.secret(reference).is_some()
+        })
+}
 
 pub(super) fn channels(
     config: &Config,
@@ -43,10 +68,10 @@ pub(super) fn channels(
                 ReportFactory::new(
                     telegram_factory(
                         authority.clone(),
-                        Arc::new(SessionTelegramPolicy::new(
-                            sessions.clone(),
-                            authority.clone(),
-                        )),
+                        Arc::new(
+                            SessionTelegramPolicy::new(sessions.clone(), authority.clone())
+                                .with_accounts(sessions.accounts().clone()),
+                        ),
                     ),
                     configured_adapters.clone(),
                     AdapterKind::Telegram,

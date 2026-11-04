@@ -114,6 +114,14 @@ export function useSessionActions(
       const session = await refreshSession(selected.session.id);
       if (!alive.current || generation.current !== token || !session)
         return null;
+      if (
+        session.kind === "temporary" &&
+        ["ended", "closed", "expired"].includes(session.state)
+      ) {
+        close();
+        ended({ ...selected, session });
+        return null;
+      }
       if (session.kind !== kind || session.state !== "active") {
         close(true);
         setError("This conversation changed. Open its actions again.");
@@ -126,7 +134,13 @@ export function useSessionActions(
     } catch (reason) {
       if (alive.current && generation.current === token) {
         close(true);
-        setError(errorMessage(reason));
+        if (
+          selected.session.kind === "temporary" &&
+          reason instanceof ApiError &&
+          [404, 410].includes(reason.status)
+        )
+          ended(selected);
+        else setError(errorMessage(reason));
       }
       return null;
     } finally {
@@ -258,7 +272,7 @@ export function useSessionActions(
       window.location.pathname.replace(/\/+$/, "") ===
         uiPath(`/chats/${encodeURIComponent(value.session.id)}`)
     )
-      navigate("/chats");
+      navigate("/chats", { replace: true });
     restore(value);
   }
   async function end() {
@@ -292,7 +306,10 @@ export function useSessionActions(
           (failure) => failure,
         );
         if (!alive.current) return;
-        if (observed instanceof ApiError && observed.status === 410)
+        if (
+          observed instanceof ApiError &&
+          [404, 410].includes(observed.status)
+        )
           ended(value);
         else setError(errorMessage(reason));
       }

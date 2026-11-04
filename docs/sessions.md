@@ -22,7 +22,9 @@ can be linked by trusted configuration; sharing a role such as `owner` does not
 link two people or grant access to someone else's Session. Each Telegram group
 has exactly one Session bound to its exact connector and group channel. It cannot
 be opened from a private chat, browser, another group or another connector,
-including by an owner. Existing ACL and addressed/groupmode admission still apply.
+including by an owner. Telegram account roles govern commands and tools; explicit
+addressing is required in groups. Guests may converse without tools and cannot
+interrupt privileged work. See [Telegram account access](telegram-accounts.md).
 
 The Session catalog and all permanent root/child journals are owned by
 `octo-history` in the internal SQLite database. Albert's user bindings, private

@@ -15,11 +15,11 @@ use tracing::warn;
 use self::{dispatch::MessageDispatch, progress::MessageProgress};
 use super::{reports::report_id, routes::RuntimeRoutes, MessagingRuntime};
 use crate::{
-    cogitator::agent::AttemptTools, cogitator::AlbertCogitator, history::tool_trace,
-    messaging::contract::DestinationSpec, messaging::contract::ExecutionLocation,
-    messaging::contract::MessageDraft, messaging::contract::MessageIntent,
-    messaging::contract::TrustedSource, messaging::contract::WorkRef,
-    messaging::store::AdmittedWork, messaging::store::WorkAuthority,
+    cogitator::agent::AttemptTools, cogitator::retention::fence_tools, cogitator::AlbertCogitator,
+    history::tool_trace, messaging::contract::DestinationSpec,
+    messaging::contract::ExecutionLocation, messaging::contract::MessageDraft,
+    messaging::contract::MessageIntent, messaging::contract::TrustedSource,
+    messaging::contract::WorkRef, messaging::store::AdmittedWork, messaging::store::WorkAuthority,
     messaging::store::WorkCompletion, messaging::store::WorkTerminal, models::needs_vision,
     sessions::SessionContext, status::StatusFeed, subagents::budget::Budget,
 };
@@ -62,6 +62,7 @@ impl AlbertCogitator {
             );
             select! {
                 biased;
+                _ = source.context().access_cancelled() => Err(WorkTerminal::ExecutionFailed),
                 changed = cancelled.changed() => Err(if changed.is_ok() { *cancelled.borrow() } else { WorkTerminal::Interrupted }),
                 _ = ctx.shutdown.cancelled() => Err(WorkTerminal::Interrupted),
                 _ = sleep(wait) => Err(WorkTerminal::Expired),
@@ -203,7 +204,10 @@ impl AlbertCogitator {
                 )
             }
         };
-        let tools: Vec<Arc<dyn ToolDyn>> = tools.into_iter().map(Arc::from).collect();
+        let tools: Vec<Arc<dyn ToolDyn>> = fence_tools(tools, Some(session.clone()))
+            .into_iter()
+            .map(Arc::from)
+            .collect();
         let budget = Budget::new(calls);
         let snapshot = self.models.snapshot();
         self.compact_history(&session.root_history_key(), false, false, &feed)

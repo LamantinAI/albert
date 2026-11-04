@@ -1,3 +1,10 @@
+pub mod connectors;
+pub use connectors::{ConnectorList, ConnectorTypeView, ConnectorView};
+pub mod telegram;
+pub use telegram::{
+    TelegramBindingView, TelegramConnectionList, TelegramConnectionView, TelegramCredentialWrite,
+    TelegramLoginTokenView, TelegramTokenRequest,
+};
 pub mod account;
 pub mod configuration;
 pub mod control;

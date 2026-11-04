@@ -4,6 +4,11 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::Serialize;
 
+use super::models::{
+    ConnectorList, TelegramConnectionList, TelegramConnectionView, TelegramCredentialWrite,
+    TelegramLoginTokenView,
+};
+
 use super::{
     errors::ApiResult, models::ApplyRequest, models::ApplyView, models::ApprovalDecision,
     models::ApprovalList, models::ApprovalView, models::AttemptView, models::CancelRequest,
@@ -45,6 +50,8 @@ pub trait Host: Send + Sync {
     ) -> ApiResult<EventStream>;
 }
 pub enum HostOperation {
+    Connectors,
+    Telegram(TelegramOperation),
     OpenAiLogin(OpenAiLoginOperation),
     OpenAiSubscription(SubscriptionOperation),
     Profile(ProfileOperation),
@@ -169,6 +176,10 @@ pub enum ApprovalOperation {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum HostResponse {
+    Connectors(ConnectorList),
+    TelegramConnections(TelegramConnectionList),
+    TelegramConnection(TelegramConnectionView),
+    TelegramToken(TelegramLoginTokenView),
     OpenAiLogin(OpenAiLoginView),
     SubscriptionConnection(SubscriptionConnectionView),
     SubscriptionCatalog(SubscriptionCatalogView),
@@ -193,4 +204,24 @@ pub enum HostResponse {
     Approval(ApprovalView),
     Approvals(ApprovalList),
     Empty(EmptyObject),
+}
+
+pub enum TelegramOperation {
+    List,
+    Status {
+        id: String,
+    },
+    Credential {
+        id: String,
+        input: TelegramCredentialWrite,
+    },
+    Issue {
+        id: String,
+    },
+    RevokeToken {
+        id: String,
+    },
+    Disconnect {
+        id: String,
+    },
 }

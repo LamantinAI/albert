@@ -4,12 +4,13 @@ mod password;
 mod users;
 
 use std::{
-    collections::VecDeque, io::Error as IoError, path::Path, sync::Arc, sync::Mutex,
+    collections::VecDeque, io::Error as IoError, path::Path, sync::Arc, sync::Mutex, sync::RwLock,
     time::Duration, time::Instant,
 };
 
 use albert_core::{
-    db::account::LoginAccount, db::error::DatabaseError, db::repo::account::seed_owner,
+    accounts::AccountAuthority, db::account::LoginAccount, db::error::DatabaseError,
+    db::repo::account::seed_owner,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::{rngs::OsRng, RngCore};
@@ -79,6 +80,7 @@ impl Default for AuthSettings {
     }
 }
 pub struct AuthService {
+    accounts: RwLock<Option<AccountAuthority>>,
     pub(super) pool: SqlitePool,
     pub(super) key: Vec<u8>,
     pub(super) settings: AuthSettings,
@@ -100,6 +102,7 @@ impl AuthService {
         }
         let key = load_or_create(key_path.as_ref())?;
         let service = Arc::new(Self {
+            accounts: RwLock::new(None),
             pool,
             key,
             workers: Arc::new(Semaphore::new(settings.password_workers)),
@@ -111,6 +114,9 @@ impl AuthService {
         let hash = service.password_hash("owner".into()).await?;
         seed_owner(&service.pool, &hash).await?;
         Ok(service)
+    }
+    pub fn attach_accounts(&self, accounts: AccountAuthority) {
+        *self.accounts.write().unwrap_or_else(|e| e.into_inner()) = Some(accounts);
     }
     pub fn settings(&self) -> &AuthSettings {
         &self.settings

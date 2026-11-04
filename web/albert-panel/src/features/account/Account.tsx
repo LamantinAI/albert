@@ -1,30 +1,17 @@
-import { useEffect, useState } from "react";
-
-import { api, errorMessage } from "../../api/client";
-import type { ApiResponse } from "../../api/client";
 import { useClientContext } from "../../app/context";
-import { Notice, PageHeading } from "../../components/ui";
+import { useSignOut } from "../../app/useSignOut";
+import { Button, Notice, PageHeading } from "../../components/ui";
+import { Icon } from "../../components/Icon";
 import { CredentialsForm } from "./CredentialsForm";
 
 export function Account() {
   const { context } = useClientContext();
-  const [identities, setIdentities] = useState<ApiResponse<
-    "/account/identities",
-    "get"
-  > | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void api("/account/identities", "get")
-      .then(setIdentities)
-      .catch((error) => setError(errorMessage(error)));
-  }, []);
+  const { signOut, busy, error } = useSignOut();
   return (
-    <div className="workspace-body">
-      <PageHeading eyebrow="Your account" title="Your place in the workspace.">
-        Manage your login and the verified identities that connect your private
-        conversations.
+    <div className="workspace-body account-page">
+      <PageHeading title="Account">
+        Manage your profile and login credentials.
       </PageHeading>
-      {error && <Notice kind="error">{error}</Notice>}
       <section className="card">
         <div className="card-heading">
           <h2>Profile</h2>
@@ -32,26 +19,8 @@ export function Account() {
         </div>
         <p>{context?.account?.username}</p>
         <small className="muted">
-          Private chats belong to your profile. A verified identity link does
-          not grant owner access.
+          Your private conversations are linked to this account.
         </small>
-      </section>
-      <section className="card">
-        <div className="card-heading">
-          <h2>Verified identities</h2>
-        </div>
-        {identities?.items.length === 0 && (
-          <p className="muted">No external identities are linked.</p>
-        )}
-        {identities?.items.map((identity) => (
-          <div
-            className="data-row identity-row"
-            key={`${identity.connector}:${identity.external_actor_id}`}
-          >
-            <strong>{identity.connector}</strong>
-            <small>{identity.external_actor_id}</small>
-          </div>
-        ))}
       </section>
       <section className="card">
         <h2>Login credentials</h2>
@@ -60,10 +29,14 @@ export function Account() {
       <section className="card">
         <h2>Browser session</h2>
         <p className="muted">
-          Your browser is authenticated with an HttpOnly cookie. Signing out
-          revokes this browser credential; it does not end your chats or running
-          work.
+          Sign out of this browser. Your conversations and running work stay
+          available when you return.
         </p>
+        {error && <Notice kind="error">{error}</Notice>}
+        <Button disabled={busy} onClick={() => void signOut()}>
+          <Icon name="logout" size={16} />
+          {busy ? "Signing out…" : "Sign out"}
+        </Button>
       </section>
     </div>
   );

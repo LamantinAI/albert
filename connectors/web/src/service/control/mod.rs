@@ -1,10 +1,13 @@
 //! Validated, revisioned owner configuration. Files remain the interoperable
 //! source of settings; application outcomes are durable and idempotent.
 mod applications;
+mod catalog;
+mod connector_fields;
 mod connectors;
 mod drafts;
 #[cfg(test)]
 mod fixture;
+mod telegram;
 
 use std::{collections::BTreeMap, fs::read_to_string, path::PathBuf, sync::Arc};
 
@@ -197,6 +200,10 @@ impl ControlService {
             ));
         }
         let _gate = self.gate.lock().await;
+        self.put_locked(id, input)
+    }
+
+    fn put_locked(&self, id: &str, input: ConfigWrite) -> ApiResult<ConfigDocument> {
         let old = self.document(id)?;
         if input.revision.as_deref() != Some(old.revision.as_str()) {
             return Err(ApiError::conflict(

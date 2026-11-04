@@ -17,11 +17,7 @@ impl SessionService {
     pub async fn admit(&self, admission: Admission) -> SessionResult<SessionContext> {
         require_host(&admission.host)?;
         let mut tx = self.history.begin_journal().await?;
-        let user = match admission.identity.as_ref() {
-            Some(identity) => Some(self.resolve_identity_in(&mut tx, identity).await?),
-            None if admission.scope == AdmissionScope::Group => None,
-            None => return Err(SessionError::Denied),
-        };
+        let user = self.admission_user_in(&mut tx, &admission).await?;
         let origin = admission.route.origin();
         let access = match admission.scope {
             AdmissionScope::Private => SessionAccess::Private {
@@ -41,7 +37,8 @@ impl SessionService {
             return Err(SessionError::Denied);
         }
         let mut context = SessionContext {
-            actor_tools: None,
+            account: admission.account.clone(),
+            actor_tools: admission.actor_policy(),
             lease: self.lease_for_in(&mut tx, &default.id).await?,
             cleanup_scope: None,
             user,
@@ -85,10 +82,39 @@ impl SessionService {
     }
 
     pub async fn resolve_identity(&self, identity: &ExternalIdentity) -> SessionResult<UserId> {
+        if let Some(bot) = self.accounts.bot(identity.connector()) {
+            let bot_id = bot.bot_id.parse().map_err(|_| SessionError::Denied)?;
+            let actor = identity.actor().parse().map_err(|_| SessionError::Denied)?;
+            let grant = self
+                .accounts
+                .actor(identity.connector(), bot_id, actor)
+                .await
+                .map_err(|_| SessionError::Denied)?
+                .ok_or(SessionError::Denied)?;
+            return UserId::parse(&grant.user_id);
+        }
         let mut tx = self.history.begin_journal().await?;
         let user = self.resolve_identity_in(&mut tx, identity).await?;
         tx.commit().await.map_err(DatabaseError::from)?;
         Ok(user)
+    }
+
+    pub(super) async fn admission_user_in(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        admission: &Admission,
+    ) -> SessionResult<Option<UserId>> {
+        if let Some(account) = &admission.account {
+            if !account.valid_in(tx).await {
+                return Err(SessionError::Denied);
+            }
+            return Ok(Some(UserId::parse(&account.user_id)?));
+        }
+        match admission.identity.as_ref() {
+            Some(identity) => Ok(Some(self.resolve_identity_in(tx, identity).await?)),
+            None if admission.scope == AdmissionScope::Group => Ok(None),
+            None => Err(SessionError::Denied),
+        }
     }
 
     pub(super) async fn resolve_identity_in(

@@ -5,10 +5,11 @@ use rand::random;
 
 use super::{native_routes::NativeSeen, SessionService};
 use crate::{
-    db::entity::MarkerState, db::error::DatabaseError, db::repo::excursion::discard_expired_in,
-    db::repo::marker::all, db::repo::marker::expire_previous_runtime, db::Database,
-    history::sessions::SessionHistory, sessions::error::SessionResult,
-    sessions::lease::ScopeRegistry, sessions::settings::SessionSettings,
+    accounts::AccountAuthority, db::entity::MarkerState, db::error::DatabaseError,
+    db::repo::excursion::discard_expired_in, db::repo::marker::all,
+    db::repo::marker::expire_previous_runtime, db::Database, history::sessions::SessionHistory,
+    sessions::error::SessionResult, sessions::lease::ScopeRegistry,
+    sessions::settings::SessionSettings,
 };
 
 impl SessionService {
@@ -32,7 +33,7 @@ impl SessionService {
         expire_previous_runtime(&mut tx, &runtime_epoch).await?;
         discard_expired_in(&mut tx).await?;
         tx.commit().await.map_err(DatabaseError::from)?;
-        let leases = Arc::new(ScopeRegistry::default());
+        let leases = Arc::new(ScopeRegistry::new(&settings.limits));
         for marker in all(database.pool()).await? {
             leases.restore(
                 &SessionId::parse(&marker.session_id)?,
@@ -41,6 +42,7 @@ impl SessionService {
             )?;
         }
         let service = Self {
+            accounts: AccountAuthority::new(history.clone(), settings.telegram_login.clone()),
             history,
             database,
             settings,

@@ -1,30 +1,8 @@
 import { useEffect, useState } from "react";
 
+import { copyText } from "../../components/clipboard";
 import { Icon } from "../../components/Icon";
 import { Button } from "../../components/ui";
-
-async function copyText(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  // Some local HTTP workspaces do not expose the asynchronous Clipboard API.
-  const input = document.createElement("textarea");
-  input.value = text;
-  input.readOnly = true;
-  input.tabIndex = -1;
-  input.style.position = "fixed";
-  input.style.opacity = "0";
-  const focused = document.activeElement;
-  document.body.append(input);
-  try {
-    input.select();
-    if (!document.execCommand("copy")) throw new Error("Copy unavailable");
-  } finally {
-    input.remove();
-    if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
-  }
-}
 
 export function CopyMessage({
   text,

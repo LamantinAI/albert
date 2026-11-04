@@ -4,7 +4,7 @@ mod entry;
 mod types;
 use self::entry::root_diagnostics;
 pub(super) use self::types::AttemptTools;
-use std::{sync::Arc, sync::Mutex, time::Duration, time::Instant};
+use std::{future::pending as never, sync::Arc, sync::Mutex, time::Duration, time::Instant};
 
 use octo_approval::Ingress;
 use octo_code::{EditTool, GlobTool, GrepTool, ListTool, ReadTool, WriteTool};
@@ -17,6 +17,7 @@ use rig::{
     http_client::HeaderMap, http_client::HeaderValue, http_client::ReqwestClient,
     providers::openai, providers::openrouter::Client as OpenRouterClient, tool::ToolDyn,
 };
+use tokio::select;
 use tracing::{debug, info, warn};
 
 use super::{
@@ -48,8 +49,10 @@ impl AlbertCogitator {
         session: Option<SessionContext>,
         logical_work: Option<WorkRef>,
     ) -> (String, Option<String>) {
-        if session.as_ref().is_some_and(|session| !session.is_live()) {
-            return ("Session ended.".into(), None);
+        if let Some(session) = &session {
+            if !session.authorized().await {
+                return ("Account access changed.".into(), None);
+            }
         }
         let chat_only = session.as_ref().is_some_and(SessionContext::chat_only);
         let ingress = if chat_only {
@@ -222,35 +225,40 @@ impl AlbertCogitator {
         // Hearing is already complete and is part of the supplied history, not
         // an action to repeat. Only new model-generated tool rounds block retry.
         let baseline = feed.tool_call_count();
-        let answer = snapshot
-            .run(
-                vision,
-                |model, force_refresh| {
-                    let tools = make_tools();
-                    let history = history.clone();
-                    let prompt = prompt.clone();
-                    let feed = feed.clone();
-                    async move {
-                        self.model_attempt(
-                            &model,
-                            force_refresh,
-                            preamble,
-                            tools,
-                            channel,
-                            prompt,
-                            history,
-                            feed,
-                        )
-                        .await
-                    }
-                },
-                || feed.tool_call_count() > baseline,
-                |_message| async move {
-                    info!(channel, "model pool state changed");
-                },
-            )
-            .await
-            .unwrap_or_else(|error| {
+        let execution = Box::pin(snapshot.run(
+            vision,
+            |model, force_refresh| {
+                let tools = make_tools();
+                let history = history.clone();
+                let prompt = prompt.clone();
+                let feed = feed.clone();
+                async move {
+                    self.model_attempt(
+                        &model,
+                        force_refresh,
+                        preamble,
+                        tools,
+                        channel,
+                        prompt,
+                        history,
+                        feed,
+                    )
+                    .await
+                }
+            },
+            || feed.tool_call_count() > baseline,
+            |_message| async move {
+                info!(channel, "model pool state changed");
+            },
+        ));
+        let answer = select! {
+            biased;
+            _ = async { match &session { Some(s) => s.access_cancelled().await, None => never::<()>().await } } => {
+                if let Some(scope) = scope { self.cancel_scope(scope, ctx).await; }
+                return ("Account access changed.".into(), None);
+            },
+            result = execution => result,
+        }.unwrap_or_else(|error| {
                 if temporary(session.as_ref()) && error.contains("context budget") {
                     format!("{error}\nSave this chat before continuing with a larger tool result.")
                 } else {

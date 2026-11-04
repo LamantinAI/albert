@@ -174,12 +174,12 @@ default.
     line in `/help` and the bot menu; omitted → cut from `description`), and
     `command_owner: true` to keep it to the owner. `/brief args` then starts an ordinary
     agent turn seeded with that skill's instructions and the arguments. System commands
-    (`/help`, `/start`, `/cancel`, `/restart`, `/allow`, `/deny`, `/allowed`, `/status`)
+    (`/help`, `/start`, `/cancel`, `/restart`, `/model`, `/chatinfo` and session controls)
     are reserved and built in: they answer at once, without the model — a skill claiming
     one of those names (or a name another skill already took) is logged and not
-    registered. `/help` lists both groups, and at startup the menu is set on every channel
-    that takes one (Telegram's `setMyCommands`; owner-only commands only in the owner's
-    chat).
+    registered. `/help` lists the commands permitted for the current account. Telegram
+    publishes native command menus by verified account role; configuration and
+    restart controls remain owner-only.
 - `[code] workspace` is the ephemeral scratch directory the file tools
   (`read/write/edit/list/glob/grep`) are **jailed** to, exported as
   `$OCTO_CODE_WORKSPACE`. The forkd runner (cwd) and the storage connector
@@ -297,7 +297,7 @@ each type's factory, then points the builder at `config/octo.toml`, which scans 
 config/
 ├── octo.toml                          # [connectors] dir = "connectors"
 └── connectors/
-    ├── telegram/telegram.toml         # the chat channel (edge ACL)
+    ├── telegram/telegram.toml         # account-authenticated chat channel
     ├── calendar/calendar.toml         # CalDAV calendar
     ├── storage/storage.toml           # durable object store
     ├── forkd/forkd.toml               # sandboxed script runner
@@ -311,48 +311,45 @@ channel for local dev.
 
 ### `connectors/telegram/telegram.toml`
 
+Configure Telegram by selecting the Telegram instance in **Settings → Connections**. The owner saves the BotFather
+credential and connects the bot. Each panel user creates a personal, single-use
+login token in the same connector settings and sends `/login <token>` in the
+bot's private chat. Permissions come from that user's current panel account.
+
 ```toml
 [connector]
-id        = "telegram"
-type      = "telegram"
-token_env = "OCTO_TELEGRAM_TOKEN"       # token value stays in .env
-acl_path  = "telegram_acl.json"         # runtime allow-list (gitignored; next to this file)
-owner_chat = 100000000                  # <- YOUR real chat id (ask @userinfobot); a placeholder locks you out
+id = "telegram"
+type = "telegram"
+token_env = "OCTO_TELEGRAM_TOKEN" # credential value stays outside the manifest
+address_names = ["Albert"]
 ```
 
-`owner_chat` must be the owner's **positive Telegram user ID**. Roles come from
-message authors, never from the group's ID. Optional `admins = [123456789]`
-grants ACL administration only, without owner restart or self-configuration.
-`address_names = ["Альберт", "Albert"]` configures direct name addressing; the bot's
-Telegram first name is also recognized.
+The panel stores a write-only, connector-specific credential reference. `owner_chat`,
+`admins` and legacy allowlists no longer authorize Albert users. Existing journals
+and the selected private conversation survive the initial required login; later
+restarts retain the binding. No manual history mapping is required.
 
 | Command | Effect | Who |
 |---------|--------|-----|
-| `/chatinfo` | Show current chat ID/type, author user ID and group mode | Admitted participants |
-| `/allow [id]` | Allow a chat/user; omitted ID means this group | Owner / ACL admin |
-| `/deny [id]` | Revoke access; omitted ID means this group | Owner / ACL admin |
-| `/allowed` | Show ACL and group modes | Owner / ACL admin |
-| `/groupmode all [group_id]` | Allow every participant in the group | Owner only |
-| `/groupmode allowed [group_id]` | Return to individually allowed participants | Owner only |
+| `/login <token>` | Link this Telegram identity to a panel account | Private chat only |
+| `/logout` | Revoke this Telegram binding; retain saved conversations | Private chat only |
+| `/chatinfo` | Show message source information | Registered users |
+| `/sessions`, `/new`, `/open`, `/rename`, `/tmp`, `/save`, `/end` | Manage personal conversations | Registered users, private chat only |
+| `/cancel`, `/compact` | Control the current conversation | Registered users in their private chat; owner in groups |
+| `/model`, `/restart` | Change the model or restart Albert | Owner |
 
-Inside a group, omit `group_id`; from a private chat, supply its negative ID.
-Setting a group mode also allows that group. The default mode is `allowed`:
-**both the group and the author** need access. In `all`, other participants are
-guests; they do not acquire owner permissions. Anonymous/channel senders cannot
-exercise owner/admin privileges.
+Unregistered private chats expose login only. In groups, anyone may explicitly
+address Albert by @mention, a reply or a configured name. Unregistered guests
+receive conversational answers without tools; commands require a linked account.
+Unaddressed chatter stays quiet. A guest or another registered user cannot
+interrupt an owner's active task. The group's history stays bound to its channel,
+without access to personal session navigation. Internal tool traces and private
+execution context are excluded from the shared group prompt.
 
-Albert responds in groups only to an @mention, a reply to his message, a message
-starting with his name (for example `Альберт, помоги`), or a registered command.
-`/command@another_bot` is ignored. Unaddressed chatter neither calls the model nor
-interrupts an active turn. Outbound task results/reminders need no mention, but
-the destination must remain allowed. Telegram must deliver the updates to the bot:
-configure BotFather privacy/group access or grant the bot appropriate group access.
+Telegram must deliver group updates to the bot: configure BotFather group/privacy
+access or grant the bot the required group access. `/command@another_bot` is ignored.
 
-An owner/admin can use the administration commands and `/chatinfo` even in a group
-not yet on the ACL. Adding the bot automatically allows a group only when Telegram
-reports that the owner/admin added it. Group modes persist in `telegram_acl.json`;
-old ACL files default to `allowed`. Telegram group-to-supergroup migration carries
-access and mode to the new ID.
+See [Telegram account access](telegram-accounts.md) for token storage and revocation.
 
 ### `connectors/calendar/calendar.toml`
 
@@ -545,7 +542,7 @@ The set of files above **is** a working configuration — the repo ships them wi
 placeholder values already in place (`config/connectors/*/*.toml`, `albert.toml`), so a
 real deployment is those files with three edits:
 
-1. `config/connectors/telegram/telegram.toml` → real `owner_chat` (from `@userinfobot`).
+1. **Settings → Connections** → connect the Telegram bot, issue a personal token, then `/login` in its private chat.
 2. `config/connectors/calendar/calendar.toml` → your account (`login`, or the Google
    `collection` + client).
 3. `.env` → the actual secret values (`ALBERT_OPENAI_KEY`, `OCTO_TELEGRAM_TOKEN`, the

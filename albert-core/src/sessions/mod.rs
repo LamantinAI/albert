@@ -12,7 +12,7 @@ pub mod presentation;
 pub mod settings;
 pub mod transport;
 
-use std::sync::Arc;
+use std::{future::pending, sync::Arc};
 
 #[cfg(test)]
 use octo_history::JournalKeyInventory;
@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use self::{
     actor::ActorToolPolicy, error::SessionError, error::SessionResult, lease::SessionLease,
 };
+use crate::accounts::{AccountGrant, AccountRole};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UserId(String);
@@ -114,6 +115,7 @@ pub enum AdmissionScope {
 
 #[derive(Clone, Debug)]
 pub struct Admission {
+    pub(crate) account: Option<AccountGrant>,
     pub(crate) identity: Option<ExternalIdentity>,
     pub(crate) route: ReplyRoute,
     pub(crate) scope: AdmissionScope,
@@ -121,6 +123,9 @@ pub struct Admission {
 }
 
 impl Admission {
+    pub fn route(&self) -> &ReplyRoute {
+        &self.route
+    }
     pub fn scope(&self) -> AdmissionScope {
         self.scope
     }
@@ -138,6 +143,7 @@ impl Admission {
         }
         require_host(host)?;
         Ok(Self {
+            account: None,
             identity: Some(identity),
             route,
             scope,
@@ -158,16 +164,38 @@ impl Admission {
         }
         require_host(host)?;
         Ok(Self {
+            account: None,
             identity,
             route,
             scope: AdmissionScope::Group,
             host: host.into(),
         })
     }
+    pub fn with_account(mut self, account: AccountGrant) -> SessionResult<Self> {
+        if let Some(binding) = &account.binding {
+            if self.identity.as_ref().is_none_or(|identity| {
+                identity.connector() != binding.connector || identity.actor() != binding.actor_id
+            }) {
+                return Err(SessionError::Denied);
+            }
+        }
+        self.account = Some(account);
+        Ok(self)
+    }
+    pub(crate) fn actor_policy(&self) -> Option<ActorToolPolicy> {
+        self.account.as_ref().map(|account| {
+            if account.role == AccountRole::Owner {
+                ActorToolPolicy::ExistingHost
+            } else {
+                ActorToolPolicy::ChatOnly
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct SessionContext {
+    pub(crate) account: Option<AccountGrant>,
     pub(crate) actor_tools: Option<ActorToolPolicy>,
     pub(crate) lease: Arc<SessionLease>,
     pub(crate) cleanup_scope: Option<String>,
@@ -182,13 +210,53 @@ pub struct SessionContext {
 
 impl SessionContext {
     pub fn chat_only(&self) -> bool {
-        self.actor_tools == Some(ActorToolPolicy::ChatOnly)
+        matches!(
+            self.actor_tools,
+            Some(ActorToolPolicy::ChatOnly | ActorToolPolicy::NoTools)
+        )
     }
     pub fn tool_policy(&self) -> ActorToolPolicy {
         self.actor_tools.unwrap_or(ActorToolPolicy::ExistingHost)
     }
     pub fn is_live(&self) -> bool {
         self.lease.is_live()
+            && self
+                .account
+                .as_ref()
+                .is_none_or(|account| account.is_live())
+    }
+    pub async fn authorized(&self) -> bool {
+        if !self.is_live() {
+            return false;
+        }
+        match &self.account {
+            Some(account) => account.valid().await,
+            None => true,
+        }
+    }
+    pub async fn access_cancelled(&self) {
+        match &self.account {
+            Some(account) => account.cancelled().await,
+            None => pending::<()>().await,
+        }
+    }
+    pub fn account(&self) -> Option<&AccountGrant> {
+        self.account.as_ref()
+    }
+    pub fn with_account(mut self, account: AccountGrant) -> Self {
+        let policy = if account.role == AccountRole::Owner {
+            ActorToolPolicy::ExistingHost
+        } else {
+            ActorToolPolicy::ChatOnly
+        };
+        self.actor_tools = Some(self.tool_policy().intersect(policy));
+        self.account = Some(account);
+        self
+    }
+    pub fn without_tools(mut self) -> Self {
+        self.actor_tools = Some(ActorToolPolicy::NoTools);
+        self.account = None;
+        self
     }
     pub fn scope_epoch(&self) -> Option<&str> {
         self.lease.epoch()

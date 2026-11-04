@@ -23,9 +23,12 @@ impl ModelService {
             let existing = loaded.pool.as_ref().and_then(|pool| pool.models.iter()
                 .find(|entry| entry.provider == AuthMode::Subscription && entry.model == model.slug)).map(|entry| entry.id.clone());
             let id = if let Some(id) = existing { id } else {
-                let mut id = "openai-subscription".to_owned(); let mut suffix = 2;
+                let readable = model.slug.chars().map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '-' }).collect::<String>();
+                let readable = readable.trim_matches('-').chars().take(60).collect::<String>();
+                let base = if readable.is_empty() { "subscription-model".to_owned() } else { format!("subscription-{readable}") };
+                let mut id = base.clone(); let mut suffix = 2;
                 while loaded.pool.as_ref().is_some_and(|pool| pool.models.iter().any(|entry| entry.id == id)) {
-                    id = format!("openai-subscription-{suffix}"); suffix += 1;
+                    id = format!("{base}-{suffix}"); suffix += 1;
                 }
                 service.mutate(ModelOperation::Create(ModelWrite { config: ModelConfig {
                     id: id.clone(), model: model.slug, provider: "subscription".into(), base_url: Some(base_url), api_key_env: None,

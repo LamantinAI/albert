@@ -23,6 +23,7 @@ export function Conversation({
   onCancelStart,
   onReady,
   onSessionChange,
+  onRemoved,
   inDirectory,
   initialText,
   onInitialConsumed,
@@ -35,6 +36,7 @@ export function Conversation({
   onCancelStart?: () => Promise<void>;
   onReady?: () => void;
   onSessionChange: (session: Session) => void;
+  onRemoved?: () => void;
   inDirectory: boolean;
   initialText?: string;
   onInitialConsumed?: () => void;
@@ -62,6 +64,16 @@ export function Conversation({
   );
   const active = conversation.state?.active_attempt;
   const temporary = session?.kind === "temporary";
+  const removed =
+    conversation.missing ||
+    (temporary &&
+      ["ended", "closed", "expired"].includes(session?.state ?? ""));
+  const removalReported = useRef(false);
+  useEffect(() => {
+    if (!removed || removalReported.current) return;
+    removalReported.current = true;
+    onRemoved?.();
+  }, [removed, onRemoved]);
   const ended =
     conversation.unavailable ||
     session?.state === "ended" ||
@@ -76,8 +88,9 @@ export function Conversation({
   const opening = conversation.loading && !provisional && !startingText;
 
   useEffect(() => {
-    if (session && inDirectory && !provisional) onSessionChange(session);
-  }, [session, inDirectory, provisional, onSessionChange]);
+    if (session && inDirectory && !provisional && !removed)
+      onSessionChange(session);
+  }, [session, inDirectory, provisional, removed, onSessionChange]);
 
   const wasProvisional = useRef(provisional);
   useEffect(() => {
@@ -162,6 +175,7 @@ export function Conversation({
     }
   }
 
+  if (removed) return null;
   return (
     <section className="conversation" aria-label="Conversation">
       <div
@@ -257,7 +271,7 @@ export function Conversation({
             connected={conversation.connected}
           />
         )}
-        {ended && (
+        {ended && !conversation.unavailable && (
           <Notice>
             This temporary chat has ended or expired. Choose a different
             conversation to continue.
@@ -290,7 +304,11 @@ export function Conversation({
           <Notice>
             Connect a model before sending a message.{" "}
             {context?.caps.manage_models && (
-              <Link to="/models?connect=api">Connect a model</Link>
+              <Link
+                to={`/models?connect=choose&return_to=${encodeURIComponent(`/chats/${id}`)}`}
+              >
+                Connect a model
+              </Link>
             )}
           </Notice>
         </div>

@@ -21,6 +21,9 @@
   --serif: var(--sans);
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --radius: 6px;
+  --panel-padding: 24px;
+  --section-gap: 32px;
+  --section-title: 20px;
   font-family: var(--sans);
   color: var(--ink);
   background: var(--paper);

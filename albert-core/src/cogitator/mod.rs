@@ -16,6 +16,8 @@ mod provider_fixture;
 #[cfg(test)]
 mod sql;
 
+mod group_context;
+
 use std::{collections::HashMap, sync::atomic::AtomicU64, sync::Arc, sync::Mutex, time::Duration};
 
 use async_trait::async_trait;

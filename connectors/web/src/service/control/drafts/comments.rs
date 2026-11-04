@@ -26,6 +26,21 @@ pub(super) fn comments(item: &Item, path: &[&str]) -> Vec<String> {
         }
     }
     if rest.is_empty() {
+        if let Some(table) = child.as_table() {
+            for raw in [table.decor().prefix(), table.decor().suffix()]
+                .into_iter()
+                .flatten()
+            {
+                result.extend(
+                    raw.as_str()
+                        .unwrap_or_default()
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| line.starts_with('#'))
+                        .map(str::to_owned),
+                );
+            }
+        }
         if let Some(value) = child.as_value() {
             for raw in [value.decor().prefix(), value.decor().suffix()]
                 .into_iter()

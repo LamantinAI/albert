@@ -24,7 +24,9 @@ pub struct ConfigFieldChange {
 pub enum ConfigFieldKind {
     Boolean,
     Integer,
+    Number,
     Text,
+    TextList,
 }
 
 #[derive(Clone, Serialize, ToSchema)]
@@ -38,6 +40,8 @@ pub struct ConfigField {
     pub default_value: Value,
     pub minimum: Option<i64>,
     pub maximum: Option<i64>,
+    pub required: Option<bool>,
+    pub choices: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize, ToSchema)]

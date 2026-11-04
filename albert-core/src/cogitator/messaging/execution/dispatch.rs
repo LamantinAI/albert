@@ -66,7 +66,8 @@ impl Tool for MessageDispatch {
         self.inner(None).definition(prompt).await
     }
     async fn call(&self, args: DispatchArgs) -> Result<Value, Infallible> {
-        if !self.session.is_live() || args.channel.is_some() || !ordinary_kind(&args.kind) {
+        if !self.session.authorized().await || args.channel.is_some() || !ordinary_kind(&args.kind)
+        {
             return Ok(
                 json!({"status":"not_sent","executed":false,"error":"No channel, admin, SQL or expired-scope authority is delegated."}),
             );

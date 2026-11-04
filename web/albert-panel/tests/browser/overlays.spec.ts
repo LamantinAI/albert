@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { readyFixture } from "./fixture";
+import { connectorFixture } from "./connector-fixture";
 
 test("rename uses the panel dialog and leaves title limits to the existing server contract", async ({
   page,
@@ -60,39 +61,23 @@ test("temporary End uses a scoped modal with cancel, Escape and focus restoratio
   expect(nativeDialogs).toBe(0);
 });
 
-test("connection selector is an in-page listbox supporting keyboard selection and Escape", async ({
+test("connector type selector is an in-page listbox with keyboard selection and Escape", async ({
   page,
 }) => {
-  await readyFixture(page);
-  await page.route("**/api/v1/configuration", (route) =>
-    route.fulfill({
-      json: { items: ["connectors", "connector:http", "connector:telegram"] },
-    }),
-  );
-  await page.route("**/api/v1/configuration/*", (route) =>
-    route.fulfill({
-      json: {
-        path: "connectors",
-        content: "[connectors]\ndir='connectors'\n",
-        revision: "r1",
-        redacted: false,
-      },
-    }),
-  );
-  await page.goto("/ui/settings/connections");
-  const control = page.getByRole("combobox", { name: "Connection document" });
+  await connectorFixture(page, []);
+  await page.goto("/ui/settings/connections/new");
+  const control = page.getByRole("combobox", { name: "Connector type" });
   await control.click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
-  await expect(control).toContainText("http");
+  await expect(control).toContainText("Browser");
   await expect(control).toBeFocused();
   await control.click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).not.toBeVisible();
-  await expect(control).toBeFocused();
   await control.click();
-  await page.keyboard.press("t");
+  await page.keyboard.press("b");
   await page.keyboard.press("Enter");
-  await expect(control).toContainText("telegram");
+  await expect(control).toContainText("Browser");
 });

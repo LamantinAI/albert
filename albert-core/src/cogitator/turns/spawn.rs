@@ -6,7 +6,7 @@ use tracing::{info, warn};
 
 use super::{
     super::channel_of, super::retention::temporary, super::AlbertCogitator, super::UserInput,
-    turn_key, ActiveTurn, ChannelState,
+    compatible_actor, turn_key, ActiveTurn, ChannelState,
 };
 use crate::{
     acl::is_owner, cogitator::messaging::LogicalWork, cogitator::session_runtime::FrozenActions,
@@ -23,6 +23,17 @@ impl AlbertCogitator {
         ctx: &CogitatorContext,
     ) {
         let channel = channel_of(&incoming);
+        if let Some(context) = incoming.context.get::<SessionContext>() {
+            if !context.authorized().await {
+                self.emit_reply(
+                    &incoming,
+                    "Account access changed. Sign in again before continuing.".into(),
+                    ctx,
+                )
+                .await;
+                return;
+            }
+        }
         let state = self
             .turns
             .lock()
@@ -31,6 +42,28 @@ impl AlbertCogitator {
             .or_insert_with(|| Arc::new(Mutex::new(ChannelState::default())))
             .clone();
         let mut locked = state.lock().await;
+        let incoming_policy = incoming
+            .context
+            .get::<SessionContext>()
+            .map(SessionContext::tool_policy)
+            .unwrap_or(ActorToolPolicy::ExistingHost);
+        let guest = incoming_policy == ActorToolPolicy::NoTools;
+        let blocked = locked.active.as_ref().is_some_and(|active| {
+            if active.tool_policy == ActorToolPolicy::NoTools {
+                return false;
+            }
+            let previous = active.continuation.as_ref().unwrap_or(&active.feedback);
+            !is_owner(&incoming) && !compatible_actor(previous, &incoming)
+        });
+        if blocked || (guest && locked.message.is_some()) {
+            self.emit_reply(
+                &incoming,
+                "Albert is working on another request. Please try again shortly.".into(),
+                ctx,
+            )
+            .await;
+            return;
+        }
         // The original request receipt is checked before touching the running
         // task. A duplicate must not cancel it or schedule another model call.
         let boundary = if incoming.context.get::<SessionContext>().is_some() {
@@ -57,6 +90,12 @@ impl AlbertCogitator {
             Vec::new()
         };
         let interrupted = locked.interrupt().await;
+        let reuse_checkpoint = interrupted.as_ref().is_some_and(|previous| {
+            compatible_actor(
+                previous.continuation.as_ref().unwrap_or(&previous.feedback),
+                &incoming,
+            )
+        });
         let tool_policy = incoming
             .context
             .get::<SessionContext>()
@@ -64,6 +103,7 @@ impl AlbertCogitator {
             .unwrap_or(ActorToolPolicy::ExistingHost);
         let tool_policy = interrupted
             .as_ref()
+            .filter(|_| reuse_checkpoint)
             .map(|previous| previous.tool_policy.intersect(tool_policy))
             .unwrap_or(tool_policy);
         let incoming = if let Some(context) = incoming.context.get::<SessionContext>() {
@@ -105,6 +145,7 @@ impl AlbertCogitator {
                 before_id: boundary.expect("native boundary"),
                 checkpoint: interrupted
                     .as_ref()
+                    .filter(|_| reuse_checkpoint)
                     .map(|previous| journal_messages(&previous.checkpoint))
                     .unwrap_or_default()
                     .into_iter()
@@ -117,6 +158,7 @@ impl AlbertCogitator {
         };
         let work = interrupted
             .as_ref()
+            .filter(|_| reuse_checkpoint)
             .and_then(|previous| previous.continuation.as_ref())
             .and_then(|original| original.context.get::<LogicalWork>())
             .cloned()
@@ -125,13 +167,18 @@ impl AlbertCogitator {
         contextual.context.insert(work);
         let incoming = Arc::new(contextual);
         let (mut messages, owner) = if let Some(previous) = interrupted {
-            let messages = if previous.compact_id == compact_id {
+            let messages = if !reuse_checkpoint {
+                visible
+            } else if previous.compact_id == compact_id {
                 previous.messages
             } else {
                 visible.extend(journal_messages(&previous.checkpoint));
                 visible
             };
-            (messages, previous.owner && is_owner(&incoming))
+            (
+                messages,
+                (!reuse_checkpoint || previous.owner) && is_owner(&incoming),
+            )
         } else {
             (visible, is_owner(&incoming))
         };
@@ -189,7 +236,7 @@ impl AlbertCogitator {
         let continuation = Some(incoming.clone());
         let feedback = incoming.clone();
         let task = spawn(async move {
-            me.run_turn(
+            Box::pin(me.run_turn(
                 incoming,
                 voice,
                 prompt,
@@ -199,7 +246,7 @@ impl AlbertCogitator {
                 &owned_scope,
                 owned_feed,
                 owned_state,
-            )
+            ))
             .await;
         });
         // Insert before releasing the gate; a fast completion cannot clear its

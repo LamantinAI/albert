@@ -167,6 +167,20 @@ async fn group_chatter_is_quiet_and_owners_do_not_transfer_authority_to_other_ac
         .clone()
         .handle(next.clone(), &fixture.ctx)
         .await;
+    let busy = reply(&mut replies).await;
+    assert_eq!(busy.correlation_id, Some(next.id));
+    assert!(busy
+        .payload_as::<String>()
+        .unwrap()
+        .contains("another request"));
+    assert_eq!(fixture.host.turn_seq.load(Ordering::Relaxed), seq);
+    let completed = reply(&mut replies).await;
+    assert_eq!(completed.correlation_id, Some(first.id));
+    fixture
+        .host
+        .clone()
+        .handle(next.clone(), &fixture.ctx)
+        .await;
     fixture.request_count(2).await;
     let answer = reply(&mut replies).await;
     assert_eq!(answer.correlation_id, Some(next.id));
@@ -231,6 +245,7 @@ async fn scheduler_payload_is_host_pinned_and_legacy_alarm_uses_original_default
     fixture.host.stop_turns(&fixture.ctx).await;
 }
 
+mod accounts;
 mod child;
 mod compaction;
 mod feedback;

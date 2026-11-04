@@ -65,9 +65,7 @@ export function Login() {
               {busy ? "Signing in…" : "Sign in"}
               <Icon name="arrow" size={16} />
             </Button>
-            <small className="muted">
-              First sign-in: owner / owner.
-            </small>
+            <small className="muted">First sign-in: owner / owner.</small>
           </form>
         </section>
       </div>

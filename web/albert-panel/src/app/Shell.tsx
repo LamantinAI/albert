@@ -7,7 +7,6 @@ import {
   useNavigate,
 } from "react-router-dom";
 
-import { api, errorMessage } from "../api/client";
 import { Brand } from "../components/Brand";
 import { Icon } from "../components/Icon";
 import { Button, Notice } from "../components/ui";
@@ -15,6 +14,7 @@ import {
   SessionDirectory,
   useSessionDirectory,
 } from "../features/sessions/SessionDirectory";
+import { useSignOut } from "./useSignOut";
 import { PageLoading } from "./PageLoading";
 import { useClientContext } from "./context";
 
@@ -31,7 +31,7 @@ const sections = [
 
 export function Shell() {
   const directory = useSessionDirectory();
-  const { context, refresh } = useClientContext();
+  const { context } = useClientContext();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobile, setMobile] = useState(false);
@@ -42,7 +42,7 @@ export function Shell() {
   useEffect(() => {
     if (inSettings) setSettingsOpen(true);
   }, [location.pathname, inSettings]);
-  const [error, setError] = useState("");
+  const { signOut: logout, busy: signingOut, error } = useSignOut();
   const sidebar = useRef<HTMLElement>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const settingsToggle = useRef<HTMLButtonElement>(null);
@@ -93,17 +93,6 @@ export function Shell() {
       media.removeEventListener("change", resize);
     };
   }, [mobile]);
-  async function logout() {
-    if (!context?.current_credential_id) return;
-    try {
-      await api("/auth/credentials/{id}", "delete", {
-        path: { id: context.current_credential_id },
-      });
-      await refresh();
-    } catch (error) {
-      setError(errorMessage(error));
-    }
-  }
   const username = context?.account?.username ?? "";
   return (
     <div className="app-shell">
@@ -179,8 +168,13 @@ export function Shell() {
                 <Icon name="settings" />
                 Overview
               </NavLink>
-              {context?.caps.owner &&
-                sections.map((section, index) => (
+              {sections
+                .filter(
+                  (section) =>
+                    context?.caps.owner ||
+                    section.path === "/settings/connections",
+                )
+                .map((section, index) => (
                   <NavLink
                     className="nav-item"
                     key={section.path}
@@ -227,6 +221,7 @@ export function Shell() {
             variant="ghost"
             className="icon-button"
             aria-label="Sign out"
+            disabled={signingOut}
             onClick={() => void logout()}
           >
             <Icon name="logout" size={16} />

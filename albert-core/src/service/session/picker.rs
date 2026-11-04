@@ -45,6 +45,7 @@ impl SessionService {
             .await?
             .ok_or(SessionError::NotFound)?;
         let context = SessionContext {
+            account: None,
             actor_tools: None,
             lease: self.lease_for_in(&mut tx, &id).await?,
             cleanup_scope: route

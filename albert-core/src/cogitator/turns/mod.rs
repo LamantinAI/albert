@@ -15,7 +15,9 @@ use rig::completion::Message;
 use tokio::task::JoinHandle;
 
 use super::{channel_of, messaging::MessageTask};
-use crate::{sessions::actor::ActorToolPolicy, sessions::SessionContext, status::StatusFeed};
+use crate::{
+    acl::tag, sessions::actor::ActorToolPolicy, sessions::SessionContext, status::StatusFeed,
+};
 
 #[derive(Default)]
 pub(super) struct ChannelState {
@@ -56,6 +58,31 @@ pub(super) fn turn_key(env: &Envelope) -> (String, String) {
         return ("session".into(), channel_of(env));
     }
     (env.source.to_string(), channel_of(env))
+}
+
+fn compatible_actor(previous: &Envelope, incoming: &Envelope) -> bool {
+    match (
+        previous.context.get::<SessionContext>(),
+        incoming.context.get::<SessionContext>(),
+    ) {
+        (None, None) => true,
+        (Some(old), Some(new))
+            if old.is_live() && new.is_live() && old.tool_policy() == new.tool_policy() =>
+        {
+            match (old.account(), new.account()) {
+                (Some(old), Some(new)) => old.account_id == new.account_id && old.role == new.role,
+                (None, None) if tag(previous, "role") == tag(incoming, "role") => {
+                    match (old.identity(), new.identity()) {
+                        (Some(old), Some(new)) => old == new,
+                        _ => tag(previous, "sender_id")
+                            .is_some_and(|id| Some(id) == tag(incoming, "sender_id")),
+                    }
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useLeaveGuard, useUnsavedChanges } from "../../app/UnsavedChanges";
+import { ResourceLoading } from "../../components/ResourceLoading";
 import { api, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
+import {
+  SettingsAddDialog,
+  SettingsBack,
+  SettingsItemActions,
+} from "../../components/SettingsActions";
+import { SettingsList, SettingsRow } from "../../components/SettingsList";
 import { Icon } from "../../components/Icon";
 import { useDialogs } from "../../components/useDialogs";
 import {
@@ -16,6 +24,8 @@ type Skill = components["schemas"]["SkillView"];
 
 export function Skills() {
   const { confirm, dialog } = useDialogs();
+  const guard = useLeaveGuard();
+  const [loaded, setLoaded] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selected, setSelected] = useState<Skill | null>(null);
   const [content, setContent] = useState("");
@@ -24,8 +34,26 @@ export function Skills() {
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const editor = useRef<HTMLElement>(null);
   const file = useRef<HTMLInputElement>(null);
-  const dirty = !!selected && content !== (selected.content ?? "");
+  const dirty = selected
+    ? content !== (selected.content ?? "")
+    : adding &&
+      (!!newName ||
+        content !==
+          "---\nname: my-skill\ndescription: Describe when Albert should use this skill.\n---\n\n# Instructions\n\n");
+  const markSaved = useUnsavedChanges(
+    !!dirty,
+    JSON.stringify([newName, content]),
+  );
+  const editing = selected || adding;
+  useEffect(() => {
+    if (!editing) return;
+    editor.current
+      ?.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")
+      ?.focus({ preventScroll: true });
+  }, [selected?.id, adding]);
   function discard() {
     return confirm({
       title: "Discard unsaved changes?",
@@ -35,10 +63,18 @@ export function Skills() {
       danger: true,
     });
   }
+  async function closeEditor() {
+    await guard.run(() => {
+      setSelected(null);
+      setAdding(false);
+    });
+  }
   async function load() {
+    setError("");
     try {
       const result = await api("/skills", "get");
       setSkills(result.items);
+      setLoaded(true);
     } catch (error) {
       setError(errorMessage(error));
     }
@@ -69,13 +105,14 @@ export function Skills() {
     setError("");
     setNotice("");
     try {
-      const result = await api("/skills/{id}", "put", {
+      await api("/skills/{id}", "put", {
         path: { id: selected?.id ?? newName.trim() },
         body: { content, revision: selected?.revision ?? null },
         revision: selected?.revision,
       });
-      setSelected(result);
-      setContent(result.content ?? content);
+      markSaved();
+      setSelected(null);
+      setContent("");
       setAdding(false);
       await load();
       setNotice(
@@ -158,37 +195,64 @@ export function Skills() {
   return (
     <div className="workspace-body">
       {dialog}
-      <PageHeading
-        eyebrow="Workspace / Skills"
-        title="A little more capable."
-        actions={
-          <>
-            <Button
-              onClick={async () => {
-                if (dirty && !(await discard())) return;
+      {choosing && (
+        <SettingsAddDialog
+          title="Add skill"
+          onClose={() => setChoosing(false)}
+          choices={[
+            {
+              title: "Create skill",
+              description: "Write instructions for a new skill",
+              icon: "skills",
+              onClick: () => {
+                setChoosing(false);
                 setAdding(true);
                 setSelected(null);
                 setNewName("");
                 setContent(
                   "---\nname: my-skill\ndescription: Describe when Albert should use this skill.\n---\n\n# Instructions\n\n",
                 );
-              }}
-            >
-              <Icon name="plus" size={15} />
-              New skill
-            </Button>
+              },
+            },
+            {
+              title: "Upload skill",
+              description: "Import a SKILL.md file or a ZIP bundle",
+              icon: "upload",
+              onClick: () => {
+                setChoosing(false);
+                file.current?.click();
+              },
+            },
+          ]}
+        />
+      )}
+      {editing && (
+        <SettingsBack onClick={() => void closeEditor()}>Skills</SettingsBack>
+      )}
+      <PageHeading
+        title={
+          editing
+            ? selected
+              ? `Edit ${selected.name}`
+              : "Add skill"
+            : "Skills"
+        }
+        actions={
+          !editing && (
             <Button
               variant="primary"
-              disabled={busy}
-              onClick={() => file.current?.click()}
+              disabled={busy || !loaded}
+              onClick={() => setChoosing(true)}
             >
-              Upload skill
+              <Icon name="plus" size={16} />
+              Add skill
             </Button>
-          </>
+          )
         }
       >
-        Install a skill bundle or edit its instructions. Capabilities and
-        commands are validated on the server.
+        {editing
+          ? "Edit the skill’s instructions and metadata."
+          : "Manage the instructions Albert can use for specific tasks."}
       </PageHeading>
       <input
         ref={file}
@@ -204,25 +268,11 @@ export function Skills() {
       {error && <Notice kind="error">{error}</Notice>}
       {notice && <Notice kind="success">{notice}</Notice>}
       {(selected || adding) && (
-        <section className="card">
-          <div className="card-heading">
-            <h2>{selected ? selected.name : "New skill"}</h2>
-            <Button
-              variant="ghost"
-              aria-label="Close skill editor"
-              onClick={async () => {
-                if (!dirty || (await discard())) {
-                  setSelected(null);
-                  setAdding(false);
-                }
-              }}
-            >
-              <Icon name="close" size={15} />
-            </Button>
-          </div>
+        <section ref={editor} className="card">
           <div className="form-stack">
             {adding && (
               <Field
+                disabled={busy}
                 label="Bundle ID"
                 fieldClassName="field-bundle-id"
                 required
@@ -249,6 +299,9 @@ export function Skills() {
               >
                 {busy ? "Saving…" : "Validate and save"}
               </Button>
+              <Button disabled={busy} onClick={() => void closeEditor()}>
+                Cancel
+              </Button>
               <small className="muted">
                 {dirty ? "Unsaved changes" : "Markdown with skill metadata"}
               </small>
@@ -256,46 +309,51 @@ export function Skills() {
           </div>
         </section>
       )}
-      <section className="card">
-        <h2>Installed skills</h2>
-        {skills.length === 0 ? (
+      {!editing &&
+        (!loaded ? (
+          error ? (
+            <Button onClick={() => void load()}>Retry loading skills</Button>
+          ) : (
+            <ResourceLoading label="Loading skills…" />
+          )
+        ) : skills.length === 0 ? (
           <EmptyState title="A place for useful know-how.">
             <p>Upload a SKILL.md or a skill bundle to begin.</p>
           </EmptyState>
         ) : (
-          skills.map((skill) => (
-            <div className="data-row" key={skill.id}>
-              <div>
-                <h3>
-                  {skill.name}{" "}
-                  {!skill.enabled && <span className="badge">Disabled</span>}{" "}
-                  {skill.owner_only && (
-                    <span className="badge">Owner only</span>
-                  )}
-                </h3>
-                <p>{skill.description}</p>
-                {skill.command && (
-                  <small className="muted">/{skill.command}</small>
-                )}
-              </div>
-              <div className="row-actions">
-                <Button disabled={busy} onClick={() => void toggle(skill)}>
-                  {skill.enabled ? "Disable" : "Enable"}
-                </Button>
-                <Button onClick={() => void open(skill)}>Edit</Button>
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Remove ${skill.name}`}
-                  onClick={() => void remove(skill)}
-                >
-                  <Icon name="close" size={15} />
-                </Button>
-              </div>
-            </div>
-          ))
-        )}
-      </section>
+          <SettingsList label="Installed skills" heading="Installed skills">
+            {skills.map((skill) => (
+              <SettingsRow
+                key={skill.id}
+                className="data-row"
+                leading={<Icon name="skills" />}
+                title={skill.name}
+                description={skill.description}
+                status={
+                  <>
+                    {!skill.enabled && <span className="badge">Disabled</span>}
+                    {skill.owner_only && (
+                      <span className="badge">Owner only</span>
+                    )}
+                  </>
+                }
+                actions={
+                  <>
+                    <Button disabled={busy} onClick={() => void toggle(skill)}>
+                      {skill.enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <SettingsItemActions
+                      name={skill.name}
+                      disabled={busy}
+                      onEdit={() => void open(skill)}
+                      onRemove={() => void remove(skill)}
+                    />
+                  </>
+                }
+              />
+            ))}
+          </SettingsList>
+        ))}
     </div>
   );
 }

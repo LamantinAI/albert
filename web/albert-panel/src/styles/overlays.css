@@ -1,7 +1,7 @@
 .dialog-panel {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
-  padding: 27px;
+  padding: var(--panel-padding);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
@@ -13,14 +13,14 @@
   background: #0009;
 }
 .dialog-panel h2 {
-  font-size: 23px;
+  font-size: 24px;
   margin-bottom: 12px;
 }
 .dialog-panel > p {
   font-size: 14px;
   line-height: 1.7;
   color: var(--muted);
-  margin-bottom: 22px;
+  margin-bottom: 24px;
 }
 .dialog-panel .openai-return-step {
   margin-top: 24px;
@@ -38,7 +38,7 @@
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-top: 24px;
 }
 .select-control {
@@ -115,7 +115,7 @@
 }
 @media (max-width: 480px) {
   .dialog-panel {
-    padding: 23px;
+    padding: 20px;
   }
   .dialog-actions > .button {
     flex: 1;

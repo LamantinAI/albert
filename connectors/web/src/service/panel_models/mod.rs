@@ -422,6 +422,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(subscription.0, again.0);
+        assert_eq!(subscription.0, "subscription-selected-slug");
         let after = service.list().await.unwrap();
         assert_eq!(after.preferred, initial.preferred);
         assert_eq!(after.models.len(), 2);
@@ -430,5 +431,82 @@ mod tests {
         assert!(!after.models[1].config.vision);
         assert!(after.models[1].config.tools);
         assert_eq!(after.models[1].config.context_window, Some(32_000));
+    }
+
+    fn catalog_model(slug: &str) -> SubscriptionCatalogModel {
+        SubscriptionCatalogModel {
+            slug: slug.into(),
+            selectable: true,
+            unavailable_reason: None,
+            name: slug.into(),
+            description: None,
+            input_modalities: vec!["text".into()],
+            context_window: Some(32_000),
+            reasoning_efforts: vec![],
+            default_reasoning_effort: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn subscription_additions_keep_legacy_identity_and_preference_without_duplicates() {
+        let (_dir, service) = fixture();
+        let mut legacy = model("openai-subscription", None, None);
+        legacy.config.provider = "subscription".into();
+        legacy.config.model = "legacy-model".into();
+        service
+            .operation(&permit(), ModelOperation::Create(legacy))
+            .await
+            .unwrap();
+        let origin = "https://chatgpt.com/backend-api/codex".to_owned();
+        let existing = service
+            .connect_subscription(catalog_model("legacy-model"), origin.clone(), false)
+            .await
+            .unwrap();
+        assert_eq!(existing.0, "openai-subscription");
+        for slug in ["new.model", "new-model", "new.model"] {
+            service
+                .connect_subscription(catalog_model(slug), origin.clone(), false)
+                .await
+                .unwrap();
+        }
+        let after = service.list().await.unwrap();
+        assert_eq!(after.models.len(), 3);
+        assert_eq!(after.preferred.as_deref(), Some("openai-subscription"));
+        assert_eq!(after.models[0].config.model, "legacy-model");
+        assert_eq!(after.models[1].config.id, "subscription-new-model");
+        assert_eq!(after.models[1].config.model, "new.model");
+        assert_eq!(after.models[2].config.id, "subscription-new-model-2");
+        assert_eq!(after.models[2].config.model, "new-model");
+        let preferred = service
+            .connect_subscription(catalog_model("new-model"), origin, true)
+            .await
+            .unwrap();
+        assert_eq!(preferred.0, "subscription-new-model-2");
+        assert_eq!(preferred.1.as_deref(), Some("subscription-new-model-2"));
+        assert_eq!(service.list().await.unwrap().models.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn subscription_addition_bootstraps_empty_pool_and_bounds_catalog_identity() {
+        let (_dir, service) = fixture();
+        let origin = "https://chatgpt.com/backend-api/codex".to_owned();
+        let first = service
+            .connect_subscription(catalog_model("..."), origin.clone(), false)
+            .await
+            .unwrap();
+        assert_eq!(first.0, "subscription-model");
+        assert_eq!(first.1.as_deref(), Some(first.0.as_str()));
+        let slug = format!("family/{}", "x".repeat(100));
+        let second = service
+            .connect_subscription(catalog_model(&slug), origin, false)
+            .await
+            .unwrap();
+        assert!(second.0.len() < 80);
+        assert!(second
+            .0
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
+        assert_eq!(second.1, first.1);
+        assert_eq!(service.list().await.unwrap().models[1].config.model, slug);
     }
 }

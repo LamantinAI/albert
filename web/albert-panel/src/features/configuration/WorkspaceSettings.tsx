@@ -1,8 +1,8 @@
-import { Link } from "react-router-dom";
 import { uiPath } from "../../api/paths";
 
 import { useClientContext } from "../../app/context";
 import { Icon } from "../../components/Icon";
+import { SettingsList, SettingsRow } from "../../components/SettingsList";
 import { PageHeading } from "../../components/ui";
 
 const sections = [
@@ -71,38 +71,38 @@ export function WorkspaceSettings() {
       <PageHeading title="Settings">
         Your models, capabilities and the way Albert works.
       </PageHeading>
-      <div className="settings-overview">
+      <SettingsList label="Workspace settings" className="settings-overview">
         {sections
           .filter((item) => context?.caps[item.capability])
           .map((item) => (
-            <Link
+            <SettingsRow
               key={item.to}
+              kind="link"
               to={item.to}
-              aria-label={item.title}
-              className="settings-option"
-            >
-              <Icon name={item.icon} />
-              <h2>{item.title}</h2>
-              <p>{item.text}</p>
-            </Link>
+              ariaLabel={item.title}
+              leading={<Icon name={item.icon} />}
+              title={item.title}
+              description={item.text}
+            />
           ))}
         {context?.caps.manage_config && (
-          <a
+          <SettingsRow
+            kind="link"
             href={uiPath("/docs/index.html")}
-            aria-label="API reference"
-            className="settings-option"
-          >
-            <Icon name="terminal" />
-            <h2>API reference</h2>
-            <p>Explore the workspace API.</p>
-          </a>
+            ariaLabel="API reference"
+            leading={<Icon name="terminal" />}
+            title="API reference"
+            description="Explore the workspace API"
+          />
         )}
-        <Link to="/account" className="settings-option">
-          <Icon name="user" />
-          <h2>My account</h2>
-          <p>Your profile and sign-in credentials.</p>
-        </Link>
-      </div>
+        <SettingsRow
+          kind="link"
+          to="/account"
+          leading={<Icon name="user" />}
+          title="My account"
+          description="Your profile and sign-in credentials"
+        />
+      </SettingsList>
     </div>
   );
 }

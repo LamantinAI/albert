@@ -3,7 +3,7 @@ use std::{path::PathBuf, str::from_utf8};
 
 use toml::{from_str, to_string_pretty, Table, Value};
 
-use super::ControlService;
+use super::{connector_fields::connector_fields, ControlService};
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, service::panel_models::files::atomic_write,
     service::panel_models::files::checked, service::panel_models::files::read_optional,
@@ -45,6 +45,55 @@ impl ControlService {
     }
 
     pub(super) fn validate_connector(&self, id: &str, text: &str) -> Result<(), String> {
+        let kind = self.connector_header(id, text)?;
+        let value: Table = from_str(text).map_err(|_| "Invalid connector TOML.")?;
+        for field in connector_fields(&kind)
+            .into_iter()
+            .filter(|f| f.required == Some(true))
+        {
+            let root = Value::Table(value.clone());
+            let mut setting = Some(&root);
+            for part in field.path.split('.') {
+                setting = setting.and_then(|v| v.get(part));
+            }
+            if !setting
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.trim().is_empty())
+            {
+                return Err(format!("{} is required.", field.label));
+            }
+        }
+        if kind == "caldav" {
+            let header = &value["connector"];
+            let present = |key: &str| {
+                header
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| !s.trim().is_empty())
+            };
+            if !present("collection") && !present("base_url") {
+                return Err("Set a collection URL or a discovery URL.".into());
+            }
+            let required: &[&str] =
+                match header.get("auth").and_then(Value::as_str).unwrap_or("none") {
+                    "basic" => &["login", "password_env"],
+                    "bearer" => &["token_env"],
+                    "oauth2" => &[
+                        "token_url",
+                        "client_id",
+                        "client_secret_env",
+                        "refresh_token_env",
+                    ],
+                    _ => &[],
+                };
+            if required.iter().any(|key| !present(key)) {
+                return Err("Complete the settings for the selected authentication method.".into());
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn connector_header(&self, id: &str, text: &str) -> Result<String, String> {
         let name = id
             .strip_prefix("connector:")
             .ok_or("Invalid connector document.")?;
@@ -78,7 +127,7 @@ impl ControlService {
         {
             return Err("This connector type is not available in this Albert binary.".into());
         }
-        Ok(())
+        Ok(kind.into())
     }
 
     pub(super) fn ensure_topology(&self) -> ApiResult<()> {

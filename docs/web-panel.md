@@ -90,6 +90,9 @@ link and action button are separate controls. Menus remain visible outside the
 scrolling list and support keyboard use and the mobile drawer. Save asks for an
 optional conversation name and promotes the transcript and name atomically. Rename
 is available after saving; temporary deletion uses the panel's confirmation dialog.
+If an open chat is deleted or expires, the panel removes its sidebar entry and
+returns to the new-chat screen without an error or replaying input. The stale URL
+is replaced in browser history. Network and permission failures remain visible.
 Actions can target a background conversation without selecting it. Ending a
 background chat leaves the current route intact, including when navigation occurs
 before the request completes. Menus render immediately from directory metadata,
@@ -162,17 +165,88 @@ available on the committed answer. Chunks are coalesced and bounded; snapshots c
 preview text at 256 KiB while the final journal retains the complete answer. Text
 deltas and completed visual activity are never written as per-token SQL records.
 
-## Existing Telegram installations
+## Shared settings lists
 
-The bootstrap panel owner is attached automatically to the configured Telegram
-owner's private canonical profile. Other existing private chats and groups remain
-stored without creating web accounts or assigning their history to that owner.
-This migration does not change Telegram ACLs, group modes or addressing rules.
+`SettingsList`, `SettingsRow` and `SettingsRowDetails` in the browser component
+library own the entity-list presentation across Settings, connectors, models,
+skills, people, credential names, approvals and subscription model selection.
+Page adapters supply content and existing handlers; they do not define a second
+row layout.
 
-For a UI-first installation, a subsequently configured and still-unbound Telegram
-owner identity is attached before legacy import. An identity already assigned to
-a different profile is never silently rebound or merged. Group sessions remain
-accessible only through their originating connector and channel.
+The component has navigation, managed and radio-selection modes. Navigation uses
+real links. Managed rows keep their action buttons separate from their identity.
+Selection uses a native radio and label, with optional Details outside the label
+so inspecting a model does not change selection. Description and unavailable
+reason are associated with the option for assistive technology. Approval-critical
+information remains visible before decision actions.
+
+One stylesheet defines typography, icon column, dividers, focus and the ochre
+selected/preferred rail. Container queries adapt the component to its own width:
+managed actions move beneath content in narrow containers, and detail grids stack
+in smaller ones. This also applies inside a subscription dialog on a wide screen.
+Dialog header/footer stay outside the scrollable catalog. Ordinary forms and
+conversation history retain their own semantics.
+
+## Connector settings
+
+Connections is a list of configured connectors. Open a specific connector to edit its settings; the
+shared page contains no bot credentials, login tokens or personal bindings.
+Owners can create named instances and edit basic settings through typed fields,
+with Raw available for advanced configuration. Unknown tables and comments are
+preserved when fields are changed. Required settings, number bounds and choices
+are checked before a field edit is accepted.
+
+Search, browser, storage, script execution, SQL, calendar, mail, speech and image
+connectors expose their supported scalar settings. Advanced retains the full
+manual document selector, connector creation and Raw editor. Custom HTTP services
+are managed there and omitted from the standard list and creation choices. Voice, transcription and image
+connectors use the existing shared subscription; no additional OAuth flow is
+introduced by the settings form.
+
+Ordinary accounts see only the Telegram instances where personal linking is
+available. Bot credentials and configuration remain owner-only. The directory
+contains safe instance metadata, without environment references, filesystem paths,
+raw configuration or other users' bindings.
+
+## Telegram account access
+
+Bot setup and personal access both live in the selected Telegram connector under **Settings → Connections**. The owner saves the BotFather credential; each user
+issues their own login token and sends `/login <token>` to the bot privately.
+The panel shows connection readiness, the user's own binding and revoke/disconnect
+actions. Ordinary users cannot view or replace bot credentials.
+
+Existing Telegram users sign in once after the account-authentication upgrade.
+Their selected conversation and canonical journal remain intact. Later restarts
+keep the durable binding. Legacy `owner_chat` is used only to attribute existing
+history, never to grant access. Group sessions remain channel-bound and cannot be
+opened as private sessions. See [Telegram account access](telegram-accounts.md).
+
+The model pool also uses compact rows, with priority, preference and editing
+actions kept alongside each model. Native disclosure markers use the same chevron
+icons as the rest of the panel. Clipboard actions support local HTTP workspaces
+where the asynchronous Clipboard API is unavailable.
+
+Models and Skills share an interaction pattern: one Add action opens a choice of
+creation methods, an editor occupies its own view with a return to the list, and
+rows use the same Edit and Remove controls. Model preference and priority remain
+model-specific; skill enablement remains skill-specific. Skill slash commands are
+not displayed in the management list.
+People uses the same focused editor and return actions when creating an account.
+Replacing a credential brings its form into view and focuses the write-only value
+field. Account includes a sign-out action for the current browser.
+
+Unsaved editors are protected across in-panel navigation, browser Back/Forward and
+local document switches. Keep editing retains the exact input, including invalid
+field values. Discard changes continues the requested transition. Closing or
+reloading the page uses the browser's native unsaved-change warning. Draft text,
+passwords and tokens remain in their mounted forms; the shared guard tracks only
+form identifiers and revision counters. No draft is persisted in browser storage.
+
+Prompt documents use Validate and Save. Saved instructions are picked up by new
+turns; they do not require configuration Apply. Configuration documents retain
+their separate validation, save and runtime/process application steps. Failed
+initial loads provide an error and retry action instead of an empty collection.
+
 
 ## Configuration and approval
 
@@ -260,14 +334,16 @@ setup. After choosing sign-in credentials, the user continues to a chat. When no
 model is connected, the chat shows prominent model-connection choices instead
 of relying on a small configuration warning. The API-key choice opens the
 existing model editor and returns to chat after saving. The OpenAI choice opens
-the guided subscription wizard; model settings also expose Connect or Reconnect.
+the guided subscription wizard. In Models, **Add model** offers **API** or
+**Subscription**; account reconnection is a separate action inside the subscription
+picker.
 
 Settings is the single directory of administrative sections. Agent contains
 behavior fields and Raw only. Connections, Persona, Credentials, Models and API
 reference remain sibling destinations, with a shared Settings navigation. The sidebar expands its section links above
 the Settings button, leaving conversation history available. Keyboard navigation,
 Escape and reduced-motion behavior are supported. Existing document links redirect to their dedicated destination; model
-configuration remains available through its Raw link.
+configuration remains available through its Advanced link.
 
 ## ChatGPT subscription sign-in
 
@@ -296,6 +372,16 @@ change the model pool. Albert then loads the authenticated account's subscriptio
 catalog and shows the provider's model names and descriptions. Choose a model and
 select **Use selected model** to add or reuse it and make it preferred for new
 conversations. Existing model entries and conversations remain intact.
+
+From Models, **Add model → Subscription** opens the same catalog directly when an
+account is already connected. **Add model** adds or reuses the selected model
+without changing an existing preference, then returns to the pool with **Done**.
+An empty pool uses its first model as the default. Subscription entries share the
+workspace credentials; adding a model does not start another authorization flow.
+New entries have model-derived IDs; existing IDs and role references are preserved.
+Closing the completed picker also refreshes the pool. While settings are being
+applied, the picker keeps its progress visible; a failed application can be retried
+without another sign-in.
 
 Catalog failures keep the credentials connected. **Retry loading models** repeats
 only the catalog request; it does not repeat authorization. Closing the picker or

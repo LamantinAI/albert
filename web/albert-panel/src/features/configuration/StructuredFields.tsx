@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ConfigField } from "./useStructuredDraft";
+import { Icon } from "../../components/Icon";
 import { Select } from "../../components/Select";
 
 function Group({
@@ -20,7 +21,10 @@ function Group({
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>{title}</summary>
+      <summary className="disclosure">
+        <Icon name="chevron" size={16} />
+        <span>{title}</span>
+      </summary>
       <div className="form-grid">{children}</div>
     </details>
   );
@@ -52,7 +56,9 @@ export function StructuredFields({
                   ? field.kind === "boolean"
                     ? "default"
                     : ""
-                  : String(field.value));
+                  : Array.isArray(field.value)
+                    ? field.value.join("\n")
+                    : String(field.value));
               const defaultText =
                 field.default_value === true
                   ? "On"
@@ -64,12 +70,35 @@ export function StructuredFields({
                   className={`field ${field.path.endsWith("compact_prompt") ? "config-wide-field" : ""}`}
                   key={field.path}
                 >
-                  {field.kind !== "boolean" && (
+                  {field.kind !== "boolean" && !field.choices?.length && (
                     <label className="field-label" htmlFor={id}>
                       {field.label}
                     </label>
                   )}
-                  {field.kind === "boolean" ? (
+                  {field.choices?.length ? (
+                    <Select
+                      id={id}
+                      label={field.label}
+                      describedBy={`${id}-help`}
+                      value={value || "default"}
+                      disabled={disabled}
+                      onChange={(next) =>
+                        onChange(field.path, next === "default" ? "" : next)
+                      }
+                      options={[
+                        {
+                          value: "default",
+                          label: defaultText
+                            ? `Default (${defaultText})`
+                            : "Not set",
+                        },
+                        ...field.choices.map((item) => ({
+                          value: item,
+                          label: item,
+                        })),
+                      ]}
+                    />
+                  ) : field.kind === "boolean" ? (
                     <Select
                       id={id}
                       label={field.label}
@@ -83,13 +112,18 @@ export function StructuredFields({
                         { value: "false", label: "Off" },
                       ]}
                     />
-                  ) : field.path.endsWith("compact_prompt") ? (
+                  ) : field.kind === "text_list" ||
+                    field.path.endsWith("compact_prompt") ? (
                     <textarea
                       id={id}
                       aria-describedby={`${id}-help`}
                       value={value}
                       disabled={disabled}
-                      placeholder="Use default instructions"
+                      placeholder={
+                        field.kind === "text_list"
+                          ? "One entry per line"
+                          : "Use default instructions"
+                      }
                       onChange={(event) =>
                         onChange(field.path, event.target.value)
                       }
@@ -98,21 +132,38 @@ export function StructuredFields({
                     <input
                       id={id}
                       aria-describedby={`${id}-help`}
-                      type={field.kind === "integer" ? "number" : "text"}
-                      step={field.kind === "integer" ? 1 : undefined}
+                      type={
+                        field.kind === "integer" || field.kind === "number"
+                          ? "number"
+                          : "text"
+                      }
+                      step={
+                        field.kind === "integer"
+                          ? 1
+                          : field.kind === "number"
+                            ? "any"
+                            : undefined
+                      }
                       min={field.minimum ?? undefined}
                       max={field.maximum ?? undefined}
                       value={value}
                       disabled={disabled}
                       placeholder={
-                        defaultText ? `Default: ${defaultText}` : "Use default"
+                        field.required
+                          ? "Required"
+                          : defaultText
+                            ? `Default: ${defaultText}`
+                            : "Not set"
                       }
                       onChange={(event) =>
                         onChange(field.path, event.target.value)
                       }
                     />
                   )}
-                  <small id={`${id}-help`}>{field.description}</small>
+                  <small id={`${id}-help`}>
+                    {field.required && "Required. "}
+                    {field.description}
+                  </small>
                 </div>
               );
             })}

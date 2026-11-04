@@ -60,8 +60,8 @@ and, per event:
 
 1. **Perceive** — a user message (with any attached file dropped into the workspace
    `inbox/`), or a scheduler fire.
-2. **Reflex** — instant, no LLM: `/start` `/help`, and the owner-only ACL admin
-   (`/allow` `/deny` `/allowed`, see below).
+2. **Reflex** — instant, no LLM: native Telegram account login and authorized
+   conversation commands such as `/start`, `/help` and `/cancel`.
 3. **Assemble context** — the base preamble (soul + system), incoming provenance
    (where the message came from), the current time (in the owner's `timezone`),
    active reminders (queried from the scheduler), the **skill catalog** (name +
@@ -256,14 +256,14 @@ scheduler is up; period from `albert.toml`).
 Every connector is assembled from a manifest via Octo's `from_config_file` (register
 the factory in the application assembly, point the builder at `config/octo.toml`):
 
-- **Telegram** — transport checks chat and sender access independently and emits
-  verified source metadata (chat/author IDs, chat type, addressing signal). The
-  deterministic Albert reflex (`albert-core/src/acl/mod.rs`) drops unaddressed group traffic
-  before cognition or cancellation. ACL controls are owner/admin-only; opening
-  a group with `/groupmode all` is owner-only and gives other participants guest
-  access. The connector rechecks the sender before changing its persisted ACL.
-  Bootstrap commands in unlisted groups are restricted to owner/admin and never
-  become model turns. Source metadata accompanies each prompt and stored user turn.
+- **Telegram** — native account preflight runs before ACL fallback, logging,
+  journaling or model input. A single-use personal token links the verified
+  Telegram actor to a panel account; current account role and binding state
+  authorize each request. Guests may address Albert in a group without tools.
+  Group prompts project public speech from the canonical journal and omit
+  internal traces and untrusted old compacts. The group remains channel-owned;
+  private sessions remain account-owned. Generic Octo assemblies retain their
+  optional legacy ACL behavior. See [Telegram account access](telegram-accounts.md).
 - **CalDAV calendar** — a generic (RFC 4791) organ: one crate, many calendars (a
   configured instance per account, basic-app-password or OAuth2). Commands
   `calendar.{list,create,delete}_event`.
@@ -295,7 +295,7 @@ Settled today: the working-first cogitator; kaeru memory (local, with optional c
 sharing); reminders + the reflection routine; the scratchpad; the file workspace +
 durable storage + file exchange; declarative **and** executable skills over a
 sandboxed forkd runner (three isolation layers, L1+L2 in place); owner-gated
-self-restart; SQLite-persisted history; config-driven Telegram (ACL) + calendar +
+self-restart; SQLite-persisted history; config-driven Telegram account access + calendar +
 scheduler + storage + forkd; TOML config + hot-reloaded prompts; API-key **or**
 ChatGPT-subscription auth.
 

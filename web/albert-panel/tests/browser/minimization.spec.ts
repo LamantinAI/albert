@@ -100,9 +100,7 @@ test("settings hub keeps authorized sections reachable and ordinary accounts sep
     .locator(".workspace-content")
     .getByRole("link", { name: "Models", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Your model pool." }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Models" })).toBeVisible();
   await page.route("**/api/v1/context", (route) =>
     route.fulfill({
       json: clientContext({
@@ -119,8 +117,12 @@ test("settings hub keeps authorized sections reachable and ordinary accounts sep
     }),
   );
   await page.goto("/ui/workspace");
-  await expect(page.locator(".settings-option")).toHaveCount(1);
-  await expect(page.locator(".settings-option")).toContainText("My account");
+  await expect(page.locator(".settings-overview [role=listitem]")).toHaveCount(
+    1,
+  );
+  await expect(
+    page.locator(".settings-overview [role=listitem]"),
+  ).toContainText("My account");
   await page.goto("/ui/models");
   await expect(
     page.getByRole("heading", { name: "This area is for workspace owners." }),

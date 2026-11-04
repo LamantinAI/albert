@@ -29,6 +29,8 @@ fn field(
         description: description.into(),
         kind,
         value: None,
+        required: None,
+        choices: None,
         default_value,
         minimum: numeric.then_some(
             if matches!(

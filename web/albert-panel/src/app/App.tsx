@@ -1,7 +1,13 @@
 import { uiPath } from "../api/paths";
 import { Component, lazy, Suspense } from "react";
 import type { ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
 import { Brand } from "../components/Brand";
 import { Button, EmptyState, Notice } from "../components/ui";
@@ -13,6 +19,13 @@ import { Shell } from "./Shell";
 import { PageLoading } from "./PageLoading";
 import { ContextProvider, useClientContext } from "./context";
 import type { ClientContext } from "./context";
+import { UnsavedChangesProvider } from "./UnsavedChanges";
+
+const ConnectionSettings = lazy(() =>
+  import("../features/configuration/connectors/Connections").then((module) => ({
+    default: module.Connections,
+  })),
+);
 
 const Account = lazy(() =>
   import("../features/account/Account").then((module) => ({
@@ -152,6 +165,10 @@ function Content() {
         <Route path="/workspace" element={<WorkspaceSettings />} />
         <Route path="/account" element={<Account />} />
         <Route
+          path="/settings/connections/*"
+          element={<ConnectionSettings />}
+        />
+        <Route
           path="/models"
           element={
             <Allowed capability="manage_models">
@@ -197,23 +214,33 @@ function Content() {
   );
 }
 
+const router = createBrowserRouter(
+  [
+    {
+      path: "*",
+      element: (
+        <Boundary>
+          <ContextProvider>
+            <UnsavedChangesProvider>
+              <Suspense
+                fallback={
+                  <main className="setup-shell">
+                    <Brand caption={false} />
+                    <PageLoading />
+                  </main>
+                }
+              >
+                <Content />
+              </Suspense>
+            </UnsavedChangesProvider>
+          </ContextProvider>
+        </Boundary>
+      ),
+    },
+  ],
+  { basename: uiPath() },
+);
+
 export function App() {
-  return (
-    <Boundary>
-      <BrowserRouter basename={uiPath()}>
-        <ContextProvider>
-          <Suspense
-            fallback={
-              <main className="setup-shell">
-                <Brand caption={false} />
-                <PageLoading />
-              </main>
-            }
-          >
-            <Content />
-          </Suspense>
-        </ContextProvider>
-      </BrowserRouter>
-    </Boundary>
-  );
+  return <RouterProvider router={router} />;
 }

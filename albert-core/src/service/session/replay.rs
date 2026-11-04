@@ -7,7 +7,7 @@ use super::{route_key, SessionService};
 use crate::{
     db::error::DatabaseError, db::repo::route::find_in, sessions::cleanup_scope_for,
     sessions::error::SessionError, sessions::error::SessionResult, sessions::require_host,
-    sessions::Admission, sessions::AdmissionScope, sessions::SessionContext,
+    sessions::Admission, sessions::SessionContext,
 };
 
 impl SessionService {
@@ -17,12 +17,8 @@ impl SessionService {
         bound_id: &SessionId,
     ) -> SessionResult<SessionContext> {
         require_host(&admission.host)?;
-        let user = match &admission.identity {
-            Some(identity) => Some(self.resolve_identity(identity).await?),
-            None if admission.scope == AdmissionScope::Group => None,
-            None => return Err(SessionError::Denied),
-        };
         let mut tx = self.history().begin_journal().await?;
+        let user = self.admission_user_in(&mut tx, &admission).await?;
         let session = self.catalog_session_in(&mut tx, bound_id).await?;
         let original = self
             .history()
@@ -30,7 +26,8 @@ impl SessionService {
             .await?
             .ok_or(SessionError::Denied)?;
         let mut context = SessionContext {
-            actor_tools: None,
+            account: admission.account.clone(),
+            actor_tools: admission.actor_policy(),
             lease: self.lease_for_in(&mut tx, bound_id).await?,
             cleanup_scope: None,
             user,

@@ -65,6 +65,7 @@ test("message copying keeps the original text and reports clipboard refusal", as
     await expect(entry.locator("header .message-copy")).toHaveCount(0);
   }
   await page.evaluate(() => {
+    document.execCommand = () => false;
     Object.defineProperty(navigator, "clipboard", {
       value: {
         writeText: async () => {
@@ -149,10 +150,10 @@ test("login and forced credential rotation have a usable dark workspace layout",
     0,
   );
   await expect(
-    page.getByRole("link", { name: "Use an API key", exact: true }),
+    page.getByRole("button", { name: "API", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Sign in with OpenAI", exact: true }),
+    page.getByRole("button", { name: "Subscription", exact: true }),
   ).toBeEnabled();
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
 });

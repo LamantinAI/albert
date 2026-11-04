@@ -5,12 +5,23 @@ use sqlx::query_scalar;
 
 use super::SessionService;
 use crate::{
-    messaging::contract::DestinationSpec, messaging::contract::ReturnAddress,
-    messaging::MessagingError, messaging::MessagingResult, sessions::AdmissionScope,
-    sessions::ReplyRoute, sessions::SessionContext, sessions::UserId,
+    messaging::contract::DestinationSpec, messaging::contract::MessageId,
+    messaging::contract::ReturnAddress, messaging::MessagingError, messaging::MessagingResult,
+    sessions::AdmissionScope, sessions::ReplyRoute, sessions::SessionContext, sessions::UserId,
 };
 
 impl SessionService {
+    pub async fn messaging_context_for_message(
+        &self,
+        id: &MessageId,
+        actor: &str,
+        recipient: &SessionId,
+        address: &ReturnAddress,
+    ) -> MessagingResult<SessionContext> {
+        let context = self.messaging_context(actor, recipient, address).await?;
+        self.accounts.message_context(id.as_str(), context).await
+    }
+
     pub async fn messaging_context(
         &self,
         actor: &str,
@@ -22,6 +33,7 @@ impl SessionService {
         let session = self.catalog_session_in(&mut tx, recipient).await?;
         let lease = self.lease_for_in(&mut tx, recipient).await?;
         let context = SessionContext {
+            account: None,
             actor_tools: None,
             lease,
             cleanup_scope: None,
