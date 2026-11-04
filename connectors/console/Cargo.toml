@@ -1,0 +1,19 @@
+[package]
+name = "albert-connector-console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+albert-core = { workspace = true }
+async-trait = { workspace = true }
+octo-approval = { workspace = true }
+octo-core = { workspace = true }
+octo-history = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true

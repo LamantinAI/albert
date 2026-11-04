@@ -113,7 +113,9 @@ its handoff surface. The full three-layer picture is in
 
 ```sh
 # 1. build the release binary on the dev box
-cargo build --release
+npm --prefix web/albert-panel ci
+npm --prefix web/albert-panel run build:embedded
+cargo build --locked --release
 
 # 2. stage: binary + albert.toml + soul.md/system.md + skills/ + config/ + .env + the
 #    unit; set the real owner_chat in config/connectors/telegram/telegram.toml and the
@@ -148,7 +150,9 @@ restart itself with its `restart` tool (`target: "process"` for the whole servic
 `install` preserves owner/mode; back up first so a bad build is one `mv` from rollback:
 
 ```sh
-cargo build --release
+npm --prefix web/albert-panel ci
+npm --prefix web/albert-panel run build:embedded
+cargo build --locked --release
 ts=$(date +%Y%m%d-%H%M%S)
 ssh <host> "sudo cp /opt/albert/albert /opt/albert/albert.bak-$ts"
 scp target/release/albert <host>:/tmp/albert.new

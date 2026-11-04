@@ -239,10 +239,11 @@ Opening the mount, with or without a trailing slash, enters its `ui/` workspace.
 Assets, navigation, API calls, live events and API reference links resolve within
 the browser-visible workspace; refreshing a nested page keeps the same mount.
 
-The canonical API is `/api/v1`, with a generated document at
-`/api/v1/openapi.json`. The workspace also exposes relative API aliases beneath
-`ui/api/v1`, so browser requests stay inside the proxy mount. Self-hosted Swagger
-UI is available at `ui/docs/index.html`, including cookie credentials and CSRF
+The canonical API is `/api/v1`, with the Utoipa-generated document at
+`/openapi.json` and the compatible `/api/v1/openapi.json` alias. The workspace also
+exposes relative API aliases beneath `ui/api/v1`, so browser requests stay inside
+the proxy mount. Plain self-hosted Swagger UI is available at `/docs/` and the
+compatible `ui/docs/index.html` address, including cookie credentials and CSRF
 support. Its server URL resolves relative to the hosted document. It loads no CDN
 assets or external schema validator.
 
@@ -347,7 +348,7 @@ or raw editors; model and credential controls remain write-only for secrets.
 
 ## Frontend development and embedding
 
-The client lives in `frontend/`. Its neutral dark surfaces use golden ochre
+The client lives in `web/albert-panel/`. Its neutral dark surfaces use golden ochre
 accents, Space Grotesk and IBM Plex Mono, with dot-matrix identity artwork and
 compact pixel branding. The sidebar logo, mobile header logo and favicon remain static; chat activity
 has a separate animated paw. The large chat wordmark periodically dims as one
@@ -359,23 +360,36 @@ directory keeps navigation and conversations synchronized without a second
 history store. All controls use the same authenticated API as before.
 
 ```sh
-npm --prefix frontend ci
-npm --prefix frontend run build:embedded
+npm --prefix web/albert-panel ci
+npm --prefix web/albert-panel run build:embedded
 cargo build --locked
 ```
 
-`ui-dist/` is the generated, versioned bundle. Cargo embeds it and verifies source
-and asset fingerprints; it never invokes Node or downloads frontend packages.
-An outdated bundle fails the Rust build with the rebuild command. Node is needed
-only when changing the frontend. Fonts and Swagger assets include their licenses.
+Browser assets are generated under `web/ui-dist/` and are not committed. The web connector's
+build script verifies source and asset fingerprints, then copies the bundle to
+Cargo's `OUT_DIR` for embedding. Missing or outdated assets fail the production
+build with the rebuild command. Cargo never invokes Node or installs packages.
+Fonts and Swagger assets include their licenses.
 
-For local frontend work, run `npm --prefix frontend run dev -- --host 0.0.0.0`.
+The running API and TypeScript generator use the same Rust Utoipa schema. No
+OpenAPI JSON snapshot is maintained. After changing HTTP DTOs or routes, run
+`npm --prefix web/albert-panel run generate`; `check:api` verifies the committed
+declarations against a fresh schema export. The schema-only tool and
+`cargo test --locked -p albert-core` do not require browser assets.
+
+Export the same schema directly without starting Albert:
+
+```sh
+cargo run --locked -p xtask -- openapi
+```
+
+For local frontend work, run `npm --prefix web/albert-panel run dev -- --host 0.0.0.0`.
 Vite serves the client with HMR and proxies `/api` to the local Rust API. Set
 `ALBERT_API_ORIGIN` for a different development API address; its default is
 `http://127.0.0.1:9877`. The proxy preserves Host for the normal origin checks.
-The binary continues to use the versioned embedded bundle.
+The binary continues to use its own embedded bundle until rebuilt.
 
-Frontend checks use `npm --prefix frontend test` and `test:browser`. The
+Frontend checks use `npm --prefix web/albert-panel test` and `test:browser`. The
 `test:backend` suite requires a fresh isolated Albert instance and a local mock
 provider via `ALBERT_E2E_URL` and `ALBERT_E2E_MODEL_ORIGIN`. It must not point at a
 personal deployment or a paid model endpoint.

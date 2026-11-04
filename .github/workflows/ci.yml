@@ -44,5 +44,21 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.6.0'
+          cache: npm
+          cache-dependency-path: web/albert-panel/package-lock.json
+
+      - name: Build and verify browser assets
+        working-directory: web/albert-panel
+        run: |
+          npm ci
+          npm run check:api
+          npm test
+          npx playwright install --with-deps chromium
+          npm run test:browser
+          npm run build:embedded
+
       - name: cargo test --workspace
         run: cargo test --locked --workspace --all-targets

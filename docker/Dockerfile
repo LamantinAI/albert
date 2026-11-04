@@ -10,7 +10,9 @@
 # Build for the server's arch: `docker build --platform linux/amd64 …`.
 
 # ---- build ----
+FROM node:24.6.0-bookworm-slim AS node-tools
 FROM ubuntu:24.04 AS build
+COPY --from=node-tools /usr/local/ /usr/local/
 
 ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
@@ -43,7 +45,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
     cargo clean -p curl-sys --release 2>/dev/null; \
-    cargo build --release --locked \
+    npm --prefix web/albert-panel ci \
+    && npm --prefix web/albert-panel run build:embedded \
+    && cargo build --release --locked \
     && cp target/release/albert /albert
 
 # ---- runtime ----

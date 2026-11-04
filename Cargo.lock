@@ -78,10 +78,84 @@ dependencies = [
 ]
 
 [[package]]
-name = "albert"
+name = "albert-connector-console"
 version = "0.3.0"
 dependencies = [
+ "albert-core",
+ "async-trait",
+ "octo-approval",
+ "octo-core",
+ "octo-history",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "albert-connector-telegram"
+version = "0.3.0"
+dependencies = [
+ "albert-core",
+ "async-trait",
+ "chrono",
+ "octo-approval",
+ "octo-connector-telegram",
+ "octo-core",
+ "octo-history",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "albert-connector-web"
+version = "0.3.0"
+dependencies = [
+ "albert-core",
  "argon2",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "chrono-tz 0.10.4",
+ "futures",
+ "include_dir",
+ "jsonwebtoken",
+ "libc",
+ "mime_guess",
+ "octo-approval",
+ "octo-connector-web",
+ "octo-core",
+ "octo-history",
+ "octo-openai-auth",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "tower",
+ "tracing",
+ "url",
+ "utoipa",
+ "zip 6.0.0",
+]
+
+[[package]]
+name = "albert-core"
+version = "0.3.0"
+dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -90,12 +164,44 @@ dependencies = [
  "chrono-tz 0.10.4",
  "dotenvy",
  "futures",
- "include_dir",
- "jsonwebtoken",
  "kaeru-core",
  "kaeru-rig",
- "libc",
- "mime_guess",
+ "octo-approval",
+ "octo-code",
+ "octo-connector-sql",
+ "octo-core",
+ "octo-history",
+ "octo-openai-auth",
+ "octo-rig",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "reqwest 0.13.4",
+ "rig-core",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tiktoken-rs",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "albert-server"
+version = "0.3.0"
+dependencies = [
+ "albert-connector-console",
+ "albert-connector-telegram",
+ "albert-connector-web",
+ "albert-core",
+ "chrono",
+ "dotenvy",
  "octo-approval",
  "octo-code",
  "octo-connector-browser",
@@ -115,29 +221,17 @@ dependencies = [
  "octo-core",
  "octo-history",
  "octo-openai-auth",
- "octo-rig",
  "rand 0.8.7",
- "reqwest 0.12.28",
- "reqwest 0.13.4",
- "rig-core",
- "rmcp",
  "serde",
  "serde_json",
  "sha2",
  "sqlx",
  "tempfile",
- "thiserror 2.0.18",
- "tiktoken-rs",
  "tokio",
  "toml",
- "toml_edit",
- "tower",
- "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
- "utoipa",
- "zip 6.0.0",
 ]
 
 [[package]]
@@ -6732,7 +6826,6 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
  "url",
 ]
 
@@ -7728,6 +7821,15 @@ dependencies = [
  "rusticata-macros",
  "thiserror 2.0.18",
  "time",
+]
+
+[[package]]
+name = "xtask"
+version = "0.3.0"
+dependencies = [
+ "albert-connector-web",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

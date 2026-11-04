@@ -115,12 +115,21 @@ single **cogitator** (the deciding layer) wired in:
   rig native tool-loop over its full toolset (memory, scheduler, calendar, files,
   storage, skills, scripts, and — for the owner — restart), and replies.
 
+## Source workspace
+
+The Cargo workspace separates `albert-core`, Albert-owned connectors under
+`connectors/`, and the `albert-server` crate producing the `albert` executable. The React client lives in
+`web/albert-panel`; Utoipa supplies its API schema through `xtask`. Browser bundles
+are generated build outputs. See the [code map](docs/structure.md) for ownership
+and dependency boundaries.
+
 ## Quick start
 
-Prerequisites: Rust (1.85+), an OpenRouter (or compatible) API key, and — for the real
-run — a Telegram bot token and, optionally, calendar credentials.
+Prerequisites: a Rust toolchain compatible with `Cargo.lock`, Node.js for the web
+client build, an OpenRouter (or compatible) API key, and — for the real run — a
+Telegram bot token and, optionally, calendar credentials.
 
-1. **Secrets** — put them in `../.env` (repo root, next to this crate):
+1. **Secrets** — put them in `.env` in the deployment directory:
 
    ```sh
    ALBERT_OPENAI_KEY=sk-or-...            # LLM key (OpenRouter)
@@ -138,7 +147,9 @@ run — a Telegram bot token and, optionally, calendar credentials.
 3. **Run**:
 
    ```sh
-   cargo run          # from albert/albert/
+   npm --prefix web/albert-panel ci
+   npm --prefix web/albert-panel run build:embedded
+   cargo run --locked # from the repository root
    ```
 
    With `OCTO_TELEGRAM_TOKEN` set, Albert connects to Telegram (ACL-gated) and the

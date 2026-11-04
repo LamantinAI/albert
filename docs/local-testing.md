@@ -7,9 +7,12 @@ share an internal network. A small fixed-upstream gateway exposes the panel and
 fixture on loopback without giving the agent outbound internet. Each run uses
 its own Compose project and fresh state volume.
 
-Build a development binary with the opt-in `local-e2e` feature, then run:
+Build current browser assets and a development binary with the opt-in `local-e2e`
+feature, then run from the workspace root:
 
 ```sh
+npm --prefix web/albert-panel ci
+npm --prefix web/albert-panel run build:embedded
 cargo build --locked --features local-e2e
 python3 docker/local-e2e/run.py --binary target/debug/albert
 ```
@@ -23,7 +26,7 @@ The runner creates its build context, frontend test copy, reports and logs in a
 temporary directory outside the repository. Install the locked frontend packages
 and Playwright Chromium first. `ALBERT_BROWSER_PATH` may select an already installed
 Chromium executable. An optional `--frontend` points at a prepared dependency and
-source copy outside Git; it must match the current source tree.
+source copy of `web/albert-panel` outside Git; it must match the current source tree.
 
 The browser suite covers first sign-in, mandatory owner password change, guided
 authorization and callback paste, persisted subscription credentials, the account

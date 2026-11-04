@@ -1,0 +1,52 @@
+[package]
+name = "albert-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "albert"
+path = "src/main.rs"
+
+[features]
+local-e2e = ["albert-core/local-e2e", "albert-connector-web/local-e2e"]
+
+[dependencies]
+albert-connector-console = { workspace = true }
+albert-connector-telegram = { workspace = true }
+albert-connector-web = { workspace = true, features = ["embedded-panel"] }
+albert-core = { workspace = true }
+chrono = { workspace = true }
+dotenvy = { workspace = true }
+octo-approval = { workspace = true }
+octo-code = { workspace = true }
+octo-connector-browser = { workspace = true }
+octo-connector-caldav = { workspace = true }
+octo-connector-forkd = { workspace = true }
+octo-connector-http = { workspace = true }
+octo-connector-imagegen = { workspace = true }
+octo-connector-mail = { workspace = true }
+octo-connector-scheduler = { workspace = true }
+octo-connector-search = { workspace = true }
+octo-connector-speak = { workspace = true }
+octo-connector-sql = { workspace = true }
+octo-connector-storage = { workspace = true }
+octo-connector-telegram = { workspace = true }
+octo-connector-transcribe = { workspace = true }
+octo-connector-web = { workspace = true }
+octo-core = { workspace = true }
+octo-history = { workspace = true }
+octo-openai-auth = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true

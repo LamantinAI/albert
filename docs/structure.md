@@ -1,52 +1,86 @@
 # Structure — the code map
 
-Albert is a single binary crate. Modules by concern (all under `src/`):
+Albert is a Cargo workspace producing a single `albert` executable. Browser
+projects live under `web/`; reusable Rust code and transport adapters have
+separate crate boundaries.
 
-| Module | Owns |
-|--------|------|
-| `memory/` | Backend selection, embedded kaeru setup, the dedicated MCP session (HTTP/stdio), scoped `kaeru_*` tool adapters and the idempotent startup migration creating the `albert` initiative when absent. |
-| `main.rs` | Wiring: load `.env` + `albert.toml`, open the kaeru vault, build history (memory / file / sqlite), the scheduler, the scratchpad, the skill catalog, the prompt loader; export `$OCTO_CODE_WORKSPACE` + `$OCTO_SKILLS_DIR`; register the connector factories (telegram, caldav, scheduler, storage, forkd) and `from_config_file`, or fall back to console; run the Octo runtime. |
-| `cogitator/` | `AlbertCogitator` — the `Cogitator`: the perceive → reflex → assemble-context → tool-loop → reply cycle for `chat.message` and `alarm.fired`. Holds config, kaeru handle, history, scratchpad, skills, prompt loader; builds the rig agent + the full toolset (dispatch, kaeru verbs, scratchpad, file workspace, `send_file`, skills, and — owner-only — `restart`). |
-| `cogitator/turns/` | Per-channel interruption and reply commit gates; preserves accepted input and tool checkpoints, cancels the old scope and resumes with the new message. |
-| `cogitator/messaging/` | Idle-session request scheduling, restricted model execution, `session_messaging` tools, report routing and physical delivery supervision. |
-| `messaging/` | Trusted message contracts, bounded policies, SQL control metadata, shared canonical-journal transactions and adapter receipt evidence. |
-| `status/trace/` | Captures live tool rounds and interrupted/unknown outcomes; history records them as a provider-neutral journal. |
-| `cogitator/hearing.rs` | Hearing: a voice message is handed to the `transcribe` organ (`transcribe.run { path }` on the recording the channel saved) and the text becomes the turn; with no transcribe organ Albert says he can't hear. |
-| `commands.rs` | Chat commands: the built-in system reflexes (`/help`, `/cancel`, `/restart`, ACL — reserved names) and skill commands (`command:` in a skill's frontmatter → a turn seeded with its instructions); `/help` and the channel menu (`chat.set_commands`). |
-| `manifests.rs` | A read-only look at which connector types the manifests declare, so capabilities (a skill's `requires:`) follow what is configured. |
-| `acl/mod.rs` | Telegram source reporting, group addressing and owner/admin ACL reflex (`/allow` `/deny` `/allowed`): role check + dispatch of the `octo.telegram.*` control command. `is_owner` (role == owner) also gates the owner-only `restart` tool. Deterministic — no LLM in a security action. |
-| `skills/` | The declarative skill system: a folder of `<name>/SKILL.md` (frontmatter `name`/`description` + body). Renders the per-turn catalog (every available name + description, independent of `[skills] page`); the `skill_list` (paginated) / `skill_search` (ranked by name/description) / `skill_apply` / `skill_file` tools; an LRU read-through cache so only applied bodies (not the whole folder) sit in context. |
-| `routines.rs` | Proactive routines: idempotently seed the base memory-reflection alarm on startup (retry until the scheduler answers). The routine handler itself lives in the cogitator (`run_routine`). |
-| `scratchpad/` | The bounded in-memory working scratchpad, scoped by connector/conversation/owner: simple checklists, structured stages with revisions/dependencies/assignments, linked child attempts, acceptance evidence and the `scratchpad_*` tools. |
-| `status/` | Live progress hooks (`StatusFeed`), tool metrics and execution traces. `presentation/` shares the current typing/status binding across hooks, so reopening live work creates a fresh view without changing execution or reviving closed tokens (opt-in `stream_status`). |
-| `prompt.rs` | `PromptFiles` — loads `soul.md` + `system.md` into RAM and hot-reloads them by mtime; terse embedded fallback if a file is missing. |
-| `config.rs` | `Config` — parse `albert.toml` (serde + `toml`), resolve the LLM secret from env, resolve relative paths against the config dir, supply defaults (auth mode, history backend, skills, workspace, timezone, clouds). |
-| `history.rs` | Bridge to Octo's `octo-history`: the per-channel transcript (the hot-context tier), plus conversion of stored turns into rig messages. Backend selected by `[history] backend` — in-memory, JSON file, or migrated SQLite. |
-| `console.rs` | `ConsoleConnector` — a stdin/stdout channel, the Telegram stand-in for local dev. |
-| `codex_http.rs`, `codex_model.rs` | ChatGPT-subscription path: a custom rig `HttpClientExt` that rewrites requests/responses for the OpenAI **Codex** backend (streaming-only, no `system` messages / strict schemas), and the Codex model slugs. Only in play under `auth = "subscription"`. |
-| `openai_login.rs` | Subscription OAuth sign-in (`albert login`, PKCE); writes `auth.json`. The token store, in-place refresh and the shared `SubscriptionAuth` handle live in octo's `octo-openai-auth`. |
-| `error.rs` | The crate error type — explicit `#[from]` variants, no `anyhow`. |
+```text
+Cargo.toml                 virtual workspace, shared dependencies and profiles
+Cargo.lock
+albert-core/               cognition and transport-neutral domain library
+connectors/
+  console/                 stdin/stdout adapter
+  telegram/                Albert policies over Octo Telegram
+  web/                     HTTP API, panel services and embedded assets
+albert-server/             server binary, CLI and runtime assembly
+web/
+  albert-panel/            React + TypeScript browser project
+  ui-dist/                 generated embedded bundle (ignored)
+xtask/                     schema export tooling
+config/                    connector manifests and examples
+skills/                    bundled skill packages
+docs/                      public architecture and configuration guides
+```
+
+## Crate responsibilities
+
+| Package | Owns |
+|---------|------|
+| `albert-core` | `AlbertCogitator`, context and provider adapters, runtime lifecycle, memory, sessions, messaging, scratchpad, subagents, skills, neutral status events and internal persistence. |
+| `albert-connector-console` | Console input/output and its session/approval integration. |
+| `albert-connector-telegram` | Trusted native ingress mapping, Telegram host policy, session navigation, feedback and delivery adaptation. The transport itself remains in Octo. |
+| `albert-connector-web` | HTTP DTOs/router, JWT/CSRF, accounts and owner configuration services, OAuth panel flow, private-session bridge, SSE, assets and plain Swagger. |
+| `albert-server` (binary `albert`) | Process environment, interactive CLI login, composed settings, bootstrap, connector factories, SQL protected paths and runtime assembly. |
+| `xtask` | Export the same Utoipa schema used by the running API without requiring browser assets. |
+
+The application depends on core and the connectors; each connector depends on
+core. Core has no dependency on Albert's application or connector crates. HTTP
+DTOs and Telegram wire types stay at the edge. Domain ingress, feedback, delivery
+and status contracts let the same session work across transports without importing
+their implementations into cognition. Adapter integration tests belong outside
+core; domain tests use neutral fixtures.
+
+Generic SQL, scheduler, browser, mail, storage and other connectors are consumed
+from Octo. They are assembled by the application, not copied into local crates.
+Noninteractive OAuth/PKCE belongs to core; terminal input, browser launching and
+the loopback callback belong to the application.
+
+## Persistence and build outputs
+
+Core owns the internal database and the single Albert migration ledger. The web
+adapter uses that same pool for account/configuration services. Conversation
+catalogs and canonical journals remain in octo-history; application SQL stores
+remain isolated from internal history. Moving code does not change schema versions,
+migration checksums, configuration discovery or deployed data paths.
+
+Utoipa defines the API schema. `xtask` exports it for TypeScript generation; no
+OpenAPI JSON snapshot is committed. Generated TypeScript declarations may be
+versioned and are checked for freshness. The browser build produces disposable
+assets, and the web crate verifies their fingerprints and copies them to Cargo's
+`OUT_DIR` for embedding. Cargo never installs Node packages. Core and schema-only
+builds do not require a browser bundle; a production build requires current assets.
+See [web-panel.md](web-panel.md#frontend-development-and-embedding) for commands.
 
 ## Where a concern lives
 
 - **The action space** (what the model can do) = the registered connectors' catalogs,
-  assembled in `cogitator/context.rs::catalog` from `ctx.connectors()`. Add an organ → it
+  assembled in `albert-core/src/cogitator/context.rs::catalog` from `ctx.connectors()`. Add an organ → it
   appears automatically in the `dispatch_to_connector` tool (scheduler, calendar,
   storage, forkd all reached this way).
-- **The memory tools** = kaeru verbs installed in `cogitator/agent.rs::drive` through
+- **The memory tools** = kaeru verbs installed in `albert-core/src/cogitator/agent.rs::drive` through
   `Memory::install`: embedded `KaeruMemory`, or the dedicated MCP memory session.
   Embedded cloud verbs are enabled by `[clouds.*]`; MCP cloud settings belong to
   the memory server.
 - **Files & the workspace** = the octo-code tools (`read/write/edit/list/glob/grep`,
   jailed to `$OCTO_CODE_WORKSPACE`) and `send_file`, added in `run_agent`; the
   workspace is one shared directory that storage + forkd also inherit by name.
-- **Skills** = `skills/` (catalog + the `skill_*` tools); the folder is `[skills] dir`.
+- **Skills** = `albert-core/src/skills/` (catalog + the `skill_*` tools); the folder is `[skills] dir`.
 - **Scripts** = the `forkd` connector, reached over `dispatch_to_connector`
   (`forkd.run`); executable skills name a bundled script run in place via `skill_path`.
 - **Self-restart** = the owner-only `restart` tool (`octo-rig`), added in `run_agent`
   only when `is_owner`; it emits the `octo.control.*` signals the runtime carries out.
 - **A user reminder vs. a routine** = distinguished by the `alarm.fired` payload in
-  `cogitator/alarms.rs::on_alarm` (`routine` marker → silent `run_routine`; else the
+  `albert-core/src/cogitator/alarms.rs::on_alarm` (`routine` marker → silent `run_routine`; else the
   reminder path).
 - **Connector config** (Telegram, calendar, storage, forkd) = the manifests under
   `config/`, not the code — see [configuration.md](configuration.md).

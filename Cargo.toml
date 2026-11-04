@@ -1,14 +1,19 @@
-[package]
-name = "albert"
+[workspace]
+resolver = "2"
+members = ["albert-core", "connectors/console", "connectors/telegram", "connectors/web", "albert-server", "xtask"]
+default-members = ["albert-server"]
+
+[workspace.package]
 version = "0.3.0"
 edition = "2021"
 license = "LicenseRef-BSL-1.1"
-description = "Albert — the assembly: an Octo cogitator with kaeru memory and a scheduler connector. Talk to it; it remembers and reminds."
 
-[features]
-local-e2e = ["octo-openai-auth/local-e2e"]
+[workspace.dependencies]
+albert-core = { path = "albert-core" }
+albert-connector-console = { path = "connectors/console" }
+albert-connector-telegram = { path = "connectors/telegram" }
+albert-connector-web = { path = "connectors/web", default-features = false }
 
-[dependencies]
 # Octo — shared runtime, SQL stores and authenticated human approvals.
 # Keep every crate on the same immutable repository revision.
 # NOTE: linking the mail crate pulls a second rustls provider (ring); main() MUST call
@@ -127,13 +132,8 @@ libc = "=0.2.186"
 include_dir = "=0.7.4"
 
 mime_guess = "=2.0.5"
-[dev-dependencies]
 tempfile = "3"
-rmcp = { version = "=1.8.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 
-# Optimized release profile for the deployed binary (smaller + faster; the target
-# is a small VM). opt-level 3 is the release default; the wins are LTO + a single
-# codegen unit + strip.
 [profile.release]
 opt-level = 3
 lto = "thin"
@@ -145,7 +145,3 @@ strip = true
 # per-workspace-root, so Albert (its own workspace) must repeat it.
 [patch.crates-io]
 graph_builder = { git = "https://github.com/lawless-m/graph", rev = "790ef623533fa39574ddd11308e3abc3993c0994" }
-
-[build-dependencies]
-sha2 = "0.10"
-serde_json = "1"

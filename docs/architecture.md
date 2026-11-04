@@ -4,6 +4,15 @@ Albert is an **assembly**, not a monolith: the [Octo](https://github.com/Lamanti
 runtime (Reaction), [kaeru](https://github.com/LamantinAI/kaeru) (Memory), and a
 cogitator that ties them, plus connectors for the rest.
 
+## Workspace boundaries
+
+`albert-core` contains cognition, sessions, runtime lifecycle and shared internal
+persistence. The application in `albert-server` assembles it with adapters in
+`connectors/{console,telegram,web}`. Adapters depend on core through neutral domain
+contracts; core does not import their HTTP or native transport types. The React
+client lives in `web/albert-panel`, with Utoipa as its API schema authority.
+See the [code map](structure.md) for the complete ownership and build boundaries.
+
 ## The frame: PEMRR
 
 The long-term decomposition is five layers — **P**erception (what is happening),
@@ -46,7 +55,7 @@ and lazy skill caching remain optional extensions.
 
 ## The cogitator loop
 
-`AlbertCogitator` (`src/cogitator/`) subscribes to `chat.message` and `alarm.fired`
+`AlbertCogitator` (`albert-core/src/cogitator/`) subscribes to `chat.message` and `alarm.fired`
 and, per event:
 
 1. **Perceive** — a user message (with any attached file dropped into the workspace
@@ -121,7 +130,7 @@ replayed.
 
 ## Three context tiers
 
-The memory tier has a dedicated backend boundary (`src/memory/`): embedded
+The memory tier has a dedicated backend boundary (`albert-core/src/memory/`): embedded
 `kaeru-rig`, or a kaeru MCP session over Streamable HTTP/stdio. Both install
 `kaeru_*` verbs directly in the reasoning toolset. External memory is not a
 world-facing Octo connector or a generic MCP tool catalog. Before the runtime
@@ -132,8 +141,8 @@ Kept deliberately distinct (they are different things, with different owners):
 
 | Tier | What it is | Owner |
 |------|-----------|-------|
-| **Chat transcript** | the dialogue + actions, a linear log | Octo history (`src/history/mod.rs`) |
-| **Scratchpad** | RAM task state: goal, stages, assignments, child attempts and verification evidence | the loop (`src/scratchpad/mod.rs`) |
+| **Chat transcript** | the dialogue + actions, a linear log | Octo history (`albert-core/src/history/mod.rs`) |
+| **Scratchpad** | RAM task state: goal, stages, assignments, child attempts and verification evidence | the loop (`albert-core/src/scratchpad/mod.rs`) |
 | **Memory** | durable, on-demand recall/write | kaeru, reached as a tool |
 
 kaeru is **operational + persistent** memory the agent queries; the scratchpad is
@@ -239,17 +248,17 @@ to their phone — with the scheduler as the in-chat-nag / fallback path.)
 Same substrate, no new machinery: a **routine** is a recurring alarm keyed by
 `{routine: "memory_reflection"}`. `on_alarm` routes it to a silent handler (no user
 message) that runs a `kaeru_reflect` pass and acts on the maintenance work-list.
-`src/routines.rs` **idempotently seeds** the base routine on startup (retry until the
+`albert-core/src/routines.rs` **idempotently seeds** the base routine on startup (retry until the
 scheduler is up; period from `albert.toml`).
 
 ## Connectors (config-driven)
 
 Every connector is assembled from a manifest via Octo's `from_config_file` (register
-the factory in `main.rs`, point the builder at `config/octo.toml`):
+the factory in the application assembly, point the builder at `config/octo.toml`):
 
 - **Telegram** — transport checks chat and sender access independently and emits
   verified source metadata (chat/author IDs, chat type, addressing signal). The
-  deterministic Albert reflex (`src/acl/mod.rs`) drops unaddressed group traffic
+  deterministic Albert reflex (`albert-core/src/acl/mod.rs`) drops unaddressed group traffic
   before cognition or cancellation. ACL controls are owner/admin-only; opening
   a group with `/groupmode all` is owner-only and gives other participants guest
   access. The connector rechecks the sender before changing its persisted ACL.

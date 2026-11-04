@@ -16,7 +16,7 @@ deeper reference.
   (auth, history, skills, workspace, clouds), the `.env` secrets, `soul.md` /
   `system.md`, and the Octo connector manifests (Telegram, calendar, storage, forkd) —
   ending in a complete, copyable working config.
-- **[structure.md](structure.md)** — the code map: what each module owns and where
+- **[structure.md](structure.md)** — the Cargo workspace map: what each crate owns and where
   a given concern lives.
 - **[stage-planning.md](stage-planning.md)** — RAM scratchpad stages, model-role
   configuration, child links and evidence-based verification.

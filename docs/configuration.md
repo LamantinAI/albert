@@ -113,9 +113,9 @@ mandatory `ChatGPT-Account-ID` header. Albert **refreshes the access token in pl
 before it expires (via the OAuth refresh token), so a session started days later just
 works; only when the refresh token itself lapses do you re-run `albert login`. The
 Codex `/responses` endpoint is streaming-only and rejects `system` messages / strict
-schemas — Albert reconciles all of that transparently (see [`src/codex_http.rs`]).
+schemas — Albert reconciles all of that transparently (see [`albert-core/src/codex_http/mod.rs`]).
 
-[`src/codex_http.rs`]: ../src/codex_http.rs
+[`albert-core/src/codex_http/mod.rs`]: ../albert-core/src/codex_http/mod.rs
 
 > Note: driving a ChatGPT subscription from a third-party app uses OpenAI's Codex
 > client credentials outside their officially-supported path — use it with your own

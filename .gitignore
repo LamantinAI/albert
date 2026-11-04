@@ -10,3 +10,7 @@ contrib/deploy/.env
 # collides with the tracked dev config (/albert.toml) or the deploy template.
 /albert.local.toml
 __pycache__/
+
+# Generated browser bundle; build explicitly before Cargo.
+web/albert-panel/dist/
+web/ui-dist/

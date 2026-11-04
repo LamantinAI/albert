@@ -1,0 +1,25 @@
+[package]
+name = "albert-connector-telegram"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+albert-core = { workspace = true }
+async-trait = { workspace = true }
+octo-approval = { workspace = true }
+octo-connector-telegram = { workspace = true }
+octo-core = { workspace = true }
+octo-history = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+albert-core = { workspace = true, features = ["test-support"] }
+chrono.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

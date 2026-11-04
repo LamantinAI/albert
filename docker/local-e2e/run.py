@@ -133,16 +133,21 @@ def main():
         ready(url + "/api/v1/context")
         state["phase"] = "ready"
         if not args.skip_browser:
-            frontend = args.frontend.resolve() if args.frontend else artifacts / "frontend"
+            frontend = args.frontend.resolve() if args.frontend else artifacts / "web" / "albert-panel"
             if in_repository(frontend):
                 parser.error("Frontend validation copy must be outside the repository")
             if not args.frontend:
-                shutil.copytree(root / "frontend", frontend, ignore=shutil.ignore_patterns("dist", "test-results", "playwright-report"))
-                shutil.copytree(root / "contracts", artifacts / "contracts")
+                shutil.copytree(root / "web" / "albert-panel", frontend, ignore=shutil.ignore_patterns("dist", "test-results", "playwright-report"))
+                # The backend suite uses runtime OpenAPI, with no JSON snapshot.
+                swagger = frontend.parents[1] / "connectors" / "web" / "swagger"
+                if swagger.exists():
+                    raise RuntimeError("Swagger fixture destination already exists")
+                shutil.copytree(root / "connectors" / "web" / "swagger", swagger)
             if not (frontend / "node_modules").exists():
                 raise RuntimeError("Install locked frontend dependencies before running the browser suite")
             browser_env = {
                 **env,
+                "ALBERT_BROWSER_ARTIFACTS": str(artifacts / "browser-results"),
                 "ALBERT_E2E_URL": url,
                 "ALBERT_E2E_AUTH_URL": fixture,
                 "ALBERT_E2E_COMPOSE_PROJECT": project,

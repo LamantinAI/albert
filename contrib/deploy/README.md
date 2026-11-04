@@ -8,7 +8,7 @@ history, alarms) lives in one named volume, so restarts and rebuilds lose nothin
 > Configure firewall rules and SSH access for your deployment environment before
 > starting the deployment.
 
-Files: [`Dockerfile`](Dockerfile) · [`docker-compose.yml`](docker-compose.yml) ·
+Files: [`Dockerfile`](../../docker/Dockerfile) · [`docker-compose.yml`](../../docker-compose.yml) ·
 [`albert.toml`](albert.toml) (subscription config, container paths) ·
 [`.env.example`](.env.example).
 
@@ -59,7 +59,10 @@ the target dir, so after the first build only what changed recompiles (a source 
 Model/timezone live in `albert.toml`. Edit your live `./albert.local.toml` (bind-mounted, see
 `docker-compose.yml`) and `docker compose restart albert` — no rebuild. Nothing about a
 model, a connector or a prompt should ever cost an image rebuild; if it does, a mount is
-missing. Rebuilds are for Rust code and the Dockerfile.
+missing. Rebuilds are for Rust code, embedded browser assets and the Dockerfile.
+The source image build installs the locked browser dependencies, verifies the
+Utoipa-generated API declarations and builds the panel before compiling the Rust
+release binary. A compiled frontend bundle is not stored in the repository.
 
 ## 3. Sign in with the ChatGPT subscription (once)
 

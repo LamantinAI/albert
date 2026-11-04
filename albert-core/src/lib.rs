@@ -1,0 +1,31 @@
+//! Albert cognition, session policy and persistent domain state.
+
+pub mod acl;
+pub mod artifacts;
+pub mod codex_http;
+pub mod codex_model;
+pub mod cogitator;
+pub mod commands;
+pub mod config;
+pub mod connector_catalog;
+pub mod context;
+pub mod db;
+pub mod error;
+pub mod history;
+pub mod manifests;
+pub mod memory;
+pub mod messaging;
+pub mod models;
+pub mod openai_login;
+pub mod openrouter_http;
+pub mod prompt;
+pub mod routines;
+pub mod runtime;
+pub mod scratchpad;
+pub mod selfconfig;
+pub mod service;
+pub mod sessions;
+pub mod skills;
+pub mod status;
+pub mod subagents;
+pub mod transport;

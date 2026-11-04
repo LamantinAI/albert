@@ -15,3 +15,7 @@ kaeru/
 **/node_modules/
 **/playwright-report/
 **/test-results/
+
+# Build assets in the image from locked sources.
+web/albert-panel/dist/
+web/ui-dist/

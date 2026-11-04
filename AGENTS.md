@@ -12,7 +12,7 @@ thinks with persistent [kaeru](https://github.com/LamantinAI/kaeru) memory, and
 reaches the world through connectors (Telegram, calendar, a scheduler). Talk to it;
 it remembers, reminds, and keeps a verifiable scratchpad for multi-step work.
 
-Single binary crate, Rust edition 2021 (toolchain 1.85+). Octo and kaeru are
+Cargo workspace producing one `albert` binary, Rust edition 2021. Octo and kaeru are
 **git dependencies** (see `Cargo.toml`) — one repo each, many crates; there is no
 sibling-checkout requirement.
 
@@ -21,36 +21,35 @@ deploy). This file is the working rules; `docs/` is the reference.
 
 ## How To Work In This Repository
 
-Orient by module before changing code. Everything is under `src/`:
+Orient by crate before changing code:
 
-| Module | Owns |
+| Location | Owns |
 |--------|------|
-| `main.rs` | Process environment, CLI login and runtime/re-exec entry point; web/startup owns assembly wiring. Load `.env` + `albert.toml`, open the kaeru vault, build history / scheduler / scratchpad / prompt loader; register connector factories + `from_config_file`, or fall back to console; run Octo. |
-| `web/` | Embedded assets, hosted panel, setup-ready runtime, private Session bridge and native approval integration. |
-| `api/` | JWT/CSRF HTTP adapter, DTOs and generated OpenAPI contract. |
-| `service/` | Accounts, sessions and owner configuration/models/skills services. Shared SQLx internal storage. |
-| `frontend/` | React + TypeScript CSR project; regenerate ui-dist with npm run build:embedded before Cargo after a UI edit. |
-| `cogitator/` | `AlbertCogitator` — the `Cogitator`: perceive → reflex → assemble-context → rig tool-loop → reply, for `chat.message` and `alarm.fired`. Builds the agent + toolset; picks the LLM client by `Config::auth` (API key vs ChatGPT subscription). |
-| `octo-openai-auth` | ChatGPT-subscription token store: read/write a codex-style `auth.json`; `ensure_fresh` returns the `Subscription` (access token + account id), refreshing the access token in place before it expires. |
-| `openai_login.rs` | `albert login` — the interactive OAuth (PKCE) sign-in: loopback callback server on `:1455` with a stdin paste fallback, code exchange, token save. |
-| `codex_model.rs` | `CodexResponsesModel` — a rig `CompletionModel` for the Codex backend: routes the non-streaming tool-loop through rig's streaming path (the endpoint is streaming-only) and folds the SSE back into a response. |
-| `codex_http.rs` | `CodexHttp` — a rig `HttpClientExt` that rewrites the Codex request/response on the wire (`store:false`, `system`→`developer`, relaxed tool schemas, injected SSE content-type) so rig's serializer + parser stay reused. |
-| `acl.rs` | Owner-only Telegram ACL admin reflex (`/allow` `/deny` `/allowed`) — deterministic, no LLM in a security action. |
-| `routines.rs` | Proactive routines: idempotently seed the base memory-reflection alarm on startup. |
-| `scratchpad.rs` | The loop scratchpad: channel-keyed store + the `scratchpad_*` rig tools. |
-| `prompt.rs` | `PromptFiles` — load `soul.md` + `system.md` into RAM, hot-reload by mtime. |
-| `config.rs` | `Config` — parse `albert.toml` (serde + `toml`), resolve the LLM secret from env, resolve relative paths against the config dir. |
-| `history.rs` | Bridge to Octo's `octo-history`: the per-channel transcript (hot-context tier). |
-| `memory/` | Embedded kaeru or a dedicated MCP memory backend; scoped tool adapters and startup migration of the `albert` initiative. External memory is separate from the connector catalog. |
-| `console.rs` | `ConsoleConnector` — stdin/stdout channel, the Telegram stand-in for dev. |
-| `error.rs` | The crate error type — explicit `#[from]` variants, no `anyhow`. |
+| `albert-core/` | Cogitator, provider adapters, runtime lifecycle, sessions, history, memory, scratchpad, subagents, skills, transport-neutral status and the single internal database/migration ledger. |
+| `albert-server/` | Binary entry point, process environment/re-exec, interactive CLI login, composed settings, startup assembly, connector factories and protected SQL paths. |
+| `connectors/console/` | Console input/output and its Albert session/approval integration. |
+| `connectors/telegram/` | Albert's Telegram host policy, native ingress/feedback/delivery adaptation and session navigation over the existing Octo transport. |
+| `connectors/web/` | HTTP API/DTOs, JWT/CSRF, accounts, owner configuration services, session streaming, embedded assets and self-hosted Swagger. |
+| `web/ui-dist/` | Generated, ignored browser bundle; verified and embedded from Cargo `OUT_DIR`. |
+| `web/albert-panel/` | React + TypeScript CSR project, generated API declarations, browser tests and explicit asset build. |
+| `xtask/` | Export the Utoipa schema without requiring a built browser client. |
+
+Dependencies point inward: the app depends on core and connectors; connectors depend
+on core. Core must not depend on the application or Albert connector crates,
+including through dev-dependencies. Keep HTTP DTOs, Axum/Utoipa and Telegram wire
+types outside core production code. Adapter integration tests live outward;
+domain tests use neutral fixtures. Generic SQL, browser, mail and other organs
+remain Octo dependencies rather than duplicated Albert implementations.
+
+Noninteractive subscription OAuth is shared by web and CLI through core;
+interactive browser/stdin handling belongs to the application. The credential
+store and serialized refresh belong to `octo-openai-auth`.
 
 Rules of thumb:
 
 1. Connectors (Telegram, calendar) are **config-driven** through Octo's
    `from_config_file` + manifests under `config/connectors/`. Add/adjust a
-   connector there, not in code (registering its factory in `main.rs` is the only
-   code touch).
+   connector there; register a new factory in the application assembly.
 2. A connector that advertises a `description` appears automatically in the
    cogitator's dispatch catalog — the agent reaches it via the one
    `dispatch_to_connector` tool. Adding an organ needs **zero cogitator change**.
@@ -59,13 +58,21 @@ Rules of thumb:
 
 ## Local Runbook
 
-- `cargo build` — quick check after changes.
-- `cargo test` — run tests (e.g. the scratchpad store test).
+- Build the browser assets before a full Cargo build; see
+  [web-panel.md](docs/web-panel.md#frontend-development-and-embedding) for the explicit pipeline.
+- `cargo build --locked` — build the default application member.
+- `cargo test --locked --workspace --all-targets` — run the complete Rust suite.
+- `cargo test --locked -p albert-core` — test core independently of browser assets.
 - `cargo run` — run Albert. Telegram if `OCTO_TELEGRAM_TOKEN` is set, else a
   console channel. Config from `albert.toml`; secrets from `.env`.
 - `cargo run -- login` — sign in with a ChatGPT subscription (writes tokens to the
   `[subscription] auth_json` path). Only needed when `auth = "subscription"`.
-- `cargo build --release` — the deploy binary (optimized profile: LTO + strip).
+- `cargo build --locked --release` — the deploy binary (optimized profile: LTO + strip).
+
+Utoipa is the API schema authority. Do not commit an OpenAPI JSON snapshot or a
+compiled browser bundle. Generated TypeScript declarations are checked against the
+schema export. Cargo build scripts verify/copy already-built assets to `OUT_DIR`;
+they must not invoke Node, install packages or fetch browser dependencies.
 
 Deployment (build here, ship the binary; the target is small): see
 [`docs/deploy.md`](docs/deploy.md).
@@ -78,7 +85,7 @@ Keep code **modular, grouped by purpose**, one concern per file. **Cap each file
 - it passes ~500 lines, or
 - more than a few cohesive concerns accumulate in one file.
 
-`cogitator/` was split this way — the ACL admin moved to `acl.rs`, routine seeding
+`albert-core/src/cogitator/` was split this way — ACL policy lives separately, routine seeding
 to `routines.rs`. When a module grows past a flat file, prefer a
 `mod.rs`-with-submodules layout and keep shared cross-submodule types in the parent
 `mod.rs`.
@@ -146,9 +153,7 @@ the code body.
   structure (grown from the per-turn scratchpad toward self-authored, reusable
   task graphs). It is **not** a LangGraph-style control-flow engine over fixed
   stages; do not build one.
-- **Skills** (declarative SKILL.md registry) and a sandboxed execution substrate
-  (forkd) are planned, not present.
-- Packaging: a `contrib/` folder and a `.deb` are future work.
+- A `.deb` package is future work; deployment templates live under `contrib/`.
 
 ## Repository privacy (mandatory)
 
