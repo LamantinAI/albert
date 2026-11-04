@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { FormEvent } from "react";
 import { Field } from "../../components/ui";
+import { Icon } from "../../components/Icon";
 
 export function SubscriptionAuthorize({ url }: { url: string | null }) {
   return (
@@ -12,12 +13,12 @@ export function SubscriptionAuthorize({ url }: { url: string | null }) {
       </p>
       {url && (
         <a
-          className="button button-secondary subscription-authorize-link"
+          className="button button-primary subscription-authorize-link"
           href={url}
           target="_blank"
           rel="noopener noreferrer"
         >
-          Open OpenAI sign-in <span aria-hidden="true">↗</span>
+          Open OpenAI sign-in <Icon name="arrow" size={16} />
         </a>
       )}
       <p className="subscription-secondary">

@@ -287,7 +287,7 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
     .click();
   await expect(
     dialog.getByRole("heading", {
-      name: "Choose a subscription model",
+      name: "Choose Albert’s model",
       exact: true,
     }),
   ).toBeVisible();
@@ -390,7 +390,7 @@ test("connected subscription resumes catalog and reconnect requires confirmation
   const dialog = page.locator(".subscription-dialog");
   await expect(
     dialog.getByRole("heading", {
-      name: "Choose a subscription model",
+      name: "Choose Albert’s model",
       exact: true,
     }),
   ).toBeVisible();

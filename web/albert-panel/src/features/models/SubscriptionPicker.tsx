@@ -1,4 +1,5 @@
 import type { components } from "../../api/schema";
+import { Icon } from "../../components/Icon";
 import { Button, Notice } from "../../components/ui";
 
 type Catalog = components["schemas"]["SubscriptionCatalogView"];
@@ -25,13 +26,23 @@ export function SubscriptionPicker({
       aria-label="Subscription model selection"
     >
       <div className="subscription-picker-toolbar">
-        <p className="subscription-secondary">ChatGPT subscription connected</p>
-        <div>
-          <Button variant="ghost" onClick={onRetry} disabled={busy}>
-            {error ? "Retry loading models" : "Refresh models"}
+        <p className="subscription-connection-status">ChatGPT connected</p>
+        <div className="subscription-catalog-actions">
+          <Button
+            variant="ghost"
+            onClick={onRetry}
+            disabled={busy}
+            aria-label={error ? "Retry loading models" : "Refresh models"}
+          >
+            {error ? "Retry loading models" : "Refresh"}
           </Button>
-          <Button variant="ghost" onClick={onReconnect} disabled={busy}>
-            Reconnect OpenAI subscription
+          <Button
+            variant="ghost"
+            onClick={onReconnect}
+            disabled={busy}
+            aria-label="Reconnect OpenAI subscription"
+          >
+            Reconnect
           </Button>
         </div>
       </div>
@@ -78,30 +89,43 @@ export function SubscriptionPicker({
                   <strong>{model.name}</strong>
                   {model.description && <span>{model.description}</span>}
                   {model.unavailable_reason && (
-                    <span className="subscription-secondary">
+                    <span className="subscription-unavailable">
                       {model.unavailable_reason}
                     </span>
                   )}
                 </span>
               </label>
               <details className="subscription-model-details">
-                <summary>Model details</summary>
-                <div>
-                  <code>{model.slug}</code>
+                <summary aria-label={`${model.name} details`}>
+                  <Icon name="chevron" size={16} />
+                  Details
+                </summary>
+                <dl>
+                  <div>
+                    <dt>Model ID</dt>
+                    <dd>
+                      <code>{model.slug}</code>
+                    </dd>
+                  </div>
                   {model.context_window && (
-                    <span>
-                      {model.context_window.toLocaleString()} token context
-                    </span>
+                    <div>
+                      <dt>Context</dt>
+                      <dd>{model.context_window.toLocaleString()} tokens</dd>
+                    </div>
                   )}
                   {model.input_modalities.length > 0 && (
-                    <span>Input: {model.input_modalities.join(", ")}</span>
+                    <div>
+                      <dt>Input</dt>
+                      <dd>{model.input_modalities.join(", ")}</dd>
+                    </div>
                   )}
                   {model.reasoning_efforts.length > 0 && (
-                    <span>
-                      Reasoning effort: {model.reasoning_efforts.join(", ")}
-                    </span>
+                    <div>
+                      <dt>Reasoning</dt>
+                      <dd>{model.reasoning_efforts.join(", ")}</dd>
+                    </div>
                   )}
-                </div>
+                </dl>
               </details>
             </div>
           ))}

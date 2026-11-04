@@ -174,7 +174,7 @@ test("first launch connects a subscription through the guided panel and streams 
   await retry.click();
   await expect(
     dialog.getByRole("heading", {
-      name: "Choose a subscription model",
+      name: "Choose Albert’s model",
       exact: true,
     }),
   ).toBeVisible();

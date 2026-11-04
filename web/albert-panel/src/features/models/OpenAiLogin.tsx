@@ -303,7 +303,7 @@ export function OpenAiLogin({
     !selected,
   );
   const title = selecting
-    ? "Choose a subscription model"
+    ? "Choose Albert’s model"
     : done
       ? "Model connected"
       : applying
@@ -383,7 +383,7 @@ export function OpenAiLogin({
           {done && (
             <p>
               {connection?.selected_model_id === connection?.preferred_model_id
-                ? "Your selected model is now preferred for new conversations."
+                ? "Your selected model is now the workspace’s preferred model."
                 : "Your selected model was added. The existing preferred model is unchanged."}
             </p>
           )}
@@ -395,7 +395,6 @@ export function OpenAiLogin({
                 Cancel sign-in
               </Button>
               <Button
-                variant="primary"
                 disabled={busy}
                 type="button"
                 onClick={(event) => {
@@ -425,20 +424,30 @@ export function OpenAiLogin({
               </Button>
             </>
           ) : selecting ? (
-            <>
-              <Button disabled={busy} onClick={() => void close()}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                disabled={busy || (!retryApplying && (!selected || !catalog))}
-                onClick={() => void (retryApplying ? apply() : choose())}
+            <div className="subscription-catalog-footer">
+              <p
+                className="subscription-footer-note"
+                id={`${formId}-preference`}
               >
-                {retryApplying
-                  ? "Retry applying model settings"
-                  : "Use selected model"}
-              </Button>
-            </>
+                This sets Albert’s preferred model for future replies across
+                chats
+              </p>
+              <div className="subscription-footer-actions">
+                <Button disabled={busy} onClick={() => void close()}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  aria-describedby={`${formId}-preference`}
+                  disabled={busy || (!retryApplying && (!selected || !catalog))}
+                  onClick={() => void (retryApplying ? apply() : choose())}
+                >
+                  {retryApplying
+                    ? "Retry applying model settings"
+                    : "Use selected model"}
+                </Button>
+              </div>
+            </div>
           ) : (
             <>
               <Button disabled={busy} onClick={() => void close()}>
