@@ -13,10 +13,11 @@ use super::{
     native_requests::NativeRequest, turns::turn_key, turns::ChannelState, AlbertCogitator,
 };
 use crate::{
-    context::window_messages, context::DiagnosticScope, history::assistant_turn,
-    history::sessions::Backend, history::to_messages, history::Turn, messaging::contract::WorkRef,
-    sessions::acceptance::AcceptedStart, sessions::acceptance::SourceReceipt,
-    sessions::error::SessionError, sessions::error::SessionResult, sessions::ingress::for_message,
+    composer::InputDigest, context::window_messages, context::DiagnosticScope,
+    history::assistant_turn, history::sessions::Backend, history::to_messages, history::Turn,
+    media::MediaInput, messaging::contract::WorkRef, sessions::acceptance::AcceptedStart,
+    sessions::acceptance::SourceReceipt, sessions::error::SessionError,
+    sessions::error::SessionResult, sessions::ingress::for_message,
     sessions::transport::TurnFeedback, sessions::SessionContext, status::StatusFeed,
 };
 
@@ -213,9 +214,15 @@ impl AlbertCogitator {
                 digest.update((image.bytes().len() as u64).to_be_bytes());
                 digest.update(image.bytes());
             }
+            let digest = incoming
+                .context
+                .get::<InputDigest>()
+                .map(|value| value.0.clone())
+                .or_else(|| incoming.context.get::<MediaInput>().map(MediaInput::digest))
+                .unwrap_or_else(|| format!("{:x}", digest.finalize()));
             let request = native.append_request(
-                format!("{:x}", digest.finalize()),
-                vec![Turn::user(input.transcript_with_source(incoming))],
+                digest,
+                vec![Turn::user(self.media_transcript(incoming, input).await?)],
             );
             if native.aliases.is_empty() {
                 self.history
@@ -237,7 +244,12 @@ impl AlbertCogitator {
             incoming.context.get::<SessionContext>(),
             self.session_service.as_ref(),
         ) {
-            let digest = format!("{:x}", Sha256::digest(input.text.as_bytes()));
+            let digest = incoming
+                .context
+                .get::<InputDigest>()
+                .map(|value| value.0.clone())
+                .or_else(|| incoming.context.get::<MediaInput>().map(MediaInput::digest))
+                .unwrap_or_else(|| format!("{:x}", Sha256::digest(input.text.as_bytes())));
             if receipt.duplicate
                 && proof.consume(session.session_id().as_str(), &native.key, &digest)
             {

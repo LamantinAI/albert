@@ -107,19 +107,151 @@ new row once. Ended rows cannot reappear from delayed page replies. Ordinary
 navigation changes the active row without reloading the catalog or adding a loading
 line. Explicit full catalog reload remains separate from conversation reads.
 
+## Workspace navigation
+
+The desktop sidebar collapses into a 64px navigation rail. Its grid track animates
+so the chat recenters with the available workspace. The existing paw shrinks while
+the fixed-proportion wordmark fades; the shell, conversation, editor and live
+subscription remain mounted. Reduced-motion preferences disable these transitions.
+
+The rail retains chat creation, temporary chat creation, all conversations,
+settings, account and sign-out access, filtered by the existing capabilities.
+Settings expands the sidebar and its existing disclosure without changing routes.
+Hidden navigation is inert, and action popovers close before their triggers hide.
+The mobile drawer keeps its full navigation, focus trap and Escape behavior.
+
+Only a namespaced layout boolean is retained in browser storage. No account,
+conversation, draft or credential data is stored with the preference. Storage
+restrictions fall back to an expanded sidebar without preventing interaction.
+
+## Conversation attachments
+
+The composer accepts images, audio and video, including messages without text.
+Selecting files uploads account-owned staging data without creating a conversation.
+Image-only messages show a compact thumbnail without an empty text bubble; captions
+appear above the preview. Markdown images also render automatically in the browser,
+with no referrer header, and use the same original-image viewer. External image URLs
+are never fetched or proxied by the server.
+Ordered attachment IDs participate in message and first-run idempotency: a retry
+recovers the accepted receipt before consulting staging. Accepted first-run input
+can be reconstructed from its session-bound storage.
+
+Permanent attachments are immutable BLOBs in the internal SQLite database, separate
+from the agent workspace. Host-authored journal records carry ordered attachment
+metadata; asset rows and durable journal references commit together. The additive
+media migration leaves existing journals and previous migration checksums intact.
+Temporary attachments remain in bounded RAM; Save promotes bytes and history in
+one transaction, while End discards them under the session lifecycle fence.
+Previously recorded textual media references are not reconstructed retroactively.
+
+Files are delivered through authenticated same-origin session resources. Every
+request checks current account/session authority, including HEAD and single-range
+GET requests used for playback and seeking. Opaque IDs do not grant access to
+another session. Filesystem paths and arbitrary remote URLs are never media API
+resources. Downloads use safe content types, `nosniff` and sandbox headers;
+unsupported active formats remain downloadable files rather than inline content.
+
+Images open in a keyboard-accessible modal using the original bytes. Initial fit
+never enlarges a small image; Original size allows natural-resolution scrolling.
+Audio uses real decoded sample peaks with translucent ochre unplayed bars and
+bright played bars. Decoding is serialized and gated by encoded size and duration;
+large, unsupported or undecodable recordings retain normal playback and seeking.
+Video uses native browser controls and metadata preloading. Codec availability
+follows the browser.
+
+Web images use the existing vision input; permanent audio follows the existing
+transcription connector policy. Temporary audio remains playable without invoking
+transcription or copying its content into the workspace. Video is retained as a
+file, with no claim of native video understanding. Confirmed web file deliveries
+and confirmed native `send_file` outputs are snapshotted into canonical history.
+Native connector image/audio ingress is captured on admission. The pinned Telegram
+transport supplies only a video thumbnail/caption, so original Telegram videos
+require a future structured transport extension.
+
+Limits are configured under `[sessions.media]`. Defaults allow eight web
+attachments per message, at most one audio recording, and 32 MiB per file. Staging
+expires after one hour, with a 64 MiB / 64-file account limit and a 256 MiB /
+256-file shared RAM limit. Permanent storage is limited to 4 GiB and 100,000 files.
+Byte and file-count limits both apply; changing them does not alter existing
+attachment identities. Upload cancellation removes staging data, while accepted
+assets follow their conversation's retention policy.
+
+Older history loads automatically when its leading edge approaches the viewport.
+The existing ten-message cursor pagination and reading position are retained, with
+an inline loading status instead of a manual page button. Upload errors can be
+dismissed and clear when attachments change or a message is accepted.
+
+## Composer skills, commands and voice
+
+The left add button opens Attach file, Skills and Commands. Selected files and
+skills appear above the input and can be removed before sending. The searchable
+skill picker lists enabled, runtime-available skills; standing instructions are
+already in force and are not selectable. Explicit selection currently requires
+the owner, matching installed-skill management permissions. Skill bodies stay on
+the server and load into the selected request; selection never grants extra tools.
+
+Authenticated `GET /composer` supplies available choices, recording availability
+and effective limits. Ordered skill IDs and revisions participate in message and
+first-run fingerprints. Admission rechecks current permission, availability and
+revision before inference. Exact accepted retries recover their receipts before
+consulting a changed skill catalog. Journal records keep selected names and
+revisions alongside the message, without copying instruction bodies or adding a
+separate persistence table.
+
+Commands use typed actions instead of injecting slash text into a web message.
+Rename updates conversation metadata; New temporary chat opens an unsent draft.
+Owner controls include Restart Albert and Reload models, including on the unsent
+new-chat screen. Model reload validates and atomically replaces only the configured
+pool, retaining active-turn snapshots and leaving skills and other agent settings
+untouched. Invalid pools leave the current pool active. Configure Albert discovers
+the enabled installed skill declaring `command: settings`, adds its exact ID and
+revision to the current draft, and focuses the input without sending or changing
+configuration automatically.
+
+Global controls use persistent configuration-application receipts, separate from
+session input receipts. Restart acceptance commits before shutdown is scheduled.
+Repeated requests with the same identity recover the receipt; changed actions
+under the same identity conflict. The client retains only request metadata across
+uncertain delivery and reconnects. A crash after an in-memory change but before
+result persistence is reported as interrupted with effects unknown, and the
+accepted action is never automatically executed again. Process restart uses the
+same confirmation as settings, including the temporary-chat lifetime notice.
+`POST /sessions/{id}/compactions` accepts a client request ID and optional summary
+instructions. It uses the native interrupt, compact and resume lifecycle, with a
+separate idempotency namespace. Registered users can compact their own private
+sessions. Retrying an accepted command does not interrupt the task again.
+
+When an active connector accepts `transcribe.run`, an empty input offers a
+microphone. Text or an attachment replaces it with Send. Browser capture requires
+HTTPS or localhost, permission and a supported recorder format; an HTTP LAN origin
+shows why recording is unavailable. Connector discovery does not promise external
+provider health. Capture uses a real level meter, elapsed time, cancellation and
+Stop. Stop prepares a playable preview; uploading and delivery require explicit
+Send. Navigation, cancellation and late permission grants release microphone
+tracks and audio resources. Unknown delivery outcomes retain original attachment
+IDs and skill selections for an exact retry.
+
+Recording defaults live under `[sessions.composer]`: four selected skills, 256 KiB
+of combined selected instructions and a five-minute recording limit. Attachment
+size/count limits still come from `[sessions.media]`. Temporary voice recordings
+remain playable in RAM, with transcription unavailable until the chat is saved;
+the composer states this before sending.
+
 ## Live activity
 
-The conversation shows the current operation and its elapsed time beside a paw,
-a step count and an ochre arrow. Work starts expanded and collapses automatically
+User message headings contain only their timestamp. Assistant work uses one heading
+with a paw, the Albert name, a step count and an ochre arrow. Activity appears above
+the streamed answer; the live preview and its committed record share this presentation
+without duplicating the assistant identity. Work starts expanded and collapses automatically
 when the attempt finishes; the arrow reveals its steps again. Ochre icons
-distinguish tools, scratchpad stages, subagents and native skill tools in a bounded,
+distinguish memory, scratchpad calls, skills, connector operations, stages and subagents in a bounded,
 scrollable list. Its thread connects the nodes without extending
 past the first or last node. A returned tool result is distinct from a verified
 stage; no completion percentage is inferred. Long model requests and waits for subagents
 remain visible without adding status messages to the conversation journal.
 
-After completion, the current view may retain this decoration beneath the latest
-answer, sharing one footer row with Copy. The goal appears on its own line below
+After completion, the current view may retain this decoration above the latest
+answer. Copy stays below the answer. The goal appears on its own line below
 the operation. It is local to that open chat view and disappears on reload or reopening;
 completed server snapshots are not restored as historical cards. An active attempt
 still reconnects to live progress. No presentation history is written to the database.
@@ -128,6 +260,11 @@ still reconnects to live progress. No presentation history is written to the dat
 update it without reloading message pages for every tool call. Reconnection and
 terminal events reconcile against the authoritative session state. Raw tool
 arguments, results and provider reasoning are excluded from this web projection.
+An optional semantic `activity` category selects the tool icon. Core resolves it
+from installed tool provenance and advertised connector operations, including
+renamed connector instances. Display labels do not determine icons. Missing or
+unknown categories use a generic wrench; existing stage and subagent kinds retain
+their own icons. Category metadata adds no database records or argument content.
 Selected display fields, such as a bounded scratchpad goal in quotation marks,
 may be shown as operation labels. Stage labels
 are visible only to the private session's owner. Live progress follows the existing
@@ -153,6 +290,12 @@ final journal commit remain authoritative. Tool IDs and provider-specific opaque
 reasoning are retained internally for subsequent rounds. Incomplete transport EOF
 is an error rather than a successful answer. API-key and subscription transports
 use their own terminal markers.
+
+When a reply finishes, a view following the live output moves once to the beginning
+of that reply. The transition waits for its canonical journal record and does not
+move readers who scrolled elsewhere. Opening an already completed conversation does
+not replay the transition. Activity expansion only scrolls into view on an explicit
+user action, so live-to-recorded handoff preserves the reader's position.
 
 A solid terminal-style ochre block follows incoming text. Received live bursts
 flow through a short bounded display buffer; newly displayed token spans glow

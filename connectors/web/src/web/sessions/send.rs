@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use albert_core::{
+    accounts::AccountRole, composer::message_digest, composer::CompactRequest,
+    composer::InputDigest, composer::PreparedSkills, media::MediaInput,
     service::session::web::WebActor, sessions::acceptance::AcceptedStart,
     sessions::acceptance::SourceReceipt, sessions::actor::ActorToolPolicy,
     sessions::SessionContext,
@@ -12,13 +14,20 @@ use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 use tokio::{sync::oneshot::Receiver, time::timeout};
 
-use super::{session_error, SessionHost};
+use super::{composer::selections, media::valid_message, session_error, SessionHost};
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::models::MessageCreate,
     api::models::MessageReceipt,
 };
 
-fn request_id(value: &str) -> ApiResult<String> {
+#[derive(Default)]
+pub(super) struct InputExtras {
+    pub skills: PreparedSkills,
+    pub digest: Option<String>,
+    pub compact: Option<CompactRequest>,
+}
+
+pub(super) fn request_id(value: &str) -> ApiResult<String> {
     SessionId::parse(value)
         .map(|id| id.to_string())
         .map_err(|_| ApiError::invalid("client_message_id must be a UUID."))
@@ -32,7 +41,7 @@ pub(super) fn namespace(actor: &WebActor) -> String {
         )
     )
 }
-fn response(id: String, receipt: AppendReceipt) -> MessageReceipt {
+pub(super) fn response(id: String, receipt: AppendReceipt) -> MessageReceipt {
     MessageReceipt {
         client_message_id: id,
         attempt_id: None,
@@ -44,7 +53,7 @@ fn response(id: String, receipt: AppendReceipt) -> MessageReceipt {
         duplicate: receipt.duplicate,
     }
 }
-fn bound(
+pub(super) fn bound(
     binding: RequestBinding,
     session: &SessionId,
     digest: Option<&str>,
@@ -87,12 +96,9 @@ impl SessionHost {
         let _guard = self.gate(&session).await;
         let context = self.resource(actor, id).await?;
         let request = request_id(&input.client_message_id)?;
-        if input.text.trim().is_empty() || input.text.len() > 1024 * 1024 {
-            return Err(ApiError::invalid(
-                "Message text must contain 1–1048576 bytes.",
-            ));
-        }
-        let digest = format!("{:x}", Sha256::digest(input.text.as_bytes()));
+        valid_message(&input.text, &input.attachments)?;
+        let selections = selections(&input.skills);
+        let digest = message_digest(&input.text, &input.attachments, &selections);
         if input
             .digest
             .as_ref()
@@ -128,11 +134,30 @@ impl SessionHost {
                 "Connect a model before sending messages.",
             ));
         }
+        let skills = self.prepare_skills(actor, &selections)?;
+        let media = self
+            .prepare_media(actor, Some(id), &input.text, &input.attachments)
+            .await?;
         let receipt = self
-            .dispatch_input(actor, &context, input.text, &request, None)
+            .dispatch_input(
+                actor,
+                &context,
+                input.text,
+                &request,
+                None,
+                Some(media),
+                InputExtras {
+                    skills,
+                    digest: Some(digest.clone()),
+                    compact: None,
+                },
+            )
             .await?;
         match timeout(Duration::from_secs(10), receipt).await {
             Ok(Ok(Ok(receipt))) => Ok(response(request, receipt)),
+            Ok(Ok(Err(error))) if error.starts_with("Selected skill admission rejected: ") => {
+                Err(ApiError::conflict(error))
+            }
             _ => {
                 if let Some(binding) = lookup
                     .find_request(&namespace(actor), &request)
@@ -156,6 +181,8 @@ impl SessionHost {
         text: String,
         request: &str,
         proof: Option<AcceptedStart>,
+        media: Option<MediaInput>,
+        extras: InputExtras,
     ) -> ApiResult<Receiver<Result<AppendReceipt, String>>> {
         let io = self
             .context
@@ -170,6 +197,9 @@ impl SessionHost {
             .account(&actor.account_id)
             .await
             .map_err(|_| ApiError::forbidden())?;
+        if actor.tools == ActorToolPolicy::ExistingHost && grant.role != AccountRole::Owner {
+            return Err(ApiError::forbidden());
+        }
         let context = context.clone().with_account(grant);
         if !context.authorized().await {
             return Err(ApiError::forbidden());
@@ -211,6 +241,16 @@ impl SessionHost {
                     .map_err(|_| ApiError::forbidden())?;
             }
             envelope = envelope.with_context(ingress);
+        }
+        envelope = envelope.with_context(extras.skills);
+        if let Some(digest) = extras.digest {
+            envelope = envelope.with_context(InputDigest(digest));
+        }
+        if let Some(command) = extras.compact {
+            envelope = envelope.with_context(command);
+        }
+        if let Some(media) = media {
+            envelope = envelope.with_context(media);
         }
         if let Some(proof) = proof {
             envelope = envelope.with_context(proof);

@@ -2,6 +2,7 @@ pub mod docs;
 pub mod errors;
 pub mod extractors;
 pub mod host;
+pub mod media;
 pub mod models;
 pub mod principal;
 mod router;
@@ -11,7 +12,7 @@ mod testing;
 
 #[cfg(test)]
 pub use router::router;
-pub use router::router_with_body_limit;
+pub use router::{router_with_body_limit, router_with_media_limit};
 
 #[cfg(test)]
 mod tests {

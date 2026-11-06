@@ -10,20 +10,20 @@ use super::models::{
 };
 
 use super::{
-    errors::ApiResult, models::ApplyRequest, models::ApplyView, models::ApprovalDecision,
-    models::ApprovalList, models::ApprovalView, models::AttemptView, models::CancelRequest,
-    models::ConfigDocument, models::ConfigDraftInput, models::ConfigDraftView, models::ConfigList,
-    models::ConfigWrite, models::EmptyObject, models::IdentityList, models::MessageCreate,
-    models::MessageList, models::MessageReceipt, models::ModelOrder, models::ModelPoolView,
-    models::ModelPreference, models::ModelWrite, models::OpenAiLoginStart,
-    models::OpenAiLoginSubmission, models::OpenAiLoginView, models::PageQuery, models::ProfileView,
-    models::RuntimeStatus, models::SecretList, models::SecretWrite, models::SessionCreate,
-    models::SessionEvent, models::SessionList, models::SessionStart, models::SessionStartView,
-    models::SessionState, models::SessionUpdate, models::SessionView, models::SkillImport,
-    models::SkillList, models::SkillUpdate, models::SkillView, models::SkillWrite,
-    models::SubscriptionApplyRequest, models::SubscriptionCatalogView,
-    models::SubscriptionConnectionView, models::SubscriptionSelection, models::ValidationView,
-    principal::Principal,
+    errors::ApiError, errors::ApiResult, media::MediaOperation, media::MediaResponse,
+    models::ApplyRequest, models::ApplyView, models::ApprovalDecision, models::ApprovalList,
+    models::ApprovalView, models::AttemptView, models::CancelRequest, models::ConfigDocument,
+    models::ConfigDraftInput, models::ConfigDraftView, models::ConfigList, models::ConfigWrite,
+    models::EmptyObject, models::IdentityList, models::MessageCreate, models::MessageList,
+    models::MessageReceipt, models::ModelOrder, models::ModelPoolView, models::ModelPreference,
+    models::ModelWrite, models::OpenAiLoginStart, models::OpenAiLoginSubmission,
+    models::OpenAiLoginView, models::PageQuery, models::ProfileView, models::RuntimeStatus,
+    models::SecretList, models::SecretWrite, models::SessionCreate, models::SessionEvent,
+    models::SessionList, models::SessionStart, models::SessionStartView, models::SessionState,
+    models::SessionUpdate, models::SessionView, models::SkillImport, models::SkillList,
+    models::SkillUpdate, models::SkillView, models::SkillWrite, models::SubscriptionApplyRequest,
+    models::SubscriptionCatalogView, models::SubscriptionConnectionView,
+    models::SubscriptionSelection, models::ValidationView, principal::Principal,
 };
 
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<SessionEvent, Infallible>> + Send>>;
@@ -37,6 +37,13 @@ pub struct SessionEventRequest {
 /// reaches into cognition, the session journal or provider credentials directly.
 #[async_trait]
 pub trait Host: Send + Sync {
+    async fn media(
+        &self,
+        _principal: &Principal,
+        _operation: MediaOperation,
+    ) -> ApiResult<MediaResponse> {
+        Err(ApiError::not_found())
+    }
     async fn status(&self) -> ApiResult<RuntimeStatus>;
     async fn operation(
         &self,
@@ -85,6 +92,11 @@ pub enum ProfileOperation {
     Identities,
 }
 pub enum SessionOperation {
+    Composer,
+    Compact {
+        id: String,
+        input: super::models::CompactCreate,
+    },
     Start(SessionStart),
     StartGet {
         id: String,
@@ -176,6 +188,7 @@ pub enum ApprovalOperation {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum HostResponse {
+    Composer(super::models::ComposerView),
     Connectors(ConnectorList),
     TelegramConnections(TelegramConnectionList),
     TelegramConnection(TelegramConnectionView),

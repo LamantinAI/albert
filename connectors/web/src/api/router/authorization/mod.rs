@@ -207,6 +207,9 @@ mod tests {
                 StatusCode::BAD_REQUEST
             );
         }
+        for target in ["process", "models"] {
+            assert_eq!(request(&fixture.router,Method::POST,"/api/v1/configuration/applications",Some(&cookie),Some(user.csrf()),Some(ORIGIN),json!({"target":target,"revision":"unused","client_request_id":"forbidden-control"})).await.0,StatusCode::FORBIDDEN);
+        }
         assert_eq!(fixture.host.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             request(

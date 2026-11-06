@@ -29,10 +29,11 @@ use octo_history::{
 use self::{native_routes::NativeSeen, titles::TitleJobs};
 use crate::{
     accounts::AccountAuthority, db::entity::PrivateRouteKey, db::error::DatabaseError,
-    db::Database, history::sessions::SessionHistory, messaging::transport::AdapterRegistry,
-    sessions::error::SessionError, sessions::error::SessionResult, sessions::lease::ScopeRegistry,
-    sessions::lease::SessionLease, sessions::presentation::PresentationRegistry,
-    sessions::settings::SessionSettings, sessions::SessionContext,
+    db::Database, history::sessions::SessionHistory, media::MediaStore,
+    messaging::transport::AdapterRegistry, sessions::error::SessionError,
+    sessions::error::SessionResult, sessions::lease::ScopeRegistry, sessions::lease::SessionLease,
+    sessions::presentation::PresentationRegistry, sessions::settings::SessionSettings,
+    sessions::SessionContext,
 };
 
 #[derive(Clone)]
@@ -51,6 +52,10 @@ pub struct SessionService {
 }
 
 impl SessionService {
+    pub fn media(&self) -> &Arc<MediaStore> {
+        &self.router.media
+    }
+
     pub fn accounts(&self) -> &AccountAuthority {
         &self.accounts
     }

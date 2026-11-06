@@ -19,6 +19,7 @@ chrono-tz = { workspace = true }
 dotenvy = { workspace = true }
 futures = { workspace = true }
 kaeru-core = { workspace = true }
+libc = { workspace = true }
 kaeru-rig = { workspace = true }
 mcp-http = { workspace = true }
 octo-approval = { workspace = true }

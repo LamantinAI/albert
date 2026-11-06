@@ -8,13 +8,32 @@ for (const viewport of [
 ]) {
   test(`temporary mode keeps the welcome identity stationary at ${viewport.width}px`, async ({
     page,
-  }) => {
+  }, info) => {
     await page.setViewportSize(viewport);
     await readyFixture(page);
     await page.goto("/ui/chats?new=permanent");
     const identity = page.locator(".welcome-conversation .identity");
     await expect(identity).toBeVisible();
     const initial = await identity.boundingBox();
+    const paw = (await identity.locator(".identity-paw").boundingBox())!;
+    const copy = (await identity.locator(".identity-copy").boundingBox())!;
+    const chat = (await page
+      .getByRole("region", { name: "New conversation", exact: true })
+      .boundingBox())!;
+    expect(
+      Math.abs((paw.x + copy.x + copy.width) / 2 - chat.x - chat.width / 2),
+    ).toBeLessThan(2);
+    expect(paw.x + paw.width).toBeLessThan(copy.x);
+    const heading = (await page
+      .getByRole("heading", { name: "What are we working on?" })
+      .boundingBox())!;
+    expect(
+      Math.abs(heading.x + heading.width / 2 - chat.x - chat.width / 2),
+    ).toBeLessThan(2);
+    await page.screenshot({
+      path: info.outputPath(`centered-welcome-${viewport.width}.png`),
+      animations: "disabled",
+    });
     const toggle = page.getByRole("button", {
       name: "Temporary chat",
       exact: true,

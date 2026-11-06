@@ -93,6 +93,19 @@ export async function readyFixture(page: Page, context = clientContext()) {
         contentType: "application/json",
         body: JSON.stringify(value),
       });
+    if (path === "/composer")
+      return json({
+        speech_available: false,
+        can_select_skills: context.caps.owner,
+        can_compact: true,
+        can_restart: context.caps.owner,
+        can_reload_models: context.caps.owner,
+        max_file_bytes: 32 * 1024 * 1024,
+        max_attachments: 8,
+        max_selected_skills: 4,
+        recording_max_seconds: 300,
+        skills: [],
+      });
     if (path === "/context") return json(context);
     if (path === "/model-pool")
       return json({ revision: "r1", preferred: null, models: [], roles: [] });

@@ -2,6 +2,51 @@
 import type { components, operations } from '../schema'
 
 export interface Schemas1 {
+SubscriptionApplyRequest: {
+            generation: string;
+        };
+SubscriptionCatalogModel: {
+            context_window?: number | null;
+            default_reasoning_effort?: string | null;
+            description?: string | null;
+            input_modalities: string[];
+            name: string;
+            reasoning_efforts: string[];
+            selectable: boolean;
+            slug: string;
+            unavailable_reason?: string | null;
+        };
+SubscriptionCatalogView: {
+            generation: string;
+            models: components["schemas"]["SubscriptionCatalogModel"][];
+            revision: string;
+        };
+SubscriptionConnectionView: {
+            connected: boolean;
+            generation?: string | null;
+            message?: string | null;
+            phase: components["schemas"]["SubscriptionPhase"];
+            preferred_model_id?: string | null;
+            selected_model_id?: string | null;
+            selected_slug?: string | null;
+        };
+/** @enum {string} */
+        SubscriptionPhase: "disconnected" | "connected" | "applying" | "ready" | "apply_failed";
+SubscriptionSelection: {
+            catalog_revision: string;
+            generation: string;
+            prefer?: boolean;
+            slug: string;
+        };
+TelegramBindingView: {
+            actor_id: string;
+            chat_id: string;
+            /** Format: int64 */
+            created_at: number;
+        };
+TelegramConnectionList: {
+            items: components["schemas"]["TelegramConnectionView"][];
+        };
 TelegramConnectionView: {
             bindings: components["schemas"]["TelegramBindingView"][];
             bot_username?: string | null;

@@ -8,6 +8,7 @@
 //! The feed is deliberately fire-and-forget: a failed publish is logged and the
 //! turn goes on — live feedback must never break cognition.
 
+mod activity;
 pub mod domain;
 
 use std::{mem::take, sync::atomic::AtomicBool, sync::atomic::Ordering, sync::Arc, sync::Mutex};

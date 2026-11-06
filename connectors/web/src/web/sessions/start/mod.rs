@@ -1,13 +1,20 @@
+use std::time::Duration;
+
+use tokio::time::timeout;
+
 use albert_core::{
-    cogitator::source_context, history::Turn, service::session::web::start::StartRecord,
-    service::session::web::WebActor, sessions::acceptance::AcceptedStart,
-    sessions::actor::ActorToolPolicy,
+    cogitator::source_context, composer::message_digest, history::Turn, media::encode_selected,
+    service::session::web::start::StartRecord, service::session::web::WebActor,
+    sessions::acceptance::AcceptedStart, sessions::actor::ActorToolPolicy,
 };
 use octo_history::{AppendRequest, SessionId};
 use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 
-use super::{send::input_envelope, send::namespace, session_error, SessionHost};
+use super::{
+    composer::selections, media::valid_message, send::input_envelope, send::namespace,
+    send::InputExtras, session_error, SessionHost,
+};
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::models::SessionStart,
     api::models::SessionStartView,
@@ -61,14 +68,26 @@ impl SessionHost {
         let id = SessionId::parse(&input.client_message_id)
             .map_err(|_| ApiError::invalid("client_message_id must be a UUID."))?;
         let _gate = self.gate(&id).await;
-        if input.text.trim().is_empty() || input.text.len() > 1024 * 1024 {
-            return Err(ApiError::invalid(
-                "Message text must contain 1–1048576 bytes.",
-            ));
-        }
+        valid_message(&input.text, &input.attachments)?;
+        let selections = selections(&input.skills);
+        let input_digest = message_digest(&input.text, &input.attachments, &selections);
         let digest = format!(
             "{:x}",
-            Sha256::digest(to_vec(&(&input.text, input.temporary)).expect("input serializes"))
+            Sha256::digest(
+                if !selections.is_empty() {
+                    to_vec(&(
+                        &input.text,
+                        input.temporary,
+                        &input.attachments,
+                        &selections,
+                    ))
+                } else if input.attachments.is_empty() {
+                    to_vec(&(&input.text, input.temporary))
+                } else {
+                    to_vec(&(&input.text, input.temporary, &input.attachments))
+                }
+                .expect("input serializes")
+            )
         );
         let mut row = if let Some(existing) = self
             .runtime
@@ -92,6 +111,10 @@ impl SessionHost {
                     "Connect a model before sending messages.",
                 ));
             }
+            let selected = self.prepare_skills(actor, &selections)?;
+            let media = self
+                .prepare_media(actor, None, &input.text, &input.attachments)
+                .await?;
             let envelope = input_envelope(actor, input.text.clone(), id.as_str());
             let source = source_context(&envelope);
             let transcript = if source.is_empty() {
@@ -99,6 +122,7 @@ impl SessionHost {
             } else {
                 format!("{source}\n{}", input.text)
             };
+            let transcript = encode_selected(transcript, media.assets, selected.stamps());
             self.runtime
                 .sessions
                 .web_start_create(
@@ -109,7 +133,7 @@ impl SessionHost {
                     AppendRequest {
                         namespace: namespace(actor),
                         idempotency_key: id.to_string(),
-                        digest: format!("{:x}", Sha256::digest(input.text.as_bytes())),
+                        digest: input_digest.clone(),
                         turns: vec![Turn::user(transcript)],
                     },
                 )
@@ -130,26 +154,65 @@ impl SessionHost {
         if self.runtime.current().is_some()
             && self.runtime.status().model_ready
             && row.phase == "accepted"
-            && self
+        {
+            let skills = match self.prepare_skills(actor, &selections) {
+                Ok(skills) => skills,
+                Err(_) => {
+                    self.runtime.sessions.web_fail_start(actor,&row,"Selected skills changed before this request started. Select them again in a new request.").await.map_err(session_error)?;
+                    return self.get_start(actor, id.as_str()).await;
+                }
+            };
+            let media = match self
+                .prepare_media(actor, Some(&row.session), &input.text, &input.attachments)
+                .await
+            {
+                Ok(media) => media,
+                Err(_) => {
+                    self.runtime.sessions.web_fail_start(actor,&row,"The accepted attachments could not be loaded. Start another message to continue.").await.map_err(session_error)?;
+                    return self.get_start(actor, id.as_str()).await;
+                }
+            };
+            if self
                 .runtime
                 .sessions
                 .web_claim_start(actor, id.as_str())
                 .await
                 .map_err(session_error)?
-        {
-            row.phase = "claimed".into();
-            let context = self.resource(actor, &row.session).await?;
-            let proof = AcceptedStart::new(
-                row.session.clone(),
-                id.to_string(),
-                format!("{:x}", Sha256::digest(input.text.as_bytes())),
-            );
-            if self
-                .dispatch_input(actor, &context, input.text, id.as_str(), Some(proof))
-                .await
-                .is_err()
             {
-                self.runtime.sessions.web_fail_start(actor,&row,"Delivery of this first request could not be confirmed. Check recorded actions before retrying.").await.map_err(session_error)?;
+                row.phase = "claimed".into();
+                let submitted: ApiResult<()> = async {
+                    let context = self.resource(actor, &row.session).await?;
+                    let proof = AcceptedStart::new(
+                        row.session.clone(),
+                        id.to_string(),
+                        input_digest.clone(),
+                    );
+                    let receipt = self
+                        .dispatch_input(
+                            actor,
+                            &context,
+                            input.text,
+                            id.as_str(),
+                            Some(proof),
+                            Some(media),
+                            InputExtras {
+                                skills,
+                                digest: Some(input_digest),
+                                compact: None,
+                            },
+                        )
+                        .await?;
+                    match timeout(Duration::from_secs(10), receipt).await {
+                        Ok(Ok(Ok(_))) => Ok(()),
+                        _ => Err(ApiError::unavailable(
+                            "First message admission could not be confirmed.",
+                        )),
+                    }
+                }
+                .await;
+                if submitted.is_err() {
+                    self.runtime.sessions.web_fail_start(actor,&row,"Delivery of this first request could not be confirmed. Check recorded actions before retrying.").await.map_err(session_error)?;
+                }
             }
         }
         self.get_start(actor, id.as_str()).await

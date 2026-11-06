@@ -5,8 +5,9 @@ use tokio::spawn;
 
 use super::AlbertCogitator;
 use crate::{
-    commands::menu, commands::publish_menu, commands::SET_COMMANDS, config::Config,
-    models::PoolConfig, models::Snapshot, routines::seed_base_routine,
+    commands::menu, commands::publish_menu, commands::SET_COMMANDS, composer::PreparedSkills,
+    composer::SkillChoice, composer::SkillSelection, config::Config, models::PoolConfig,
+    models::Snapshot, routines::seed_base_routine,
 };
 
 impl AlbertCogitator {
@@ -51,6 +52,22 @@ impl AlbertCogitator {
     }
     pub fn panel_prefer(&self, id: &str) -> Result<(), String> {
         self.models.panel_prefer(id)
+    }
+    pub fn panel_composer_skills(&self) -> Vec<SkillChoice> {
+        self.skills.composer_choices()
+    }
+    pub fn panel_prepare_skills(
+        &self,
+        selection: &[SkillSelection],
+    ) -> Result<PreparedSkills, String> {
+        self.skills
+            .prepare_composer(selection, &self.config.sessions.composer)
+    }
+    pub fn panel_model_reload_available(&self) -> bool {
+        self.models.reload_available()
+    }
+    pub fn panel_reload_models(&self) -> Result<String, String> {
+        self.models.reload_configured()
     }
     pub fn panel_models(&self) -> Snapshot {
         self.models.snapshot()

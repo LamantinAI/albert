@@ -10,7 +10,10 @@ import { projectProgress } from "./ephemeralProgress";
 import type { ProgressView } from "./ephemeralProgress";
 
 export type Session = components["schemas"]["SessionView"];
-export type Message = components["schemas"]["MessageView"];
+export type Message = Omit<
+  components["schemas"]["MessageView"],
+  "attachments"
+> & { attachments?: components["schemas"]["AttachmentView"][] };
 export type SessionState = components["schemas"]["SessionState"];
 type SessionEvent = components["schemas"]["SessionEvent"];
 type MessagePage = ApiResponse<"/sessions/{id}/messages", "get">;
@@ -322,7 +325,7 @@ export function useConversation(id: string | undefined) {
       currentId.current !== id ||
       missingRef.current
     )
-      return;
+      return false;
     const current = generation.current;
     let page: MessagePage;
     try {
@@ -336,14 +339,19 @@ export function useConversation(id: string | undefined) {
         currentId.current !== id ||
         !mounted.current
       )
-        return;
-      if (markMissing(error)) return;
+        return false;
+      if (markMissing(error)) return false;
       throw error;
     }
-    if (current !== generation.current || missingRef.current) return;
+    if (current !== generation.current || missingRef.current) return false;
+    if (page.has_more && (!page.next_cursor || page.next_cursor === cursor))
+      throw new Error(
+        "Older messages could not be loaded. Scroll away and return to try again.",
+      );
     setMessages((old) => mergeMessages(old, page.items, true));
     setCursor(page.next_cursor ?? null);
     setHasMore(page.has_more);
+    return true;
   }
   return {
     state,

@@ -123,7 +123,28 @@ impl Progress {
 #[cfg(test)]
 mod tests {
     use super::Progress;
-    use crate::{api::models::ProgressDelta, api::models::ProgressItem};
+    use crate::{
+        api::models::ProgressActivity, api::models::ProgressDelta, api::models::ProgressItem,
+    };
+
+    #[test]
+    fn typed_activity_survives_completion_and_snapshot_reconciliation() {
+        let mut progress = Progress::default();
+        let mut start = change("work", "memory", "tool", "in_progress");
+        start.items[0].activity = Some(ProgressActivity::Memory);
+        assert!(progress.apply(&start));
+        assert_eq!(
+            progress.snapshot(Some("work")).unwrap().items[0].activity,
+            Some(ProgressActivity::Memory)
+        );
+        let mut end = start;
+        end.items[0].state = "returned".into();
+        assert!(progress.apply(&end));
+        assert_eq!(
+            progress.snapshot(None).unwrap().items[0].activity,
+            Some(ProgressActivity::Memory)
+        );
+    }
 
     fn change(attempt: &str, id: &str, kind: &str, state: &str) -> ProgressDelta {
         ProgressDelta {
@@ -138,6 +159,7 @@ mod tests {
                 started_at: "2030-01-01T00:00:00Z".into(),
                 updated_at: "2030-01-01T00:00:00Z".into(),
                 elapsed_ms: None,
+                activity: None,
             }],
         }
     }

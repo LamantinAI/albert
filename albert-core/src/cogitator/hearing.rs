@@ -9,7 +9,9 @@
 
 use std::{fs::create_dir_all, fs::write, io::Result as IoResult, path::Path, time::Duration};
 
-use octo_core::{control::CANCEL_SCOPE_TAG, Blob, CogitatorContext, Envelope, EventKind};
+use octo_core::{
+    control::CANCEL_SCOPE_TAG, Blob, CogitatorContext, ConnectorId, Envelope, EventKind,
+};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -23,6 +25,18 @@ const TRANSCRIBE_RUN: &str = "transcribe.run";
 /// and uploaded in parallel, ~15-30x real time).
 const HEAR_TIMEOUT: Duration = Duration::from_secs(900);
 
+pub fn transcription_connector(ctx: &CogitatorContext) -> Option<ConnectorId> {
+    ctx.connectors()
+        .iter()
+        .find(|c| {
+            c.capabilities
+                .event_kinds_accept
+                .iter()
+                .any(|k| k.as_str() == TRANSCRIBE_RUN)
+        })
+        .map(|c| c.id.clone())
+}
+
 impl AlbertCogitator {
     /// Automatic hearing runs inside the interruptible turn and uses its scope.
     pub(super) async fn hear(
@@ -33,10 +47,8 @@ impl AlbertCogitator {
         scope: &str,
         feed: &StatusFeed,
     ) -> Result<String, String> {
-        let organ = ctx.connectors().iter()
-            .find(|c| c.capabilities.event_kinds_accept.iter().any(|k| k.as_str() == TRANSCRIBE_RUN))
-            .map(|c| c.id.clone())
-            .ok_or("I got your voice message, but I'm afraid I can't hear right now — there's no transcription connected. Could you write it instead?")?;
+        let organ = transcription_connector(ctx)
+            .ok_or("Voice transcription is not connected. Send text instead.")?;
         let payload = json!({"path":path});
         let id = format!("auto-hear-{scope}");
         feed.start_external(

@@ -5,8 +5,9 @@ use rig::{completion::Message, message::ImageMediaType, message::UserContent, On
 use serde_json::{to_string, Map, Value};
 
 use crate::{
-    history::recent_actions, history::Turn, history::ACTION_MARKER, scratchpad::PadScope,
-    sessions::transport::NativeIngress, sessions::SessionContext, subagents::Conversation,
+    history::recent_actions, history::Turn, history::ACTION_MARKER, media::encode as encode_media,
+    scratchpad::PadScope, sessions::transport::NativeIngress, sessions::SessionContext,
+    subagents::Conversation,
 };
 
 /// Connector identity and owner authority are supplied by the host, never tools.
@@ -51,11 +52,12 @@ impl UserInput {
 
     pub(super) fn transcript_with_source(&self, env: &Envelope) -> String {
         let source = source_context(env);
-        if source.is_empty() {
+        let text = if source.is_empty() {
             self.transcript()
         } else {
             format!("{source}\n{}", self.transcript())
-        }
+        };
+        encode_media(text, Vec::new())
     }
 
     /// The turn as the rig prompt message: plain text, or the image(s) + caption
@@ -65,7 +67,9 @@ impl UserInput {
         if self.images.is_empty() {
             return Message::user(self.seed.clone().unwrap_or_else(|| self.text.clone()));
         }
-        let caption = if !self.text.trim().is_empty() {
+        let caption = if let Some(seed) = &self.seed {
+            seed.as_str()
+        } else if !self.text.trim().is_empty() {
             self.text.as_str()
         } else if self.images.len() == 1 {
             "The user sent this image with no caption — look at it and respond in the \

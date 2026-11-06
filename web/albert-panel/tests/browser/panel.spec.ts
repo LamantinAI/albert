@@ -116,6 +116,21 @@ test("login and forced credential rotation have a usable dark workspace layout",
       });
       return route.fulfill({ json: context.account });
     }
+    if (path.endsWith("/composer"))
+      return route.fulfill({
+        json: {
+          speech_available: false,
+          can_select_skills: true,
+          can_compact: true,
+          can_restart: true,
+          can_reload_models: true,
+          max_file_bytes: 32 * 1024 * 1024,
+          max_attachments: 8,
+          max_selected_skills: 4,
+          recording_max_seconds: 300,
+          skills: [],
+        },
+      });
     if (path.endsWith("/sessions"))
       return route.fulfill({
         json: { items: [], has_more: false, next_cursor: null },
@@ -166,7 +181,9 @@ test("history pages retain journal order and a lost send response uses its recei
   await expect(
     page.getByText("Conversation message 1", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Load older messages" }).click();
+  await page.locator(".transcript").evaluate((node) => {
+    node.scrollTop = 0;
+  });
   await expect(page.locator("[data-message-id]").first()).toHaveAttribute(
     "data-message-id",
     "message-0",

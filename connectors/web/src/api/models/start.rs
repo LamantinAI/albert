@@ -7,6 +7,10 @@ pub struct SessionStart {
     pub client_message_id: String,
     pub text: String,
     #[serde(default)]
+    pub attachments: Vec<String>,
+    #[serde(default)]
+    pub skills: Vec<super::SkillSelection>,
+    #[serde(default)]
     pub temporary: bool,
 }
 #[derive(Clone, Serialize, ToSchema)]

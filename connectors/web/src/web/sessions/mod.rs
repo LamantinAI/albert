@@ -1,11 +1,14 @@
 //! Browser Session resources are explicit and private-user scoped. Transport
 //! routes remain provenance; neither a login credential nor a view is a chat.
 mod catalog;
+mod composer;
 mod cursor;
+mod delivery;
 mod events;
 #[cfg(test)]
 mod fixture;
 mod lifecycle;
+mod media;
 mod messages;
 mod progress;
 mod send;
@@ -90,6 +93,10 @@ impl SessionHost {
     ) -> ApiResult<HostResponse> {
         let actor = self.actor(caller).await?;
         match operation {
+            SessionOperation::Composer => Ok(HostResponse::Composer(self.composer(&actor).await?)),
+            SessionOperation::Compact { id, input } => Ok(HostResponse::Receipt(
+                self.compact(&actor, &id, input).await?,
+            )),
             SessionOperation::Start(input) => {
                 Ok(HostResponse::Start(self.start(&actor, input).await?))
             }
@@ -409,9 +416,11 @@ mod tests {
                 &actor,
                 session.id.as_str(),
                 MessageCreate {
+                    skills: Vec::new(),
                     client_message_id: request.clone(),
                     text: "accepted message".into(),
                     digest: None,
+                    attachments: vec![],
                 },
             )
             .await
@@ -453,9 +462,11 @@ mod tests {
                 &actor,
                 session.id.as_str(),
                 MessageCreate {
+                    skills: Vec::new(),
                     client_message_id: request.clone(),
                     text: "changed body".into(),
                     digest: None,
+                    attachments: vec![],
                 }
             )
             .await

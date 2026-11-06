@@ -1,9 +1,15 @@
+import type { SelectedSkill } from "./composer/types";
 import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, errorMessage, requestId } from "../../api/client";
 
+import type { Attachment } from "./media/types";
+
 interface Pending {
+  attachments: Attachment[];
+  skills: SelectedSkill[];
   key: string;
+  createdAt: string;
   text: string;
 }
 
@@ -71,9 +77,19 @@ export function useMessageSend(
     );
   }, [storageKey]);
 
-  async function send(text: string) {
+  async function send(
+    text: string,
+    attachments: Attachment[] = [],
+    skills: SelectedSkill[] = [],
+  ) {
     if (running.current || recovery) return false;
-    if (current.current && current.current.text !== text) {
+    if (
+      current.current &&
+      (current.current.text !== text ||
+        JSON.stringify(current.current.attachments) !==
+          JSON.stringify(attachments) ||
+        JSON.stringify(current.current.skills) !== JSON.stringify(skills))
+    ) {
       setError(
         "Retry the same message to check its outcome before sending a different message.",
       );
@@ -82,7 +98,13 @@ export function useMessageSend(
     running.current = true;
     setSending(true);
     setError("");
-    const request = current.current ?? { key: requestId(), text };
+    const request = current.current ?? {
+      key: requestId(),
+      text,
+      attachments,
+      skills,
+      createdAt: new Date().toISOString(),
+    };
     current.current = request;
     setPending(request);
     remember(request.key);
@@ -90,7 +112,12 @@ export function useMessageSend(
       const receipt = await api("/sessions/{id}/messages", "post", {
         path: { id },
         idempotencyKey: request.key,
-        body: { client_message_id: request.key, text: request.text },
+        body: {
+          client_message_id: request.key,
+          text: request.text,
+          skills: request.skills.map(({ id, revision }) => ({ id, revision })),
+          attachments: request.attachments.map((a) => a.id),
+        },
       });
       if (receipt.client_message_id !== request.key)
         throw new Error("The message receipt could not be verified.");

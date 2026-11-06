@@ -5,6 +5,7 @@ use std::{
     sync::Mutex, time::Duration, time::Instant,
 };
 
+use octo_core::{ConnectorInfo, EventKind};
 use tracing::info;
 
 use super::StatusFeed;
@@ -15,7 +16,8 @@ pub(super) struct ToolMetrics {
     scope: Mutex<Option<DiagnosticScope>>,
     request_id: Mutex<Option<String>>,
     names: Mutex<HashSet<String>>,
-    connectors: Mutex<HashSet<String>>,
+    connectors: Mutex<HashMap<String, Vec<EventKind>>>,
+    memory: Mutex<HashSet<String>>,
     started: Mutex<HashMap<String, Started>>,
     sequence: AtomicU64,
 }
@@ -62,11 +64,48 @@ impl StatusFeed {
     pub(crate) fn register_tool_names(&self, names: impl IntoIterator<Item = String>) {
         self.metrics.register(names);
     }
-    pub(crate) fn register_connector_names(&self, names: impl IntoIterator<Item = String>) {
-        *self.metrics.connectors.lock().unwrap() = names.into_iter().collect();
+    pub(crate) fn register_connectors(&self, connectors: &[ConnectorInfo]) {
+        *self.metrics.connectors.lock().unwrap() = connectors
+            .iter()
+            .filter(|connector| {
+                connector
+                    .capabilities
+                    .description
+                    .as_ref()
+                    .is_some_and(|description| !description.trim().is_empty())
+            })
+            .map(|connector| {
+                (
+                    connector.id.to_string(),
+                    connector.capabilities.event_kinds_accept.clone(),
+                )
+            })
+            .collect();
     }
     pub(super) fn connector_known(&self, name: &str) -> bool {
-        self.metrics.connectors.lock().unwrap().contains(name)
+        self.metrics.connectors.lock().unwrap().contains_key(name)
+    }
+    pub(crate) fn register_memory_tool_names(&self, names: impl IntoIterator<Item = String>) {
+        *self.metrics.memory.lock().unwrap() = names.into_iter().collect();
+    }
+    pub(super) fn memory_tool_known(&self, name: &str) -> bool {
+        self.metrics.memory.lock().unwrap().contains(name)
+    }
+    pub(super) fn tool_known(&self, name: &str) -> bool {
+        self.metrics.names.lock().unwrap().contains(name)
+    }
+    pub(super) fn connector_accepts(&self, target: &str, kind: &str) -> bool {
+        let kind = EventKind::new(kind);
+        self.metrics
+            .connectors
+            .lock()
+            .unwrap()
+            .get(target)
+            .is_some_and(|patterns| {
+                patterns
+                    .iter()
+                    .any(|pattern| kind.matches(pattern.as_str()))
+            })
     }
 
     pub(super) fn start_tool_metric(&self, id: &str, name: &str, external: bool) {

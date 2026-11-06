@@ -79,15 +79,6 @@
   color: var(--ochre);
   font: 10px/1.5 var(--sans);
 }
-.message-avatar {
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  display: grid;
-  place-items: center;
-  background: #ffffff03;
-}
 .message-paw {
   width: 25px;
   height: 25px;
@@ -184,14 +175,14 @@
 .markdown a {
   color: var(--ochre);
 }
-.image-placeholder {
-  font: 11px var(--mono);
-  color: var(--muted);
-}
 .older-messages {
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin: 0 0 20px;
+  min-height: 28px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font: 11px var(--mono);
 }
 .activity {
   border: 1px solid var(--line);
@@ -311,4 +302,28 @@
   text-align: right;
   color: var(--muted);
   font: 10px var(--mono);
+}
+
+.message-user,
+.message-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.message-user > .message-heading,
+.message-pending > .message-heading {
+  align-self: flex-end;
+}
+.message-user > .message-text,
+.message-pending > .message-text {
+  width: fit-content;
+  max-width: min(100%, 640px);
+  margin-left: 0;
+  padding: 10px 14px;
+  border-radius: 8px 0 8px 8px;
+}
+.message-user > .message-media,
+.message-pending > .message-media {
+  width: min(100%, 640px);
+  justify-items: end;
 }

@@ -59,7 +59,7 @@ export const SessionItem = memo(function SessionItem({
           disabled={disabled}
           onClick={(event) => onOpen(session, event.currentTarget)}
         >
-          <Icon name="more" size={16} />
+          <Icon name="more" size={18} />
         </button>
       )}
     </div>

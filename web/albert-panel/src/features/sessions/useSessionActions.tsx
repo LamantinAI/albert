@@ -378,6 +378,7 @@ export function useSessionActions(
   );
   return {
     open,
+    close,
     menuId,
     targetId: target?.session.id,
     busy,

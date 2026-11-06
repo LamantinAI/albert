@@ -1,14 +1,15 @@
 use albert_core::{
     history::preview_turn, history::project_session_record, history::PreviewContent, history::Turn,
-    history::ACTION_MARKER, messaging::contract::MESSAGE_MARKER, service::session::web::WebActor,
+    history::ACTION_MARKER, media::decode as decode_media, messaging::contract::MESSAGE_MARKER,
+    service::session::web::WebActor,
 };
 use octo_history::{HistoryStore, PageRequest, Role};
 use serde_json::from_str;
 
-use super::{cursor::Cursor, timestamp, SessionHost};
+use super::{cursor::Cursor, media::asset_view, timestamp, SessionHost};
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::models::MessageList,
-    api::models::MessageView, api::models::PageQuery,
+    api::models::MessageView, api::models::PageQuery, api::models::SelectedSkillView,
 };
 
 const MAX_ACTIVITY_PAGES: usize = 8;
@@ -93,8 +94,30 @@ impl SessionHost {
             .into_iter()
             .rev()
             .map(|record| {
-                let (role, content) = display(record.turn.role, &record.turn.content);
+                let media = decode_media(&record.turn.content);
+                let raw = media
+                    .as_ref()
+                    .map(|m| m.text.as_str())
+                    .unwrap_or(&record.turn.content);
+                let (role, content) = display(record.turn.role, raw);
                 MessageView {
+                    skills: media
+                        .as_ref()
+                        .map(|media| {
+                            media
+                                .skills
+                                .iter()
+                                .map(|skill| SelectedSkillView {
+                                    id: skill.id.clone(),
+                                    name: skill.name.clone(),
+                                    revision: skill.revision.clone(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    attachments: media
+                        .map(|m| m.attachments.into_iter().map(asset_view).collect())
+                        .unwrap_or_default(),
                     id: record.id.to_string(),
                     created_at: timestamp(&record.created_at),
                     role: role.into(),

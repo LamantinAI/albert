@@ -11,6 +11,7 @@ mod artifact_tests;
 #[cfg(any(test, feature = "test-support"))]
 mod fixture;
 mod hearing;
+pub use hearing::transcription_connector;
 #[cfg(any(test, feature = "test-support"))]
 mod provider_fixture;
 #[cfg(test)]
@@ -46,6 +47,8 @@ pub(crate) mod control;
 mod errors;
 mod feedback;
 mod inbound;
+mod media;
+mod media_delivery;
 mod output;
 mod output_visibility;
 

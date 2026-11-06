@@ -1,26 +1,29 @@
 mod account;
 mod authorization;
+mod browser_context;
 mod resources;
 mod stream;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::Infallible};
 
 use axum::{
     body::Bytes, extract::DefaultBodyLimit, extract::Path, extract::Query, extract::Request,
-    extract::State, http::header::CACHE_CONTROL, http::header::SET_COOKIE, http::HeaderMap,
-    http::Method, http::StatusCode, middleware::from_fn, middleware::Next, response::IntoResponse,
-    response::Response, routing::get, routing::on, routing::MethodFilter, Extension, Json, Router,
+    extract::State, http::header::CACHE_CONTROL, http::HeaderMap, http::Method, http::StatusCode,
+    middleware::from_fn, middleware::Next, response::IntoResponse, response::Response,
+    routing::get, routing::on, routing::MethodFilter, Extension, Json, Router,
 };
 use serde::de::DeserializeOwned;
 use serde_json::from_slice;
 
-use self::{account::account_request, resources::host_request, stream::events};
+use self::{
+    account::account_request, browser_context::context, browser_context::set_cookie,
+    resources::host_request, stream::events,
+};
 use super::{
     docs::schema, docs::ROUTES, errors::ApiError, errors::ApiResult, extractors::csrf,
     extractors::login_origin, extractors::principal as authenticated_principal,
-    extractors::secure_request, extractors::COOKIE_NAME, host::HostOperation,
-    host::ProfileOperation, models::AccountRole, models::Capabilities, models::ClientContext,
-    models::LoginRequest, models::SetupPhase, models::SetupView, state::ApiState,
+    extractors::secure_request, media::request as media_request, models::LoginRequest,
+    state::ApiState,
 };
 
 #[derive(Clone, Copy)]
@@ -35,6 +38,14 @@ pub fn router(state: ApiState) -> Router {
 }
 
 pub fn router_with_body_limit(state: ApiState, max_body_bytes: usize) -> Router {
+    router_with_media_limit(state, max_body_bytes, max_body_bytes)
+}
+
+pub fn router_with_media_limit(
+    state: ApiState,
+    max_body_bytes: usize,
+    media_bytes: usize,
+) -> Router {
     let mut router = Router::new();
     for &(method, path, _, _) in ROUTES {
         let method_filter =
@@ -42,7 +53,13 @@ pub fn router_with_body_limit(state: ApiState, max_body_bytes: usize) -> Router 
                 .expect("supported method");
         router = router.route(
             &format!("/api/v1{path}"),
-            on(method_filter, dispatch).layer(Extension(RouteSpec { method, path })),
+            on(method_filter, dispatch)
+                .layer::<_, Infallible>(Extension(RouteSpec { method, path }))
+                .layer(DefaultBodyLimit::max(if path == "/attachments" {
+                    media_bytes
+                } else {
+                    max_body_bytes
+                })),
         );
     }
     router
@@ -91,7 +108,7 @@ async fn dispatch(
         return Ok(response);
     }
     let caller = authenticated_principal(&state, &headers).await?;
-    if spec.method != "GET" {
+    if !matches!(spec.method, "GET" | "HEAD") {
         csrf(&state, &headers, &caller)?;
     }
     let allowed_rotation = (spec.method == "PUT" && spec.path == "/account/credentials")
@@ -103,8 +120,21 @@ async fn dispatch(
             "Change the default credentials before continuing.",
         ));
     }
-    let secure = spec.method != "GET" && secure_request(&state, &headers)?;
+    let secure = !matches!(spec.method, "GET" | "HEAD") && secure_request(&state, &headers)?;
     if let Some(response) = account_request(&state, &caller, spec, &params, &body, secure).await? {
+        return Ok(response);
+    }
+    if let Some(response) = media_request(
+        &state,
+        &caller,
+        spec.method,
+        spec.path,
+        &params,
+        &headers,
+        &body,
+    )
+    .await?
+    {
         return Ok(response);
     }
     if spec.path.ends_with("/events") {
@@ -114,96 +144,20 @@ async fn dispatch(
     Ok(Json(result).into_response())
 }
 
-async fn context(state: &ApiState, headers: &HeaderMap) -> ApiResult<Response> {
-    let mut caller = match authenticated_principal(state, headers).await {
-        Ok(caller) => Some(caller),
-        Err(error) if error.status == StatusCode::UNAUTHORIZED => None,
-        Err(error) => return Err(error),
-    };
-    if let Some(principal) = &caller {
-        if !principal.must_rotate() && principal.canonical_user_id().is_none() {
-            // Root owns the automatic configured-TG-owner/fresh-profile policy.
-            state
-                .host
-                .operation(principal, HostOperation::Profile(ProfileOperation::Get))
-                .await?;
-            caller = Some(authenticated_principal(state, headers).await?);
-        }
-    }
-    let runtime = state.host.status().await?;
-    let account = caller.as_ref().map(|p| p.account().clone());
-    let rotated = caller.as_ref().is_some_and(|p| !p.must_rotate());
-    let owner = rotated
-        && caller
-            .as_ref()
-            .is_some_and(|p| p.role() == AccountRole::Owner);
-    let identity_required = rotated
-        && caller
-            .as_ref()
-            .is_some_and(|p| p.canonical_user_id().is_none());
-    let phase = if !rotated {
-        SetupPhase::Credentials
-    } else if identity_required {
-        SetupPhase::Profile
-    } else if runtime.error.is_some() {
-        SetupPhase::RuntimeError
-    } else if !runtime.model_ready {
-        SetupPhase::Model
-    } else {
-        SetupPhase::Ready
-    };
-    Ok(Json(ClientContext {
-        account,
-        caps: Capabilities {
-            owner,
-            chat: rotated && !identity_required,
-            manage_users: owner,
-            manage_models: owner,
-            manage_skills: owner,
-            manage_config: owner,
-        },
-        setup: SetupView {
-            phase,
-            model_ready: runtime.model_ready,
-            identity_required,
-        },
-        runtime_epoch: runtime.runtime_epoch,
-        csrf: caller.as_ref().map(|p| p.csrf().to_owned()),
-        current_credential_id: caller.as_ref().map(|p| p.credential_id().to_owned()),
-    })
-    .into_response())
-}
-
 fn parse<T: DeserializeOwned>(body: &[u8]) -> ApiResult<T> {
     from_slice(body)
         .map_err(|_| ApiError::invalid("The request body does not match the expected object."))
 }
 fn id(params: &HashMap<String, String>, key: &str) -> ApiResult<String> {
+    resource_id(params, key)
+}
+
+pub(crate) fn resource_id(params: &HashMap<String, String>, key: &str) -> ApiResult<String> {
     params
         .get(key)
         .filter(|v| !v.is_empty() && v.len() <= 2048 && !v.contains('\0'))
         .cloned()
         .ok_or_else(|| ApiError::invalid("Invalid resource ID."))
-}
-fn set_cookie(
-    state: &ApiState,
-    response: &mut Response,
-    token: &str,
-    ttl: u64,
-    request_secure: bool,
-) -> ApiResult<()> {
-    let secure = request_secure
-        || state.auth.settings().secure_cookie
-        || state.auth.settings().public_origin.starts_with("https://");
-    let cookie = format!(
-        "{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}{}",
-        if secure { "; Secure" } else { "" }
-    );
-    response.headers_mut().append(
-        SET_COOKIE,
-        cookie.parse().map_err(|_| ApiError::internal())?,
-    );
-    Ok(())
 }
 
 #[cfg(test)]

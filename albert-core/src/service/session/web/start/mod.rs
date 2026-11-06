@@ -8,8 +8,9 @@ use super::{verify_actor, WebActor};
 use crate::{
     db::entity::MarkerState, db::error::DatabaseError, db::repo::marker::set_owned,
     history::assistant_turn, history::preview_turn, history::sessions::Backend,
-    history::PreviewContent, service::session::SessionService, sessions::actor::ActorToolPolicy,
-    sessions::error::SessionError, sessions::error::SessionResult,
+    history::PreviewContent, media::format_assets, service::session::SessionService,
+    sessions::actor::ActorToolPolicy, sessions::error::SessionError,
+    sessions::error::SessionResult,
 };
 
 type Row = (String, String, String, bool, String, String, String, bool);
@@ -199,28 +200,55 @@ impl SessionService {
         create.id = Some(id.clone());
         if temporary {
             create.kind = SessionKind::Temporary;
-            self.router.temporary().create_session(create).await?;
-        } else {
-            self.history.create_session_in(&mut tx, create).await?;
         }
         let journal = SessionJournal::Root(id.clone());
+        let media_assets = format_assets(&input.turns);
+        let reserved = if temporary {
+            self.media()
+                .bind_temporary(id.as_str(), &media_assets)
+                .await
+        } else {
+            self.media()
+                .reserve_durable(id.as_str(), &media_assets)
+                .await
+        }
+        .map_err(|_| SessionError::InvalidInput("Attachments are unavailable."))?;
         let accepted:SessionResult<()> = async {
+            if temporary {self.router.temporary().create_session(create).await?;}else{self.history.create_session_in(&mut tx,create).await?;}
             if temporary {
                 self.router.temporary().append_journal(&journal.storage_key()?,&input).await?;
                 set_owned(&mut tx,id.as_str(),&self.runtime_epoch,MarkerState::Temporary,None,actor.user_id.as_str()).await?;
-            } else {self.history.append_session_in(&mut tx,&journal,&input).await?;}
+            } else {
+                self.media().persist_in(&mut tx,id.as_str(),&media_assets).await.map_err(|_| SessionError::InvalidInput("Attachments could not be stored."))?;
+                self.history.append_session_in(&mut tx,&journal,&input).await?;
+            }
             query("INSERT INTO albert_web_starts(owner_user_id,request_id,session_id,digest,temporary,phase,runtime_epoch,account_id,host_tools) VALUES (?,?,?,?,?,'accepted',?,?,?)").bind(actor.user_id.as_str()).bind(request_id).bind(id.as_str()).bind(digest).bind(temporary).bind(&self.runtime_epoch).bind(&actor.account_id).bind(actor.tools==ActorToolPolicy::ExistingHost).execute(&mut *tx).await.map_err(DatabaseError::from)?;
             tx.commit().await.map_err(DatabaseError::from)?;Ok(())
         }.await;
         if let Err(error) = accepted {
-            if temporary {
-                let snapshot = self.router.temporary().export_session(&id)?;
-                self.router
-                    .temporary()
-                    .discard_session(&id, snapshot.fingerprint())?;
+            // A lost commit acknowledgement must not release assets already
+            // accepted in SQL. Reconcile before dropping any reservation.
+            match self.web_start_record(actor, request_id).await {
+                Ok(Some(row)) if row.session == id.as_str() && row.digest == digest => {}
+                Ok(None) => {
+                    if temporary {
+                        if let Ok(snapshot) = self.router.temporary().export_session(&id) {
+                            self.router
+                                .temporary()
+                                .discard_session(&id, snapshot.fingerprint())?;
+                        }
+                    }
+                    self.media()
+                        .rollback_temporary(id.as_str(), &reserved)
+                        .await;
+                    *backend = Backend::Closed;
+                    return Err(error);
+                }
+                _ => {
+                    *backend = Backend::Closed;
+                    return Err(SessionError::Unavailable);
+                }
             }
-            *backend = Backend::Closed;
-            return Err(error);
         }
         *backend = if temporary {
             Backend::Temporary
@@ -229,6 +257,8 @@ impl SessionService {
         };
         if temporary {
             self.leases.issue(&id, Some(&self.runtime_epoch))?;
+        } else {
+            self.media().release_durable(&media_assets).await;
         }
         Ok(StartRecord {
             request: request_id.into(),

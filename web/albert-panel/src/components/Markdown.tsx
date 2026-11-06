@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { MarkdownImage } from "./MarkdownImage";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -43,11 +44,8 @@ export const Markdown = memo(function Markdown({
               ) : (
                 <span>{children}</span>
               ),
-            // Remote image loading must not disclose the reader's visit to a model URL.
-            img: ({ alt }) => (
-              <span className="image-placeholder">
-                {alt || "Image attachment"}
-              </span>
+            img: ({ src, alt }) => (
+              <MarkdownImage key={src} src={src} alt={alt} />
             ),
             table: ({ children }) => (
               <div className="table-scroll">

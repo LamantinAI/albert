@@ -22,10 +22,11 @@ use crate::{
     api::errors::ApiResult, api::host::EventStream, api::host::Host, api::host::HostOperation,
     api::host::HostResponse, api::host::ModelOperation, api::host::ProfileOperation,
     api::host::SessionEventRequest, api::host::SkillOperation, api::host::SubscriptionOperation,
-    api::models::RuntimeStatus, api::principal::Principal,
-    api::router_with_body_limit as api_router, api::state::ApiState, service::auth::AuthService,
-    service::control::ControlService, service::openai_login::OpenAiLoginService,
-    service::panel_models::ModelService, service::panel_skills::SkillService,
+    api::media::MediaOperation, api::media::MediaResponse, api::models::RuntimeStatus,
+    api::principal::Principal, api::router_with_media_limit as api_router, api::state::ApiState,
+    service::auth::AuthService, service::control::ControlService,
+    service::openai_login::OpenAiLoginService, service::panel_models::ModelService,
+    service::panel_skills::SkillService,
 };
 
 pub struct Panel {
@@ -60,6 +61,13 @@ impl Panel {
 
 #[async_trait]
 impl Host for Panel {
+    async fn media(
+        &self,
+        caller: &Principal,
+        operation: MediaOperation,
+    ) -> ApiResult<MediaResponse> {
+        self.sessions.media(caller, operation).await
+    }
     async fn status(&self) -> ApiResult<RuntimeStatus> {
         Ok(self.runtime.status().into())
     }
@@ -159,6 +167,7 @@ impl WebApplication for HostedPanel {
         let routes = api_router(
             ApiState::new(self.panel.auth.clone(), self.panel.clone()),
             self.max_body_bytes,
+            self.panel.runtime.sessions.media().limits.max_file_bytes,
         );
         #[cfg(feature = "embedded-panel")]
         let routes = routes.merge(assets::router());
@@ -166,6 +175,7 @@ impl WebApplication for HostedPanel {
     }
 
     async fn on_event(&self, _context: &ConnectorContext, event: Envelope) -> OctoResult<()> {
+        self.panel.sessions.deliver_file(_context, &event).await;
         self.panel.sessions.observe(&event);
         self.panel.approvals.observe(&event).await;
         Ok(())

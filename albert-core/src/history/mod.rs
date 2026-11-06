@@ -20,7 +20,10 @@ pub(crate) use journal::journal_messages;
 pub use messaging::project_session_record;
 pub use preview::{preview_turn, PreviewContent};
 
-use crate::messaging::contract::MESSAGE_MARKER;
+use crate::{
+    media::decode as decode_media, media::project as project_media, media::MEDIA_MARKER,
+    messaging::contract::MESSAGE_MARKER,
+};
 
 const JOURNAL_MARKER: &str = "[albert tool journal v2]\n";
 const TOOL_TRACE_MARKER: &str = "[albert tool trace v1]\n";
@@ -33,6 +36,7 @@ pub fn assistant_turn(text: String) -> Turn {
         || text.starts_with(JOURNAL_MARKER)
         || text.starts_with(ESCAPED_TEXT_MARKER)
         || text.starts_with(MESSAGE_MARKER)
+        || text.starts_with(MEDIA_MARKER)
     {
         Turn::assistant(format!(
             "{ESCAPED_TEXT_MARKER}{}",
@@ -76,8 +80,9 @@ pub fn to_messages(turns: &[Turn]) -> Vec<Message> {
     turns
         .iter()
         .flat_map(|t| match t.role {
-            Role::User => vec![Message::user(t.content.clone())],
+            Role::User => vec![Message::user(project_media(&t.content))],
             Role::Assistant => {
+                if decode_media(&t.content).is_some() { return vec![Message::assistant(project_media(&t.content))]; }
                 if let Some(projected) = project_session_record(&t.content) {
                     return if projected.is_empty() { Vec::new() } else { vec![Message::assistant(projected)] };
                 }

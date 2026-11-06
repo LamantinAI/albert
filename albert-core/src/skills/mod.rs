@@ -35,6 +35,7 @@ use crate::commands::SkillCommand;
 pub mod control;
 mod discovery;
 
+mod selection;
 mod tools;
 
 use self::{
@@ -71,6 +72,7 @@ struct Inner {
     cache_cap: usize,
     /// `skill_list` page size only; never limits the preamble catalog.
     page: usize,
+    capabilities: Vec<String>,
 }
 
 /// Catalog of installed skills + an LRU cache of applied skill bodies.
@@ -94,6 +96,7 @@ impl SkillStore {
                 cache: VecDeque::new(),
                 cache_cap: cache_cap.max(1),
                 page: page.max(1),
+                capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
             }),
         })
     }
@@ -102,6 +105,7 @@ impl SkillStore {
         let catalog = scan(&directory, capabilities);
         let mut inner = self.inner.lock().unwrap();
         inner.catalog = catalog;
+        inner.capabilities = capabilities.iter().map(|s| s.to_string()).collect();
         inner.cache.clear();
     }
 

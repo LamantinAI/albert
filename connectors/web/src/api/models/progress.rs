@@ -1,3 +1,4 @@
+use super::ProgressActivity;
 use albert_core::{
     status::domain::ProgressDelta as DomainProgressDelta,
     status::domain::ProgressItem as DomainProgressItem,
@@ -14,6 +15,8 @@ pub struct ProgressItem {
     pub started_at: String,
     pub updated_at: String,
     pub elapsed_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<ProgressActivity>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
@@ -43,6 +46,7 @@ impl From<DomainProgressItem> for ProgressItem {
             started_at: value.started_at,
             updated_at: value.updated_at,
             elapsed_ms: value.elapsed_ms,
+            activity: value.activity.map(Into::into),
         }
     }
 }

@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{error::SessionResult, ExternalIdentity, UserId};
 use crate::{
-    accounts::TelegramLoginSettings, messaging::settings::MessagingSettings,
-    service::session::titles::TitleSettings, sessions::error::SessionError,
-    sessions::picker_settings::PickerSettings,
+    accounts::TelegramLoginSettings, composer::ComposerSettings, media::MediaLimits,
+    messaging::settings::MessagingSettings, service::session::titles::TitleSettings,
+    sessions::error::SessionError, sessions::picker_settings::PickerSettings,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -13,6 +13,8 @@ use crate::{
 pub struct SessionSettings {
     pub telegram_login: TelegramLoginSettings,
     pub limits: SessionLimits,
+    pub media: MediaLimits,
+    pub composer: ComposerSettings,
     pub messaging: MessagingSettings,
     pub titles: TitleSettings,
     pub picker: PickerSettings,
@@ -70,6 +72,12 @@ impl SessionSettings {
             return Err(SessionError::InvalidInput(
                 "invalid Telegram login settings",
             ));
+        }
+        if !self.composer.valid() {
+            return Err(SessionError::InvalidInput("invalid composer settings"));
+        }
+        if !self.media.valid() {
+            return Err(SessionError::InvalidInput("invalid media limits"));
         }
         self.titles.validate()?;
         self.picker.validate()?;

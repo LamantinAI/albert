@@ -15,6 +15,8 @@ use sha2::{Digest, Sha256};
 use tokio::{sync::OwnedRwLockReadGuard, sync::RwLock};
 use tracing::warn;
 
+use crate::media::{format_assets, Asset, MediaLimits, MediaStore};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     Durable,
@@ -29,18 +31,26 @@ pub struct SessionHistory {
     lifecycle: Arc<RwLock<()>>,
     writer_epoch: String,
     sequence: AtomicU64,
+    pub media: Arc<MediaStore>,
 }
 
 impl SessionHistory {
     pub fn new(durable: Arc<SqliteHistory>, limits: MemoryLimits) -> HistoryResult<Self> {
+        let media = MediaStore::new(durable.pool().clone(), MediaLimits::default());
         Ok(Self {
             durable,
+            media,
             temporary: Arc::new(RetainedMemoryHistory::new(limits)?),
             handles: RwLock::new(HashMap::new()),
             lifecycle: Arc::new(RwLock::new(())),
             writer_epoch: format!("{:032x}", random::<u128>()),
             sequence: AtomicU64::new(0),
         })
+    }
+
+    pub fn with_media_limits(mut self, limits: MediaLimits) -> Self {
+        self.media = MediaStore::new(self.durable.pool().clone(), limits);
+        self
     }
 
     pub fn temporary(&self) -> &Arc<RetainedMemoryHistory> {
@@ -116,10 +126,99 @@ impl SessionHistory {
     ) -> HistoryResult<AppendReceipt> {
         let journal = parse_journal(key)?;
         let (lease, store) = self.store(&journal).await?;
-        let result = store
-            .append_session_aliased(&journal, request, aliases)
-            .await;
+        let assets = format_assets(&request.turns);
+        let result = if assets.is_empty() {
+            store
+                .append_session_aliased(&journal, request, aliases)
+                .await
+        } else if *lease == Backend::Durable {
+            self.append_media_durable(&journal, request, aliases, &assets)
+                .await
+        } else {
+            let _media_gate = self.media.temporary_writes.lock().await;
+            let reserved = self
+                .media
+                .bind_temporary(journal.session_id().as_str(), &assets)
+                .await
+                .map_err(|e| HistoryError::InvalidRequest(e.to_string()))?;
+            let result = store
+                .append_session_aliased(&journal, request, aliases)
+                .await;
+            if result.is_err() {
+                self.media
+                    .rollback_temporary(journal.session_id().as_str(), &reserved)
+                    .await;
+            }
+            result
+        };
         drop(lease);
+        result
+    }
+
+    async fn append_media_durable(
+        &self,
+        journal: &SessionJournal,
+        request: &AppendRequest,
+        aliases: &[RequestAlias],
+        assets: &[Asset],
+    ) -> HistoryResult<AppendReceipt> {
+        let session = journal.session_id().as_str();
+        let reserved = self
+            .media
+            .reserve_durable(session, assets)
+            .await
+            .map_err(|e| HistoryError::InvalidRequest(e.to_string()))?;
+        let mut commit_failed = false;
+        let mut expected_receipt: Option<AppendReceipt> = None;
+        let result: HistoryResult<AppendReceipt> = async {
+            let mut tx = self.durable.begin_journal().await?;
+            self.media
+                .persist_in(&mut tx, session, assets)
+                .await
+                .map_err(|e| HistoryError::InvalidRequest(e.to_string()))?;
+            let receipt = if aliases.is_empty() {
+                self.durable
+                    .append_session_in(&mut tx, journal, request)
+                    .await?
+            } else {
+                self.durable
+                    .append_session_aliased_in(&mut tx, journal, request, aliases)
+                    .await?
+            };
+            expected_receipt = Some(receipt.clone());
+            if let Err(error) = tx.commit().await {
+                commit_failed = true;
+                return Err(HistoryError::InvalidRequest(error.to_string()));
+            }
+            Ok(receipt)
+        }
+        .await;
+        if result.is_ok() {
+            self.media.release_durable(assets).await;
+        } else if !commit_failed {
+            self.media.rollback_temporary(session, &reserved).await;
+        } else {
+            match self
+                .durable
+                .find_request(&request.namespace, &request.idempotency_key)
+                .await
+            {
+                Ok(Some(binding))
+                    if binding.journal == *journal
+                        && binding.digest == request.digest
+                        && expected_receipt.as_ref().is_some_and(|receipt| {
+                            receipt.record_ids == binding.receipt.record_ids
+                        }) =>
+                {
+                    // An accepted primary receipt is atomic with all aliases,
+                    // asset rows and journal references in this transaction.
+                    self.media.release_durable(assets).await;
+                    return Ok(binding.receipt);
+                }
+                Ok(_) => self.media.rollback_temporary(session, &reserved).await,
+                Err(_) => {} // Keep the reservation until outcome reconciliation.
+            }
+        }
         result
     }
 
@@ -248,7 +347,27 @@ impl HistoryStore for SessionHistory {
     ) -> HistoryResult<AppendReceipt> {
         let journal = parse_journal(key)?;
         let (lease, store) = self.store(&journal).await?;
-        let result = store.append_session(&journal, request).await;
+        let assets = format_assets(&request.turns);
+        let result = if assets.is_empty() {
+            store.append_session(&journal, request).await
+        } else if *lease == Backend::Durable {
+            self.append_media_durable(&journal, request, &[], &assets)
+                .await
+        } else {
+            let _media_gate = self.media.temporary_writes.lock().await;
+            let reserved = self
+                .media
+                .bind_temporary(journal.session_id().as_str(), &assets)
+                .await
+                .map_err(|e| HistoryError::InvalidRequest(e.to_string()))?;
+            let result = store.append_session(&journal, request).await;
+            if result.is_err() {
+                self.media
+                    .rollback_temporary(journal.session_id().as_str(), &reserved)
+                    .await;
+            }
+            result
+        };
         drop(lease);
         result
     }

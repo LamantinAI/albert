@@ -5,6 +5,7 @@
 }
 .composer {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px;
   min-height: 58px;
@@ -39,7 +40,8 @@
   gap: 8px;
   flex-shrink: 0;
 }
-.composer-buttons .button {
+.composer-buttons .button,
+.composer-stop {
   min-height: 36px;
   padding: 6px 10px;
   font-size: 12px;
@@ -57,8 +59,242 @@
     gap: 8px;
     padding: 9px 10px;
   }
-  .composer-buttons .button {
+  .composer-buttons .button,
+  .composer-stop {
     min-width: 36px;
     padding: 6px 8px;
+  }
+}
+
+.composer-files,
+.composer-upload-error {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
+.composer {
+  position: relative;
+}
+.composer-row {
+  display: flex;
+  flex: 0 0 100%;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.composer-row .composer-attach {
+  margin: 0;
+}
+.composer-row textarea {
+  width: 0;
+}
+.composer-add {
+  position: relative;
+  flex-shrink: 0;
+}
+.composer-menu {
+  position: absolute;
+  bottom: calc(100% + 18px);
+  left: -3px;
+  width: 320px;
+  max-width: calc(100vw - 64px);
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 36px #0005;
+  z-index: 40;
+}
+.composer-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 11px 10px;
+  color: var(--ink);
+  background: none;
+  cursor: pointer;
+  font: 13px/1.35 var(--sans);
+}
+.composer-menu button > svg {
+  color: var(--ochre);
+  flex-shrink: 0;
+}
+.composer-menu button > span {
+  flex: 1;
+  min-width: 0;
+}
+.composer-menu small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.composer-menu button:hover:not(:disabled),
+.composer-menu button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--ochre) 9%, transparent);
+}
+.composer-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.composer-menu-back {
+  border-bottom: 1px solid var(--line) !important;
+  margin-bottom: 5px;
+}
+.composer-menu-back > svg {
+  transform: rotate(180deg);
+}
+.composer-skill-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--ochre);
+}
+.composer-skill-search input {
+  width: 100%;
+  border: 0;
+  padding: 5px;
+  background: none;
+  min-width: 0;
+  font-size: 13px;
+}
+.composer-menu-scroll {
+  max-height: min(280px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.composer-menu-note {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.composer-menu-note button {
+  padding: 6px 0;
+  color: var(--ochre);
+}
+.composer-skill {
+  color: var(--ochre);
+  border-color: color-mix(in srgb, var(--ochre) 35%, transparent);
+}
+.composer-microphone,
+.composer-record-stop {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  color: var(--ochre);
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  padding: 4px;
+  cursor: pointer;
+}
+.composer-microphone:hover:not(:disabled),
+.composer-record-stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ochre) 10%, transparent);
+}
+.composer-microphone:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-note {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.composer-recording {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+}
+.recording-lamp {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ochre);
+  flex-shrink: 0;
+}
+.composer-recording time {
+  color: var(--ochre);
+  font: 12px var(--mono);
+}
+.recording-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 25px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.recording-wave i {
+  width: 3px;
+  min-width: 2px;
+  background: var(--ochre);
+  opacity: 0.75;
+  border-radius: 4px;
+}
+.composer-recording-preview {
+  display: flex;
+  flex: 0 0 100%;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 0 8px;
+}
+.composer-recording-preview .audio-message {
+  flex: 1;
+  min-width: 0;
+}
+.composer-recording-preview > button {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.message-skills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: inherit;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.message-skills > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: var(--ochre);
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .composer-row {
+    gap: 8px;
+  }
+  .composer-row textarea {
+    font-size: 14px;
+  }
+  .composer-stop {
+    font-size: 0;
+    padding: 6px;
+  }
+  .composer-stop svg {
+    width: 14px;
   }
 }

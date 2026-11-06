@@ -25,6 +25,7 @@ ApplyRequest: {
             client_request_id: string;
             document_id?: string | null;
             revision?: string | null;
+            /** @description runtime applies agent settings; models reloads only the configured model pool; process restarts Albert. */
             target: string;
         };
 ApplyView: {
@@ -47,6 +48,12 @@ ApprovalView: {
             id: string;
             state: string;
             summary: unknown;
+        };
+AttachmentView: {
+            content_type: string;
+            filename: string;
+            id: string;
+            size: number;
         };
 AttemptView: {
             id: string;
@@ -71,6 +78,30 @@ ClientContext: {
             current_credential_id?: string | null;
             runtime_epoch: string;
             setup: components["schemas"]["SetupView"];
+        };
+CompactCreate: {
+            client_request_id: string;
+            instructions?: string;
+        };
+ComposerSkill: {
+            command?: string | null;
+            description: string;
+            id: string;
+            name: string;
+            revision: string;
+        };
+ComposerView: {
+            can_compact: boolean;
+            can_reload_models: boolean;
+            can_restart: boolean;
+            can_select_skills: boolean;
+            max_attachments: number;
+            max_file_bytes: number;
+            max_selected_skills: number;
+            /** Format: int64 */
+            recording_max_seconds: number;
+            skills: components["schemas"]["ComposerSkill"][];
+            speech_available: boolean;
         };
 ConfigDocument: {
             content: string;
@@ -156,8 +187,10 @@ LoginRequest: {
             username: string;
         };
 MessageCreate: {
+            attachments?: string[];
             client_message_id: string;
             digest?: string | null;
+            skills?: components["schemas"]["SkillSelection"][];
             text: string;
         };
 MessageList: {
@@ -173,10 +206,12 @@ MessageReceipt: {
             message_ids: string[];
         };
 MessageView: {
+            attachments?: components["schemas"]["AttachmentView"][];
             content: string;
             created_at: string;
             id: string;
             role: string;
+            skills?: components["schemas"]["SelectedSkillView"][];
         };
 ModelConfig: {
             api_key_env?: string | null;
@@ -247,6 +282,8 @@ ProfileView: {
             canonical_user_id?: string | null;
             display_name?: string | null;
         };
+/** @enum {string} */
+        ProgressActivity: "scratchpad" | "memory" | "skill" | "connector" | "search" | "browser" | "files" | "shell" | "sql" | "calendar" | "mail" | "image" | "audio_input" | "audio_output" | "subagent" | "sessions" | "configuration" | "model" | "unknown";
 ProgressDelta: {
             at: string;
             attempt_id: string;
@@ -254,6 +291,7 @@ ProgressDelta: {
             replace_kind?: string | null;
         };
 ProgressItem: {
+            activity?: null | components["schemas"]["ProgressActivity"];
             /** Format: int64 */
             elapsed_ms?: number | null;
             id: string;
@@ -282,6 +320,11 @@ SecretList: {
 SecretWrite: {
             value: string;
         };
+SelectedSkillView: {
+            id: string;
+            name: string;
+            revision: string;
+        };
 SessionCreate: {
             temporary?: boolean;
             title?: string | null;
@@ -300,7 +343,9 @@ SessionList: {
             next_cursor?: string | null;
         };
 SessionStart: {
+            attachments?: string[];
             client_message_id: string;
+            skills?: components["schemas"]["SkillSelection"][];
             temporary?: boolean;
             text: string;
         };
@@ -353,6 +398,10 @@ SkillImport: {
 SkillList: {
             items: components["schemas"]["SkillView"][];
         };
+SkillSelection: {
+            id: string;
+            revision: string;
+        };
 SkillUpdate: {
             enabled: boolean;
             revision: string;
@@ -370,50 +419,5 @@ SkillView: {
 SkillWrite: {
             content: string;
             revision?: string | null;
-        };
-SubscriptionApplyRequest: {
-            generation: string;
-        };
-SubscriptionCatalogModel: {
-            context_window?: number | null;
-            default_reasoning_effort?: string | null;
-            description?: string | null;
-            input_modalities: string[];
-            name: string;
-            reasoning_efforts: string[];
-            selectable: boolean;
-            slug: string;
-            unavailable_reason?: string | null;
-        };
-SubscriptionCatalogView: {
-            generation: string;
-            models: components["schemas"]["SubscriptionCatalogModel"][];
-            revision: string;
-        };
-SubscriptionConnectionView: {
-            connected: boolean;
-            generation?: string | null;
-            message?: string | null;
-            phase: components["schemas"]["SubscriptionPhase"];
-            preferred_model_id?: string | null;
-            selected_model_id?: string | null;
-            selected_slug?: string | null;
-        };
-/** @enum {string} */
-        SubscriptionPhase: "disconnected" | "connected" | "applying" | "ready" | "apply_failed";
-SubscriptionSelection: {
-            catalog_revision: string;
-            generation: string;
-            prefer?: boolean;
-            slug: string;
-        };
-TelegramBindingView: {
-            actor_id: string;
-            chat_id: string;
-            /** Format: int64 */
-            created_at: number;
-        };
-TelegramConnectionList: {
-            items: components["schemas"]["TelegramConnectionView"][];
         };
 }

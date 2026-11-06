@@ -1,3 +1,5 @@
+import type { SelectedSkill } from "./composer/types";
+import type { Attachment } from "./media/types";
 import { useEffect, useRef, useState } from "react";
 import {
   useLocation,
@@ -34,6 +36,8 @@ export function Chats() {
     id: string;
     text: string;
     temporary: boolean;
+    attachments?: Attachment[];
+    skills?: SelectedSkill[];
   } | null>(null);
   const [canonicalReady, setCanonicalReady] = useState(false);
   const restoreDraft = useRef(false);
@@ -52,6 +56,8 @@ export function Chats() {
     id: string;
     text: string;
     temporary: boolean;
+    attachments?: Attachment[];
+    skills?: SelectedSkill[];
   } | null>(null);
   const effectiveId = id || (startId || request ? run?.session_id : undefined);
   const provisional = !id && !!effectiveId && !run?.published;
@@ -126,12 +132,21 @@ export function Chats() {
       setCanonicalReady(false);
     }
   }, [id, startId, location.key]);
-  async function start(text: string, temporary: boolean) {
+  async function start(
+    text: string,
+    temporary: boolean,
+    attachments: Attachment[] = [],
+    skills: SelectedSkill[] = [],
+  ) {
     if (inFlight.current) return false;
     const previous = pending.current;
     if (
       previous &&
-      (previous.text !== text || previous.temporary !== temporary)
+      (previous.text !== text ||
+        previous.temporary !== temporary ||
+        JSON.stringify(previous.attachments ?? []) !==
+          JSON.stringify(attachments) ||
+        JSON.stringify(previous.skills ?? []) !== JSON.stringify(skills))
     ) {
       setError(
         "Confirm the previous message outcome before changing its text.",
@@ -139,7 +154,13 @@ export function Chats() {
       return false;
     }
     const current = ++generation.current;
-    const value = previous || { id: requestId(), text, temporary };
+    const value = previous || {
+      id: requestId(),
+      text,
+      temporary,
+      attachments,
+      skills,
+    };
     pending.current = value;
     directory.setFirstDraft({ ...value, unknown: true });
     setError("");
@@ -165,7 +186,16 @@ export function Chats() {
       let result: components["schemas"]["SessionStartView"];
       try {
         result = await api("/session-starts", "post", {
-          body: { client_message_id: value.id, text, temporary },
+          body: {
+            client_message_id: value.id,
+            text,
+            temporary,
+            skills: (value.skills ?? []).map(({ id, revision }) => ({
+              id,
+              revision,
+            })),
+            attachments: (value.attachments ?? []).map((a) => a.id),
+          },
         });
       } catch (error) {
         try {
@@ -275,6 +305,10 @@ export function Chats() {
               search.get("new") === "temporary"
             }
             initialText={directory.firstDraft?.text}
+            initialAttachments={directory.firstDraft?.attachments}
+            initialSkills={directory.firstDraft?.skills}
+            locked={directory.firstDraft?.unknown}
+            policyKey={`${context?.account?.id}:${context?.runtime_epoch}`}
             onSend={start}
             creating={submitting}
             leaving={leaving}

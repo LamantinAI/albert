@@ -8,8 +8,9 @@ use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    acl::tag, sessions::error::SessionError, sessions::error::SessionResult,
-    sessions::native::batch_identity, sessions::transport::NativeIngress,
+    acl::tag, composer::CompactRequest, sessions::error::SessionError,
+    sessions::error::SessionResult, sessions::native::batch_identity,
+    sessions::transport::NativeIngress,
 };
 
 #[derive(Clone)]
@@ -66,7 +67,15 @@ impl NativeRequest {
         ))
         .expect("source strings serialize");
         Ok(Self {
-            namespace: format!("albert/native/{:x}", Sha256::digest(origin)),
+            namespace: format!(
+                "albert/native/{:x}{}",
+                Sha256::digest(origin),
+                if incoming.context.get::<CompactRequest>().is_some() {
+                    "/compact"
+                } else {
+                    ""
+                }
+            ),
             key: tag(incoming, "message_id")
                 .map(str::to_owned)
                 .unwrap_or_else(|| incoming.id.to_string()),

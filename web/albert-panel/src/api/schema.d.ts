@@ -1,5 +1,5 @@
 /** Generated from the Rust Utoipa schema via xtask. Do not edit. */
-// Source SHA256: 16d02a8c6d88caa824b2e4ea3c1af6fe4bdccfd56fc1bf020cf90ab65e60813d
+// Source SHA256: 9a0a03c2b7478d7dfb823296cf38c75f82b238d710773cd5f3cd87c0e13bb8e6
 import type { Paths0 } from './generated/Paths0'
 import type { Paths1 } from './generated/Paths1'
 import type { Paths2 } from './generated/Paths2'

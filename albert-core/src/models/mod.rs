@@ -118,6 +118,33 @@ impl ModelPool {
         Ok(state.selected.clone())
     }
 
+    pub fn reload_available(&self) -> bool {
+        self.path.read().unwrap().is_some()
+    }
+
+    /// Validate before atomically replacing the pool. Existing turn snapshots
+    /// remain independent; unrelated agent configuration is not reloaded.
+    pub fn reload_configured(&self) -> Result<String, String> {
+        let path = self
+            .path
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or("No model_pool file is configured.")?;
+        let pool = PoolConfig::read(&path)?;
+        let mut state = self.state.write().unwrap();
+        let selected = if pool.models.iter().any(|model| model.id == state.selected) {
+            state.selected.clone()
+        } else {
+            pool.default.clone()
+        };
+        *state = Snapshot {
+            config: pool,
+            selected: selected.clone(),
+        };
+        Ok(selected)
+    }
+
     /// Deterministic owner command; the tool is separately gated by turn permissions.
     pub fn command(&self, args: &str, owner: bool) -> String {
         if !owner {
@@ -145,30 +172,10 @@ impl ModelPool {
                     .join("\n");
                 format!("Preferred model: {}\n{list}\n/model <id> selects for new turns; /model reload reloads the pool.", state.selected)
             }
-            "reload" => {
-                let path = self.path.read().unwrap().clone();
-                let Some(path) = path else {
-                    return "No model_pool file is configured.".into();
-                };
-                let pool = match PoolConfig::read(&path) {
-                    Ok(p) => p,
-                    Err(e) => return format!("Pool unchanged: {e}"),
-                };
-                let mut state = self.state.write().unwrap();
-                let selected = if pool.models.iter().any(|m| m.id == state.selected) {
-                    state.selected.clone()
-                } else {
-                    pool.default.clone()
-                };
-                *state = Snapshot {
-                    config: pool,
-                    selected,
-                };
-                format!(
-                    "Model pool reloaded. Preferred model: {}. Running turns keep their snapshot.",
-                    state.selected
-                )
-            }
+            "reload" => match self.reload_configured() {
+                Ok(selected)=>format!("Model pool reloaded. Preferred model: {selected}. Running turns keep their snapshot."),
+                Err(error)=>format!("Pool unchanged: {error}"),
+            },
             id => match self.select(id) {
                 Ok(id) => format!("Preferred model: {id}. Applies to new model turns; running work continues unchanged."),
                 Err(error) => error,

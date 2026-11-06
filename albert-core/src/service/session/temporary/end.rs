@@ -85,6 +85,9 @@ impl SessionService {
         .await?;
         let lease = self.lease_for_in(&mut tx, &return_id).await?;
         tx.commit().await.map_err(DatabaseError::from)?;
+        if discarded {
+            self.media().discard_session(id.as_str()).await;
+        }
         self.presentations
             .record(&key, &id, route.revision, &return_id, revision);
         let ram_discarded = match snapshot {

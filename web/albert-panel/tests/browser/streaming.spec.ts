@@ -3,10 +3,12 @@ import { readyFixture, message, session } from "./fixture";
 
 test("visible text streams before final and the exact committed record replaces it once", async ({
   page,
-}) => {
+}, info) => {
   await readyFixture(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   let finished = false;
+  let recorded = false;
+  const at = new Date().toISOString();
   let historyReads = 0;
   await page.route("**/api/v1/sessions/*/state", (route) =>
     route.fulfill({
@@ -17,8 +19,34 @@ test("visible text streams before final and the exact committed record replaces 
           ? null
           : { id: "attempt", session_id: session.id, state: "running" },
         status: [],
-        progress: null,
-        text: null,
+        progress: {
+          attempt_id: "attempt",
+          started_at: at,
+          updated_at: at,
+          truncated: false,
+          items: [
+            {
+              id: "step",
+              kind: "stage",
+              label: "Prepare a reply",
+              state: finished ? "done" : "in_progress",
+              started_at: at,
+              updated_at: at,
+              elapsed_ms: null,
+            },
+          ],
+        },
+        text: recorded
+          ? {
+              attempt_id: "attempt",
+              generation: "one",
+              text: "Hello **world**",
+              offset: 15,
+              state: "committed",
+              truncated: false,
+              message_ids: ["canonical-answer"],
+            }
+          : null,
       },
     }),
   );
@@ -26,7 +54,7 @@ test("visible text streams before final and the exact committed record replaces 
     historyReads++;
     return route.fulfill({
       json: {
-        items: finished
+        items: recorded
           ? [
               {
                 ...message(2),
@@ -97,6 +125,17 @@ test("visible text streams before final and the exact committed record replaces 
   await emit("append", 0, "Hello **wor");
   const preview = page.getByRole("article", { name: "Streaming answer" });
   await expect(preview).toContainText("Hello");
+  await expect(preview.locator(".activity-paw, .message-paw")).toHaveCount(1);
+  await expect(preview.locator(".progress-brand")).toHaveText("ALBERT");
+  await expect(preview.locator(".progress-count")).toHaveText("1");
+  const progressBox = (await preview.locator(".task-progress").boundingBox())!;
+  const textBox = (await preview.locator(".markdown").boundingBox())!;
+  expect(progressBox.y + progressBox.height).toBeLessThanOrEqual(textBox.y);
+  const userHeader = page.locator(
+    '[data-message-id="message-1"] .message-heading',
+  );
+  await expect(userHeader.locator("strong,svg,.message-avatar")).toHaveCount(0);
+  await expect(userHeader.locator("time")).toHaveCount(1);
   expect(finished).toBe(false);
   await emit("append", 11, "ld**");
   await expect(preview.locator("strong").last()).toContainText("world");
@@ -119,13 +158,30 @@ test("visible text streams before final and the exact committed record replaces 
     (await preview.locator(".stream-edge").allTextContents()).join(""),
   ).toContain("world");
   expect(historyReads).toBe(baseline);
-  finished = true;
+  await page.screenshot({
+    path: info.outputPath("unified-answer.png"),
+    animations: "disabled",
+  });
+  recorded = true;
   await emit("committed", 15, "", ["canonical-answer"]);
   await expect(
     page.locator('[data-message-id="canonical-answer"]'),
   ).toContainText("Hello world");
   await expect(preview).toHaveCount(0);
   await expect(page.locator(".message-assistant")).toHaveCount(1);
+  const canonical = page.locator('[data-message-id="canonical-answer"]');
+  await expect(canonical.locator(".activity-paw,.message-paw")).toHaveCount(1);
+  await expect(
+    canonical.getByRole("button", { name: "Hide activity" }),
+  ).toBeVisible();
+  finished = true;
+  await emit("committed", 15, "", ["canonical-answer"]);
+  await expect(
+    canonical.getByRole("button", { name: "Show activity" }),
+  ).toBeVisible();
+  const heading = (await canonical.locator(".task-progress").boundingBox())!;
+  const body = (await canonical.locator(".markdown").boundingBox())!;
+  expect(heading.y + heading.height).toBeLessThanOrEqual(body.y);
   await page.reload();
   await expect(preview).toHaveCount(0);
 });

@@ -1,7 +1,10 @@
-use super::models::{ConnectorList, ConnectorTypeView, ConnectorView};
-
 use serde_json::{json, to_value, Value};
 use utoipa::OpenApi;
+
+use super::models::{
+    AttachmentView, CompactCreate, ComposerSkill, ComposerView, ConnectorList, ConnectorTypeView,
+    ConnectorView, SelectedSkillView, SkillSelection,
+};
 
 use super::models::{
     TelegramBindingView, TelegramConnectionList, TelegramConnectionView, TelegramCredentialWrite,
@@ -20,13 +23,13 @@ use super::{
     models::MessageView, models::ModelConfig, models::ModelOrder, models::ModelPoolView,
     models::ModelPreference, models::ModelRole, models::ModelView, models::ModelWrite,
     models::OpenAiLoginPhase, models::OpenAiLoginStart, models::OpenAiLoginSubmission,
-    models::OpenAiLoginView, models::PageQuery, models::ProfileView, models::ProgressDelta,
-    models::ProgressItem, models::ProgressSnapshot, models::RuntimeStatus, models::SecretList,
-    models::SecretWrite, models::SessionCreate, models::SessionEvent, models::SessionList,
-    models::SessionStart, models::SessionStartView, models::SessionState, models::SessionUpdate,
-    models::SessionView, models::SetupPhase, models::SetupView, models::SkillImport,
-    models::SkillList, models::SkillUpdate, models::SkillView, models::SkillWrite,
-    models::SubscriptionApplyRequest, models::SubscriptionCatalogModel,
+    models::OpenAiLoginView, models::PageQuery, models::ProfileView, models::ProgressActivity,
+    models::ProgressDelta, models::ProgressItem, models::ProgressSnapshot, models::RuntimeStatus,
+    models::SecretList, models::SecretWrite, models::SessionCreate, models::SessionEvent,
+    models::SessionList, models::SessionStart, models::SessionStartView, models::SessionState,
+    models::SessionUpdate, models::SessionView, models::SetupPhase, models::SetupView,
+    models::SkillImport, models::SkillList, models::SkillUpdate, models::SkillView,
+    models::SkillWrite, models::SubscriptionApplyRequest, models::SubscriptionCatalogModel,
     models::SubscriptionCatalogView, models::SubscriptionConnectionView, models::SubscriptionPhase,
     models::SubscriptionSelection, models::TextDelta, models::TextSnapshot, models::UserCreate,
     models::UserList, models::UserUpdate, models::ValidationView,
@@ -34,6 +37,12 @@ use super::{
 
 #[derive(OpenApi)]
 #[openapi(components(schemas(
+    ComposerView,
+    ComposerSkill,
+    SkillSelection,
+    SelectedSkillView,
+    CompactCreate,
+    AttachmentView,
     ConnectorView,
     ConnectorList,
     ConnectorTypeView,
@@ -83,6 +92,7 @@ use super::{
     AttemptView,
     SessionState,
     ProgressDelta,
+    ProgressActivity,
     ProgressItem,
     ProgressSnapshot,
     TextDelta,
@@ -126,6 +136,27 @@ struct ApiDoc;
 /// This route inventory also drives router registration; request/response shapes
 /// come from Rust DTO schemas, not a second handwritten TypeScript contract.
 pub const ROUTES: &[(&str, &str, Option<&str>, &str)] = &[
+    ("GET", "/composer", None, "ComposerView"),
+    (
+        "POST",
+        "/sessions/{id}/compactions",
+        Some("CompactCreate"),
+        "MessageReceipt",
+    ),
+    ("POST", "/attachments", None, "AttachmentView"),
+    ("DELETE", "/attachments/{id}", None, "EmptyObject"),
+    (
+        "GET",
+        "/sessions/{id}/attachments/{asset_id}",
+        None,
+        "AttachmentView",
+    ),
+    (
+        "HEAD",
+        "/sessions/{id}/attachments/{asset_id}",
+        None,
+        "AttachmentView",
+    ),
     ("GET", "/connectors", None, "ConnectorList"),
     (
         "GET",
@@ -352,6 +383,16 @@ pub fn schema() -> Value {
         if let Some(request) = request {
             operation["requestBody"] = json!({"required":true,"content":{"application/json":{"schema":{"$ref":format!("#/components/schemas/{request}")}}}});
         }
+        if path == "/attachments" && method == "POST" {
+            operation["requestBody"] = json!({"required":true,"content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}});
+        }
+        if path.ends_with("/attachments/{asset_id}") {
+            operation["responses"]["200"]["content"] =
+                json!({"application/octet-stream":{"schema":{"type":"string","format":"binary"}}});
+            operation["responses"]["206"] = operation["responses"]["200"].clone();
+            operation["responses"]["416"] =
+                json!({"description":"Requested range is not satisfiable"});
+        }
         let mut parameters = Vec::new();
         for segment in path.split('/') {
             if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
@@ -360,7 +401,7 @@ pub fn schema() -> Value {
                 );
             }
         }
-        if method != "GET" && path != "/auth/credentials" {
+        if !matches!(method, "GET" | "HEAD") && path != "/auth/credentials" {
             parameters.push(json!({"name":"x-albert-csrf","in":"header","required":true,"schema":{"type":"string"}}));
         }
         operation["parameters"] = json!(parameters);

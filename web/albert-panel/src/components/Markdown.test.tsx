@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
 
 describe("Markdown", () => {
-  it("renders readable code and tables without executing raw HTML or remote image requests", () => {
+  it("renders readable code and tables without executing raw HTML, and loads requested external images directly", () => {
     const { container } = render(
       <Markdown
         text={
@@ -16,7 +16,14 @@ describe("Markdown", () => {
     expect(screen.getByText("let answer = 42;")).toBeVisible();
     expect(screen.getByRole("table")).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
-    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByRole("img", { name: "tracking" })).toHaveAttribute(
+      "src",
+      "https://external.invalid/pixel.png",
+    );
+    expect(screen.getByRole("img", { name: "tracking" })).toHaveAttribute(
+      "referrerpolicy",
+      "no-referrer",
+    );
     expect(screen.getByText("unsafe")).not.toHaveAttribute(
       "href",
       expect.stringContaining("javascript:"),

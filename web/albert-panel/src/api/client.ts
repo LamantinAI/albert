@@ -113,3 +113,32 @@ export async function api<P extends PathFor<M>, M extends Method>(
   }
   return body as ApiResponse<P, M>;
 }
+
+export async function uploadAttachment(file: File) {
+  const name = JSON.stringify(file.name).replace(
+    /[^\x20-\x7e]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+  const response = await fetch(apiPath("/attachments"), {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "x-filename": name,
+      ...(csrf ? { "x-albert-csrf": csrf } : {}),
+    },
+    body: file,
+  });
+  const body = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    if (response.status === 401)
+      window.dispatchEvent(new Event("albert:auth-expired"));
+    throw new ApiError(
+      response.status,
+      body?.error?.code ?? "upload_failed",
+      body?.error?.message ?? "The attachment could not be uploaded.",
+    );
+  }
+  return body as import("./schema").components["schemas"]["AttachmentView"];
+}

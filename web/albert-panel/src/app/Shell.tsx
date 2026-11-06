@@ -14,6 +14,7 @@ import {
   SessionDirectory,
   useSessionDirectory,
 } from "../features/sessions/SessionDirectory";
+import { useSidebarLayout } from "./useSidebarLayout";
 import { useSignOut } from "./useSignOut";
 import { PageLoading } from "./PageLoading";
 import { useClientContext } from "./context";
@@ -35,6 +36,7 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobile, setMobile] = useState(false);
+  const { compact, desktop, setCollapsed } = useSidebarLayout();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const inSettings =
     location.pathname === "/workspace" ||
@@ -46,6 +48,17 @@ export function Shell() {
   const sidebar = useRef<HTMLElement>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const settingsToggle = useRef<HTMLButtonElement>(null);
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!compact) return;
+    const focused = document.activeElement;
+    const restore =
+      focused instanceof HTMLElement &&
+      sidebar.current?.contains(focused) &&
+      !!focused.closest("#sidebar-expanded-navigation,.session-actions-popup");
+    directory.actions.close();
+    if (restore) sidebarToggle.current?.focus({ preventScroll: true });
+  }, [compact, directory.actions.close]);
   const closeNavigation = useCallback((returnFocus = false) => {
     setMobile(false);
     if (returnFocus) requestAnimationFrame(() => menu.current?.focus());
@@ -70,7 +83,9 @@ export function Shell() {
         ...(sidebar.current?.querySelectorAll<HTMLElement>(
           "a[href],button:not(:disabled),input:not(:disabled)",
         ) ?? []),
-      ].filter((node) => node.getClientRects().length > 0);
+      ].filter(
+        (node) => node.getClientRects().length > 0 && !node.closest("[inert]"),
+      );
       const first = elements[0],
         last = elements.at(-1);
       if (event.shiftKey && document.activeElement === first) {
@@ -94,8 +109,17 @@ export function Shell() {
     };
   }, [mobile]);
   const username = context?.account?.username ?? "";
+  const changeSidebar = (collapsed: boolean) => {
+    directory.actions.close();
+    setCollapsed(collapsed);
+  };
+  const newChat = (temporary: boolean) => {
+    directory.setFirstDraft(null);
+    closeNavigation();
+    navigate(`/chats?new=${temporary ? "temporary" : "permanent"}`);
+  };
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-sidebar-collapsed={compact || undefined}>
       {mobile && (
         <button
           className="sidebar-backdrop"
@@ -111,121 +135,227 @@ export function Shell() {
         role={mobile ? "dialog" : undefined}
         aria-modal={mobile || undefined}
       >
-        <Brand />
-        {context?.caps.chat && (
-          <div className="sidebar-actions">
-            <Button
-              variant="primary"
-              onClick={() => {
-                directory.setFirstDraft(null);
-                navigate("/chats?new=permanent");
-              }}
-            >
-              <Icon name="plus" size={16} />
-              New chat
-            </Button>
-            <Button
-              className="icon-button"
-              title="New temporary chat"
-              aria-label="New temporary chat"
-              onClick={() => {
-                directory.setFirstDraft(null);
-                navigate("/chats?new=temporary");
-              }}
-            >
-              <Icon name="temporary" />
-            </Button>
-          </div>
-        )}
-        <SessionDirectory onNavigate={onNavigate} />
-        <div className="sidebar-fill" />
-        <div
-          className="sidebar-settings"
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && settingsOpen) {
-              event.stopPropagation();
-              event.preventDefault();
-              setSettingsOpen(false);
-              settingsToggle.current?.focus();
-            }
-          }}
-        >
-          <div
-            className="settings-reveal"
-            data-open={settingsOpen || undefined}
-            aria-hidden={!settingsOpen}
-            inert={!settingsOpen || undefined}
-          >
-            <nav
-              id="settings-navigation"
-              className="settings-links"
-              aria-label="Settings navigation"
-            >
-              <NavLink className="nav-item" to="/workspace">
-                <span className="nav-number" aria-hidden="true">
-                  00
-                </span>
-                <Icon name="settings" />
-                Overview
-              </NavLink>
-              {sections
-                .filter(
-                  (section) =>
-                    context?.caps.owner ||
-                    section.path === "/settings/connections",
-                )
-                .map((section, index) => (
-                  <NavLink
-                    className="nav-item"
-                    key={section.path}
-                    to={section.path}
-                    end={section.path === "/settings"}
-                  >
-                    <span className="nav-number" aria-hidden="true">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <Icon name={section.icon} />
-                    {section.label}
-                  </NavLink>
-                ))}
-            </nav>
-          </div>
+        <div className="sidebar-header">
+          <Brand compact={compact} />
           <button
-            className={`nav-item account-link settings-toggle ${inSettings ? "active" : ""}`}
-            ref={settingsToggle}
-            aria-expanded={settingsOpen}
-            aria-controls="settings-navigation"
-            onClick={() => {
-              setSettingsOpen(!settingsOpen);
-            }}
+            type="button"
+            className="sidebar-toggle"
+            ref={sidebarToggle}
+            aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!compact}
+            aria-controls="sidebar-expanded-navigation"
+            disabled={!desktop}
+            onClick={() => changeSidebar(!compact)}
           >
-            <Icon name="settings" />
-            Settings
-            <Icon name="chevron" size={14} />
+            <Icon name="chevron" size={17} />
           </button>
         </div>
-        <div className="sidebar-footer">
-          <Link
-            to="/account"
-            className="sidebar-profile"
-            aria-label="My account"
-            title={username}
+        <div className="sidebar-content">
+          <div
+            id="sidebar-expanded-navigation"
+            className="sidebar-expanded"
+            aria-hidden={compact || undefined}
+            inert={compact || undefined}
           >
-            <span className="avatar">{username.slice(0, 1).toUpperCase()}</span>
-            <div className="sidebar-account">
-              <strong>{username}</strong>
-              <small>{context?.account?.role}</small>
+            {context?.caps.chat && (
+              <div className="sidebar-actions">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    directory.setFirstDraft(null);
+                    navigate("/chats?new=permanent");
+                  }}
+                >
+                  <Icon name="plus" size={16} />
+                  New chat
+                </Button>
+                <Button
+                  className="icon-button"
+                  title="New temporary chat"
+                  aria-label="New temporary chat"
+                  onClick={() => {
+                    directory.setFirstDraft(null);
+                    navigate("/chats?new=temporary");
+                  }}
+                >
+                  <Icon name="temporary" />
+                </Button>
+              </div>
+            )}
+            <SessionDirectory onNavigate={onNavigate} />
+            <div className="sidebar-fill" />
+            <div
+              className="sidebar-settings"
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && settingsOpen) {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  setSettingsOpen(false);
+                  settingsToggle.current?.focus();
+                }
+              }}
+            >
+              <div
+                className="settings-reveal"
+                data-open={settingsOpen || undefined}
+                aria-hidden={!settingsOpen}
+                inert={!settingsOpen || undefined}
+              >
+                <nav
+                  id="settings-navigation"
+                  className="settings-links"
+                  aria-label="Settings navigation"
+                >
+                  <NavLink className="nav-item" to="/workspace">
+                    <span className="nav-number" aria-hidden="true">
+                      00
+                    </span>
+                    <Icon name="settings" />
+                    Overview
+                  </NavLink>
+                  {sections
+                    .filter(
+                      (section) =>
+                        context?.caps.owner ||
+                        section.path === "/settings/connections",
+                    )
+                    .map((section, index) => (
+                      <NavLink
+                        className="nav-item"
+                        key={section.path}
+                        to={section.path}
+                        end={section.path === "/settings"}
+                      >
+                        <span className="nav-number" aria-hidden="true">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <Icon name={section.icon} />
+                        {section.label}
+                      </NavLink>
+                    ))}
+                </nav>
+              </div>
+              <button
+                className={`nav-item account-link settings-toggle ${inSettings ? "active" : ""}`}
+                ref={settingsToggle}
+                aria-expanded={settingsOpen}
+                aria-controls="settings-navigation"
+                onClick={() => {
+                  setSettingsOpen(!settingsOpen);
+                }}
+              >
+                <Icon name="settings" />
+                Settings
+                <Icon name="chevron" size={14} />
+              </button>
             </div>
-          </Link>
-          <Button
-            variant="ghost"
-            className="icon-button"
-            aria-label="Sign out"
-            disabled={signingOut}
-            onClick={() => void logout()}
+            <div className="sidebar-footer">
+              <Link
+                to="/account"
+                className="sidebar-profile"
+                aria-label="My account"
+                title={username}
+              >
+                <span className="avatar">
+                  {username.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="sidebar-account">
+                  <strong>{username}</strong>
+                  <small>{context?.account?.role}</small>
+                </div>
+              </Link>
+              <Button
+                variant="ghost"
+                className="icon-button"
+                aria-label="Sign out"
+                disabled={signingOut}
+                onClick={() => void logout()}
+              >
+                <Icon name="logout" size={16} />
+              </Button>
+            </div>
+          </div>
+          <nav
+            className="sidebar-rail"
+            aria-label="Compact navigation"
+            aria-hidden={!compact}
+            inert={!compact || undefined}
           >
-            <Icon name="logout" size={16} />
-          </Button>
+            {context?.caps.chat && (
+              <>
+                <Button
+                  variant="primary"
+                  className="rail-control"
+                  aria-label="New chat"
+                  title="New chat"
+                  onClick={() => newChat(false)}
+                >
+                  <Icon name="plus" size={18} />
+                </Button>
+                <Button
+                  className="rail-control"
+                  aria-label="New temporary chat"
+                  title="New temporary chat"
+                  onClick={() => newChat(true)}
+                >
+                  <Icon name="temporary" size={18} />
+                </Button>
+              </>
+            )}
+            {context?.caps.chat && (
+              <>
+                {" "}
+                <Link
+                  className="rail-control"
+                  to="/chats/all"
+                  aria-label="All conversations"
+                  title="All conversations"
+                  onClick={onNavigate}
+                >
+                  <Icon name="chats" size={18} />
+                </Link>
+              </>
+            )}
+            <div className="rail-spacer" />
+            <button
+              className={`rail-control ${inSettings ? "active" : ""}`}
+              type="button"
+              aria-label="Settings"
+              title="Settings"
+              onClick={() => {
+                changeSidebar(false);
+                setSettingsOpen(true);
+                requestAnimationFrame(() =>
+                  sidebar.current
+                    ?.querySelector<HTMLElement>("#settings-navigation a")
+                    ?.focus(),
+                );
+              }}
+            >
+              <Icon name="settings" size={18} />
+            </button>
+            <Link
+              className="rail-control rail-profile"
+              to="/account"
+              aria-label="My account"
+              title="My account"
+              onClick={onNavigate}
+            >
+              <span className="avatar">
+                {username.slice(0, 1).toUpperCase()}
+              </span>
+            </Link>
+            <Button
+              variant="ghost"
+              className="rail-control"
+              aria-label="Sign out"
+              title="Sign out"
+              disabled={signingOut}
+              onClick={() => void logout()}
+            >
+              <Icon name="logout" size={18} />
+            </Button>
+          </nav>
         </div>
       </aside>
       <main className="workspace" inert={mobile || undefined}>

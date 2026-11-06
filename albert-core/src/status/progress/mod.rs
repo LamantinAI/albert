@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use octo_core::{ConnectorId, Envelope, EventBus, EventKind};
 use rand::random;
-use serde_json::{from_str, Value};
+use serde_json::Value;
 use tracing::warn;
 
 use super::{clip, text::TextUpdate, StatusFeed};
@@ -37,16 +37,14 @@ pub(super) fn item(id: String, kind: &str, label: &str, state: &str) -> Progress
         started_at: at.clone(),
         updated_at: at,
         elapsed_ms: None,
+        activity: None,
     }
 }
 
 impl StatusFeed {
-    pub(super) fn progress_tool_label(&self, name: &str, args: &str) -> String {
+    pub(super) fn progress_tool_label(&self, name: &str, args: Option<&Value>) -> String {
         if name == "scratchpad_goal" {
-            if let Some(goal) = from_str::<Value>(args)
-                .ok()
-                .and_then(|value| value.get("goal").and_then(Value::as_str).map(str::to_owned))
-            {
+            if let Some(goal) = args.and_then(|value| value.get("goal").and_then(Value::as_str)) {
                 let goal = goal.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !goal.is_empty() {
                     return format!("scratchpad goal “{}”", clip(&goal, 120));
@@ -54,7 +52,7 @@ impl StatusFeed {
             }
         }
         if name == "dispatch_to_connector" {
-            if let Some(target) = from_str::<Value>(args).ok().and_then(|value| {
+            if let Some(target) = args.and_then(|value| {
                 value
                     .get("target")
                     .and_then(Value::as_str)
@@ -204,7 +202,8 @@ mod tests {
 
     use super::ProgressUpdate;
     use crate::{
-        codex_model::CodexResponsesModel, sessions::transport::TurnFeedback, status::StatusFeed,
+        codex_model::CodexResponsesModel, sessions::transport::TurnFeedback,
+        status::domain::ProgressActivity, status::StatusFeed,
     };
 
     #[test]
@@ -215,27 +214,28 @@ mod tests {
             ConnectorId::new("web"),
             None,
         );
+        let tool_label = |name: &str, args: &str| {
+            feed.tool_progress_item("label".into(), name, args, "running")
+                .label
+        };
         assert_eq!(
-            feed.progress_tool_label(
+            tool_label(
                 "scratchpad_goal",
                 r#"{"goal":"Compare\n  sources", "extra":"private-field"}"#
             ),
             "scratchpad goal “Compare sources”"
         );
         for args in ["invalid", r#"{"goal":17}"#, r#"{"goal":"  "}"#] {
-            assert_eq!(
-                feed.progress_tool_label("scratchpad_goal", args),
-                "scratchpad goal"
-            );
+            assert_eq!(tool_label("scratchpad_goal", args), "scratchpad goal");
         }
-        let label = feed.progress_tool_label(
+        let label = tool_label(
             "scratchpad_goal",
             &format!(r#"{{"goal":"{}"}}"#, "a".repeat(200)),
         );
         assert!(label.chars().count() <= 160);
         assert!(label.ends_with("…”"));
         assert_eq!(
-            feed.progress_tool_label("another_tool", r#"{"goal":"private-field"}"#),
+            tool_label("another_tool", r#"{"goal":"private-field"}"#),
             "another tool"
         );
     }
@@ -257,10 +257,10 @@ mod tests {
             None,
         )
         .with_attempt("native-attempt".into());
-        feed.register_tool_names(["safe_tool".into()]);
+        feed.register_tool_names(["skill_apply".into()]);
         <StatusFeed as PromptHook<CodexResponsesModel>>::on_tool_call(
             &feed,
-            "safe_tool",
+            "skill_apply",
             None,
             "opaque-call",
             "private-fixture-content",
@@ -268,7 +268,7 @@ mod tests {
         .await;
         <StatusFeed as PromptHook<CodexResponsesModel>>::on_tool_result(
             &feed,
-            "safe_tool",
+            "skill_apply",
             None,
             "opaque-call",
             "private-fixture-content",
@@ -290,6 +290,8 @@ mod tests {
         assert_eq!(start.items[0].state, "in_progress");
         assert_eq!(end.items[0].state, "returned");
         assert!(end.items[0].elapsed_ms.is_some());
+        assert_eq!(start.items[0].activity, Some(ProgressActivity::Skill));
+        assert_eq!(start.items[0].activity, end.items[0].activity);
         let wire = to_string(&[start, end]).unwrap();
         assert!(!wire.contains("private-fixture"));
         <StatusFeed as PromptHook<CodexResponsesModel>>::on_tool_call(

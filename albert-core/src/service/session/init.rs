@@ -20,14 +20,17 @@ impl SessionService {
         settings.validate()?;
         let database = Database::from_pool(history.pool().clone()).await?;
         let limits = &settings.limits;
-        let router = Arc::new(SessionHistory::new(
-            history.clone(),
-            MemoryLimits {
-                max_sessions: limits.temporary_max_sessions,
-                max_turns: limits.temporary_max_turns,
-                max_bytes: limits.temporary_max_bytes,
-            },
-        )?);
+        let router = Arc::new(
+            SessionHistory::new(
+                history.clone(),
+                MemoryLimits {
+                    max_sessions: limits.temporary_max_sessions,
+                    max_turns: limits.temporary_max_turns,
+                    max_bytes: limits.temporary_max_bytes,
+                },
+            )?
+            .with_media_limits(settings.media.clone()),
+        );
         let runtime_epoch = format!("{:032x}", random::<u128>());
         let mut tx = history.begin_journal().await?;
         expire_previous_runtime(&mut tx, &runtime_epoch).await?;

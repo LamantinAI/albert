@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use super::{ProgressSnapshot, TextSnapshot};
+use super::{AttachmentView, ProgressSnapshot, SelectedSkillView, SkillSelection, TextSnapshot};
 
 #[derive(Clone, Serialize, ToSchema)]
 pub struct SessionView {
@@ -43,6 +43,10 @@ pub struct MessageCreate {
     pub client_message_id: String,
     pub text: String,
     pub digest: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<String>,
+    #[serde(default)]
+    pub skills: Vec<SkillSelection>,
 }
 #[derive(Clone, Serialize, ToSchema)]
 pub struct MessageView {
@@ -50,6 +54,12 @@ pub struct MessageView {
     pub created_at: String,
     pub role: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schema(required = false)]
+    pub attachments: Vec<AttachmentView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[schema(required = false)]
+    pub skills: Vec<SelectedSkillView>,
 }
 #[derive(Clone, Serialize, ToSchema)]
 pub struct MessageList {

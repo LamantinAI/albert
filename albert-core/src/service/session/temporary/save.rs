@@ -67,6 +67,10 @@ impl SessionService {
         self.history
             .promote_session_in(&mut tx, &snapshot, promotion_key)
             .await?;
+        self.media()
+            .promote_in(&mut tx, id.as_str())
+            .await
+            .map_err(|_| SessionError::InvalidInput("Attachments could not be saved."))?;
         set_owned(
             &mut tx,
             id.as_str(),
@@ -112,6 +116,7 @@ impl SessionService {
             }
         }
         *backend = Backend::Durable;
+        self.media().discard_session(id.as_str()).await;
         // If cleanup fails, durable Save remains committed and all writers use
         // SQL. Keeping a redundant RAM copy cannot undo the successful Save.
         if self

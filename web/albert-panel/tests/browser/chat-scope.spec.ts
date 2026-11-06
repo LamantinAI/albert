@@ -365,3 +365,40 @@ test("an action rechecks the session kind before offering a destructive dialog",
     page.getByRole("menuitem", { name: "Rename", exact: true }),
   ).toBeVisible();
 });
+
+test("mouse toggle does not leave conversation actions lit after pointer departure; keyboard focus remains visible", async ({
+  page,
+}) => {
+  await sessionActionsFixture(page);
+  await page.goto("/ui/chats/beta");
+  const row = page.locator('.sidebar [data-session-id="alpha"]');
+  const trigger = row.getByRole("button", {
+    name: "Actions for Alpha task",
+    exact: true,
+  });
+  await expect(trigger).toHaveCSS("opacity", "0");
+  await row.hover();
+  await expect(trigger).toHaveCSS("opacity", "1");
+  await trigger.click();
+  await expect(
+    page.getByRole("menu", { name: "Conversation actions" }),
+  ).toBeVisible();
+  await trigger.click();
+  await expect(
+    page.getByRole("menu", { name: "Conversation actions" }),
+  ).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Message Albert" }).hover();
+  await expect(trigger).toHaveCSS("opacity", "0");
+  await page.keyboard.press("Shift+Tab");
+  await expect(row.getByRole("link")).toBeFocused();
+  await expect(trigger).toHaveCSS("opacity", "1");
+  await page.keyboard.press("Tab");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("menu", { name: "Conversation actions" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveCSS("opacity", "1");
+});

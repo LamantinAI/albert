@@ -75,6 +75,13 @@ pub(super) async fn host_request(
         }
         ("GET", "/account/profile") => HostOperation::Profile(ProfileOperation::Get),
         ("GET", "/account/identities") => HostOperation::Profile(ProfileOperation::Identities),
+        ("GET", "/composer") => HostOperation::Session(SessionOperation::Composer),
+        ("POST", "/sessions/{id}/compactions") => {
+            HostOperation::Session(SessionOperation::Compact {
+                id: resource()?,
+                input: parse(body)?,
+            })
+        }
         ("POST", "/session-starts") => {
             HostOperation::Session(SessionOperation::Start(parse(body)?))
         }

@@ -62,9 +62,10 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
         .await
         .map_err(|_| Error::Config("Web authentication could not be initialized.".into()))?;
         let panel = Panel::new(runtime, auth);
-        let emits = ["chat.message"].map(EventKind::new);
+        let emits = ["chat.message", "chat.send_file.result"].map(EventKind::new);
         let accepts = [
             "chat.reply",
+            "chat.send_file",
             "chat.status",
             "chat.typing",
             "chat.turn.end",

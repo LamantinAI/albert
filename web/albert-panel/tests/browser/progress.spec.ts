@@ -41,9 +41,9 @@ test("technical records stay out of chat and older messages remain reachable", a
   ).toHaveCount(0);
   serviceOnly = true;
   await page.reload();
-  await page
-    .getByRole("button", { name: "Load older messages", exact: true })
-    .click();
+  await page.locator(".transcript").evaluate((node) => {
+    node.scrollTop = 0;
+  });
   await expect(
     page.getByText("Conversation message 8", { exact: true }),
   ).toBeVisible();
@@ -88,7 +88,14 @@ test("long work shows the current operation, elapsed time and a compact branchin
     }),
   );
   const at = new Date(Date.now() - 30000).toISOString();
-  const item = (id: string, kind: string, label: string, state: string) => ({
+  const item = (
+    id: string,
+    kind: string,
+    label: string,
+    state: string,
+    activity?: string,
+  ) => ({
+    activity,
     id,
     kind,
     label,
@@ -118,8 +125,8 @@ test("long work shows the current operation, elapsed time and a compact branchin
           items: [
             item("step1", "stage", "Inspect available sources", "verified"),
             item("step2", "stage", "Compare findings", "done"),
-            item("call", "tool", "Using browser", "returned"),
-            item("skill", "tool", "skill apply", "returned"),
+            item("call", "tool", "Using browser", "returned", "browser"),
+            item("skill", "tool", "skill apply", "returned", "skill"),
             item(
               "child",
               "child",
@@ -145,7 +152,7 @@ test("long work shows the current operation, elapsed time and a compact branchin
   await expect(progress.locator(".progress-kind")).toHaveText([
     "Step",
     "Step",
-    "Tool",
+    "Browser",
     "Skill",
     "Subagent",
   ]);

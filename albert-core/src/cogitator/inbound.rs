@@ -8,10 +8,12 @@ use super::{
     UserInput,
 };
 use crate::{
-    acl::command as acl_command, acl::is_acl_admin, acl::is_owner, acl::should_respond, acl::tag,
-    commands::account_help, commands::help, commands::parse, commands::seed,
-    sessions::acceptance::SourceReceipt, sessions::presentation::PresentationDetached,
-    sessions::presentation::PresentationOpened, sessions::SessionContext, sessions::SessionEnded,
+    accounts::AccountRole, acl::command as acl_command, acl::is_acl_admin, acl::is_owner,
+    acl::should_respond, acl::tag, commands::account_help, commands::help, commands::parse,
+    commands::seed, composer::CompactRequest, composer::PreparedSkills, media::MediaInput,
+    sessions::acceptance::SourceReceipt, sessions::actor::ActorToolPolicy,
+    sessions::presentation::PresentationDetached, sessions::presentation::PresentationOpened,
+    sessions::SessionContext, sessions::SessionEnded,
 };
 
 impl AlbertCogitator {
@@ -53,6 +55,73 @@ impl AlbertCogitator {
                         return;
                     }
                 };
+                if let Some(command) = incoming.context.get::<CompactRequest>() {
+                    let permitted = incoming.source.as_str() == "web"
+                        && incoming
+                            .context
+                            .get::<SessionContext>()
+                            .is_some_and(|session| {
+                                session.is_private() && session.account().is_some()
+                            });
+                    if !permitted {
+                        if let Some(receipt) = incoming.context.get::<SourceReceipt>() {
+                            receipt.complete(Err(
+                                "This command requires an authenticated private session.".into(),
+                            ));
+                        }
+                        return;
+                    }
+                    let input = UserInput {
+                        text: format!("/compact {}", command.instructions),
+                        images: Vec::new(),
+                        seed: None,
+                        voice: None,
+                    };
+                    let options = CompactOptions {
+                        instructions: command.instructions.clone(),
+                        dry_run: false,
+                    };
+                    match self.accept_control(&incoming, &input).await {
+                        Ok(true) => self.clone().spawn_compact(incoming, ctx, options).await,
+                        Ok(false) => {}
+                        Err(error) => warn!(%error,"compact command was not accepted"),
+                    }
+                    return;
+                }
+                let selected = incoming
+                    .context
+                    .get::<PreparedSkills>()
+                    .filter(|skills| !skills.is_empty());
+                let selected = if let Some(selected) = selected {
+                    let owner = incoming
+                        .context
+                        .get::<SessionContext>()
+                        .is_some_and(|session| {
+                            session.tool_policy() == ActorToolPolicy::ExistingHost
+                                && session
+                                    .account()
+                                    .is_some_and(|account| account.role == AccountRole::Owner)
+                        });
+                    let prepared = if owner {
+                        self.skills
+                            .prepare_composer(selected.selections(), &self.config.sessions.composer)
+                    } else {
+                        Err("Only the owner may select installed skills.".into())
+                    };
+                    match prepared {
+                        Ok(prepared) => Some(prepared),
+                        Err(error) => {
+                            if let Some(receipt) = incoming.context.get::<SourceReceipt>() {
+                                receipt.complete(Err(format!(
+                                    "Selected skill admission rejected: {error}"
+                                )));
+                            }
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
                 if temporary(incoming.context.get::<SessionContext>())
                     && incoming.payload_as::<Blob>().is_some_and(Blob::is_audio)
                 {
@@ -63,7 +132,9 @@ impl AlbertCogitator {
                 // connector downloaded, its caption in tags — an image goes to the
                 // model as-is, a voice message becomes text first (no Codex model
                 // takes audio) and from there is an ordinary turn.
-                let input = if let Some(text) = incoming.payload_as::<String>() {
+                let input = if let Some(media) = incoming.context.get::<MediaInput>() {
+                    Some(self.web_media_input(media, &incoming))
+                } else if let Some(text) = incoming.payload_as::<String>() {
                     Some(UserInput {
                         text: text.clone(),
                         images: Vec::new(),
@@ -122,7 +193,10 @@ impl AlbertCogitator {
                 } else {
                     None
                 };
-                if let Some(input) = input {
+                if let Some(mut input) = input {
+                    if let Some(selected) = selected {
+                        input.seed = Some(selected.seed(&input.text));
+                    }
                     self.respond(incoming, input, ctx).await;
                 }
             }

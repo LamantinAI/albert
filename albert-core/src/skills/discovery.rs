@@ -163,7 +163,7 @@ pub(super) struct SkillFront {
     pub(super) description: Option<String>,
     /// A capability the runtime must have for the skill to exist at all (today:
     /// `subscription`). Absent → always available.
-    requires: Option<String>,
+    pub(super) requires: Option<String>,
     /// `always: true` — not a skill to reach for, a standing instruction. Its body
     /// rides in the preamble every turn instead of waiting for `skill_apply`.
     pub(super) always: bool,

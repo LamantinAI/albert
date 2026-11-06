@@ -4,7 +4,7 @@ use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 
 use crate::{db::error::DatabaseError, db::error::DatabaseResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 9;
+pub(super) const SCHEMA_VERSION: i64 = 10;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -35,6 +35,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (
         9,
         include_str!("../../../migrations/0009_telegram_accounts.sql"),
+    ),
+    (
+        10,
+        include_str!("../../../migrations/0010_session_media.sql"),
     ),
 ];
 fn checksum(sql: &str) -> String {

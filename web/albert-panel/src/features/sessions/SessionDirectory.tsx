@@ -1,3 +1,5 @@
+import type { SelectedSkill } from "./composer/types";
+import type { Attachment } from "./media/types";
 import {
   createContext,
   useCallback,
@@ -27,6 +29,8 @@ interface InitialDraft {
   attempted: boolean;
 }
 interface FirstDraft {
+  attachments?: Attachment[];
+  skills?: SelectedSkill[];
   id: string;
   text: string;
   temporary: boolean;

@@ -118,6 +118,7 @@ pub struct ValidationView {
 #[derive(Clone, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplyRequest {
+    /// runtime applies agent settings; models reloads only the configured model pool; process restarts Albert.
     pub target: String,
     pub revision: Option<String>,
     pub client_request_id: String,

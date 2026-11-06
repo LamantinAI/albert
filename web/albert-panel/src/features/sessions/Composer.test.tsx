@@ -51,4 +51,33 @@ describe("message composer", () => {
     expect(stop).toHaveBeenCalledOnce();
     expect(screen.getByText(/held in memory/)).toBeVisible();
   });
+  it("dismisses rejected-upload notices and clears them after an accepted message", async () => {
+    render(
+      <Composer
+        onSend={vi.fn().mockResolvedValue(true)}
+        onStop={() => {}}
+        disabled={false}
+        sending={false}
+        stopping={false}
+        active={false}
+        temporary={false}
+      />,
+    );
+    const file = new File(["fixture"], "large.wav", { type: "audio/wav" });
+    Object.defineProperty(file, "size", { value: 33 * 1024 * 1024 });
+    const choose = screen.getByLabelText("Choose attachments");
+    fireEvent.change(choose, { target: { files: [file] } });
+    await screen.findByRole("alert");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss upload error" }),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(choose, { target: { files: [file] } });
+    await screen.findByRole("alert");
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Albert" }), {
+      target: { value: "Continue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
 });

@@ -1,3 +1,7 @@
+mod composer;
+pub use composer::{CompactCreate, ComposerSkill, ComposerView, SelectedSkillView, SkillSelection};
+mod media;
+pub use media::AttachmentView;
 pub mod connectors;
 pub use connectors::{ConnectorList, ConnectorTypeView, ConnectorView};
 pub mod telegram;
@@ -30,6 +34,8 @@ pub use control::{
     SkillList, SkillUpdate, SkillView, SkillWrite, ValidationView,
 };
 pub use progress::{ProgressDelta, ProgressItem, ProgressSnapshot};
+mod progress_activity;
+pub use progress_activity::ProgressActivity;
 pub use session::{
     AttemptView, CancelRequest, MessageCreate, MessageList, MessageReceipt, MessageView, PageQuery,
     SessionCreate, SessionEvent, SessionList, SessionState, SessionUpdate, SessionView,
@@ -48,13 +54,52 @@ pub use openai_login::{
 #[cfg(test)]
 mod tests {
     use albert_core::{
+        status::domain::ProgressActivity as DomainProgressActivity,
         status::domain::ProgressDelta as DomainProgressDelta,
         status::domain::ProgressItem as DomainProgressItem,
         status::domain::TextDelta as DomainTextDelta,
     };
-    use serde_json::to_value;
+    use serde_json::{from_value, json, to_value};
 
-    use super::{ProgressDelta, TextDelta};
+    use super::{ProgressActivity, ProgressDelta, ProgressItem, TextDelta};
+
+    #[test]
+    fn activity_metadata_is_optional_and_future_categories_remain_generic() {
+        let mut wire = json!({"id":"call", "kind":"tool", "label":"Memory", "state":"running", "started_at":"timestamp", "updated_at":"timestamp", "elapsed_ms":null});
+        let legacy: ProgressItem = from_value(wire.clone()).unwrap();
+        assert_eq!(legacy.activity, None);
+        assert_eq!(to_value(legacy).unwrap(), wire);
+        wire["activity"] = json!("future_category");
+        let future: ProgressItem = from_value(wire).unwrap();
+        assert_eq!(future.activity, Some(ProgressActivity::Unknown));
+        assert_eq!(to_value(future).unwrap()["activity"], "unknown");
+        for category in [
+            DomainProgressActivity::Memory,
+            DomainProgressActivity::Scratchpad,
+            DomainProgressActivity::Skill,
+            DomainProgressActivity::Connector,
+            DomainProgressActivity::Search,
+            DomainProgressActivity::Browser,
+            DomainProgressActivity::Files,
+            DomainProgressActivity::Shell,
+            DomainProgressActivity::Sql,
+            DomainProgressActivity::Calendar,
+            DomainProgressActivity::Mail,
+            DomainProgressActivity::Image,
+            DomainProgressActivity::AudioInput,
+            DomainProgressActivity::AudioOutput,
+            DomainProgressActivity::Subagent,
+            DomainProgressActivity::Sessions,
+            DomainProgressActivity::Configuration,
+            DomainProgressActivity::Model,
+            DomainProgressActivity::Unknown,
+        ] {
+            assert_eq!(
+                to_value(category).unwrap(),
+                to_value(ProgressActivity::from(category)).unwrap()
+            );
+        }
+    }
 
     #[test]
     fn live_status_http_mapping_preserves_event_replay_json() {
@@ -70,6 +115,7 @@ mod tests {
                 started_at: "timestamp".into(),
                 updated_at: "timestamp".into(),
                 elapsed_ms: Some(0),
+                activity: Some(DomainProgressActivity::Search),
             }],
         };
         assert_eq!(

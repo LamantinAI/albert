@@ -1,18 +1,10 @@
-import {
-  memo,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import type { ReactNode } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 
 import { Paw } from "../../components/Brand";
 import { Icon } from "../../components/Icon";
-import type { IconName } from "../../components/Icon";
 import { Button } from "../../components/ui";
 import type { ProgressItem, ProgressSnapshot } from "./progress";
+import { activityAppearance } from "./activityAppearance";
 
 const activeStates = ["in_progress", "running", "waiting"];
 const states: Record<string, string> = {
@@ -31,19 +23,6 @@ const states: Record<string, string> = {
   timed_out: "Timed out",
   unknown: "Last observed",
 };
-function appearance(item: ProgressItem): { icon: IconName; label: string } {
-  if (item.kind === "stage") return { icon: "plan", label: "Step" };
-  if (item.kind === "child") return { icon: "robot", label: "Subagent" };
-  // These exact labels are emitted by the registered native skill tools.
-  if (
-    item.kind === "tool" &&
-    ["skill list", "skill search", "skill apply", "skill file"].includes(
-      item.label,
-    )
-  )
-    return { icon: "skills", label: "Skill" };
-  return { icon: "tool", label: "Tool" };
-}
 function duration(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return seconds < 60
@@ -56,13 +35,13 @@ export const Progress = memo(function Progress({
   active,
   stopping,
   connected,
-  trailing,
+  createdAt,
 }: {
   snapshot?: ProgressSnapshot | null;
   active: boolean;
   stopping: boolean;
   connected: boolean;
-  trailing?: ReactNode;
+  createdAt?: string;
 }) {
   const [reconnecting, setReconnecting] = useState(false);
   useEffect(() => {
@@ -83,10 +62,6 @@ export const Progress = memo(function Progress({
     return () => window.clearInterval(timer);
   }, [active]);
   useEffect(() => setExpanded(active), [active, snapshot?.attempt_id]);
-  useLayoutEffect(() => {
-    if (expanded)
-      panel.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [expanded]);
 
   const items = snapshot?.items ?? [];
   const current = [...items]
@@ -118,23 +93,41 @@ export const Progress = memo(function Progress({
           aria-expanded={expanded}
           aria-controls={meaningful.length ? id : undefined}
           disabled={!meaningful.length}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => {
+            setExpanded((value) => !value);
+            if (!expanded)
+              requestAnimationFrame(() => {
+                if (
+                  panel.current?.querySelector(".progress-tree:not([hidden])")
+                )
+                  panel.current.scrollIntoView({
+                    block: "nearest",
+                    inline: "nearest",
+                  });
+              });
+          }}
         >
           <Paw className="activity-paw" thinking={active && !stopping} />
-          <span className="progress-current" role="status">
+          <strong className="progress-brand">ALBERT</strong>
+          <span className="sr-only" role="status">
             {label}
           </span>
           {active && Number.isFinite(started) && (
-            <span className="progress-elapsed">{duration(now - started)}</span>
+            <span className="progress-elapsed sr-only">
+              {duration(now - started)}
+            </span>
           )}
-          {meaningful.length > 0 && (
-            <>
-              <span className="progress-count">{meaningful.length}</span>
-              <Icon name="chevron" size={16} />
-            </>
-          )}
+          <span className="progress-count">{meaningful.length}</span>
+          <Icon name="chevron" size={16} />
         </Button>
-        {trailing && <div className="progress-actions">{trailing}</div>}
+        {createdAt && (
+          <time className="progress-time" dateTime={createdAt}>
+            {new Date(createdAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+        )}
       </div>
       {meaningful.length > 0 && (
         <ol className="progress-tree" id={id} hidden={!expanded}>
@@ -150,8 +143,8 @@ export const Progress = memo(function Progress({
             >
               <span className="progress-item-label">
                 <span className="progress-kind">
-                  <Icon name={appearance(item).icon} size={14} />
-                  {appearance(item).label}
+                  <Icon name={activityAppearance(item).icon} size={14} />
+                  {activityAppearance(item).label}
                 </span>
                 {item.kind === "tool" &&
                 item.label.startsWith("scratchpad goal “") ? (

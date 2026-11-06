@@ -2,16 +2,23 @@ import { Paw } from "../../components/Brand";
 import { useLayoutEffect } from "react";
 import { Markdown } from "../../components/Markdown";
 import type { Message, SessionState } from "./useConversation";
+import { Progress } from "./Progress";
 import { useStreamPresentation } from "./useStreamPresentation";
 
 export function StreamingReply({
   state,
   messages,
   onAdvance,
+  running = false,
+  stopping = false,
+  connected = true,
 }: {
   state: SessionState | null;
   messages: Message[];
   onAdvance?: () => void;
+  running?: boolean;
+  stopping?: boolean;
+  connected?: boolean;
 }) {
   const text = state?.text;
   const active = state?.active_attempt?.id === text?.attempt_id;
@@ -24,31 +31,45 @@ export function StreamingReply({
   useLayoutEffect(() => {
     onAdvance?.();
   }, [presentation.text]);
-  if (
-    !text?.text ||
-    text.message_ids.some((id) => messages.some((message) => message.id === id))
-  )
-    return null;
-  if (!active && text.state !== "committed") return null;
+  const visible =
+    !!text?.text &&
+    !text.message_ids.some((id) =>
+      messages.some((message) => message.id === id),
+    ) &&
+    (active || (!running && text.state === "committed"));
+  if (!running && !visible) return null;
   return (
     <article
       className="message message-assistant message-streaming"
-      aria-label="Streaming answer"
+      aria-label={visible ? "Streaming answer" : "Assistant response"}
     >
-      <header className="message-heading">
-        <Paw className="message-paw" thinking={active} />
-        <strong className="albert-label">ALBERT</strong>
-        <span className="sr-only" role="status">
-          Albert is responding.
-        </span>
-      </header>
-      <Markdown
-        key={text.generation}
-        text={presentation.text}
-        ink={presentation}
-        streaming={streaming}
-      />
-      {text.truncated && (
+      {running ? (
+        <Progress
+          snapshot={state?.progress}
+          active
+          stopping={stopping}
+          connected={connected}
+        />
+      ) : (
+        <header className="message-heading">
+          <Paw className="message-paw" />
+          <strong className="albert-label">ALBERT</strong>
+        </header>
+      )}
+      {visible && text && (
+        <>
+          <span className="sr-only" role="status">
+            Albert is responding.
+          </span>
+          <Markdown
+            key={text.generation}
+            text={presentation.text}
+            ink={presentation}
+            streaming={streaming}
+          />
+        </>
+      )}
+      {visible && text?.truncated && (
         <small className="stream-note">
           The rest of the answer is still being prepared.
         </small>

@@ -7,6 +7,7 @@ use super::{
     ESCAPED_TEXT_MARKER, JOURNAL_MARKER, MESSAGE_MARKER, TOOL_TRACE_MARKER,
 };
 use crate::{
+    media::decode as decode_media, media::project as project_media,
     messaging::contract::DestinationSpec, messaging::contract::MessageIntent,
     messaging::contract::CONTRACT_VERSION, messaging::store::MessageRecord,
 };
@@ -20,6 +21,9 @@ pub enum PreviewContent {
 }
 
 pub fn preview_turn(turn: &Turn) -> PreviewContent {
+    if decode_media(&turn.content).is_some() {
+        return PreviewContent::Text(strip_source(&project_media(&turn.content)).to_owned());
+    }
     let text = match turn.role {
         Role::User => strip_source(&turn.content).to_owned(),
         Role::Assistant if turn.content.starts_with(ESCAPED_TEXT_MARKER) => {

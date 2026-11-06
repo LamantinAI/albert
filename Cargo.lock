@@ -166,6 +166,7 @@ dependencies = [
  "futures",
  "kaeru-core",
  "kaeru-rig",
+ "libc",
  "octo-approval",
  "octo-code",
  "octo-connector-sql",

@@ -6,7 +6,7 @@ use rig::{
     message::ReasoningContent,
 };
 
-use super::{clip, display_args, progress::item, summarize_result, StatusFeed};
+use super::{clip, display_args, summarize_result, StatusFeed};
 
 impl<M: CompletionModel> PromptHook<M> for StatusFeed {
     fn on_completion_call(
@@ -41,12 +41,7 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
             .metrics
             .progress(internal_call_id)
             .map(|(sequence, name, _)| {
-                item(
-                    format!("tool/{sequence}"),
-                    "tool",
-                    &self.progress_tool_label(&name, args),
-                    "in_progress",
-                )
+                self.tool_progress_item(format!("tool/{sequence}"), &name, args, "in_progress")
             });
         let feed = self.clone();
         let line = format!(
@@ -80,12 +75,8 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
             .metrics
             .progress(internal_call_id)
             .map(|(sequence, name, elapsed)| {
-                let mut progress = item(
-                    format!("tool/{sequence}"),
-                    "tool",
-                    &self.progress_tool_label(&name, args),
-                    "returned",
-                );
+                let mut progress =
+                    self.tool_progress_item(format!("tool/{sequence}"), &name, args, "returned");
                 progress.elapsed_ms = Some(elapsed);
                 progress
             });

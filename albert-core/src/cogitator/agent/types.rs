@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
-use octo_rig::{RestartTool, SendFileTool};
+use octo_rig::RestartTool;
 use rig::tool::ToolDyn;
 
 use crate::{
-    artifacts::Artifacts, cogitator::session_dispatch::SessionDispatch,
-    connector_catalog::ConnectorCatalog, scratchpad::PadScope, selfconfig::SelfConfig,
-    sessions::SessionContext, subagents::budget::Budget, subagents::SubagentTool,
+    artifacts::Artifacts, cogitator::media_delivery::MediaDelivery,
+    cogitator::session_dispatch::SessionDispatch, connector_catalog::ConnectorCatalog,
+    scratchpad::PadScope, selfconfig::SelfConfig, sessions::SessionContext,
+    subagents::budget::Budget, subagents::SubagentTool,
 };
 
 /// Fresh tool instances for each model attempt.
 pub(in crate::cogitator) type TurnTools = (
     SessionDispatch,
-    Option<SendFileTool>,
+    Option<MediaDelivery>,
     Option<RestartTool>,
     Option<SelfConfig>,
     ConnectorCatalog,

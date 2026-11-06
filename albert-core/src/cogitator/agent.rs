@@ -21,8 +21,9 @@ use tokio::select;
 use tracing::{debug, info, warn};
 
 use super::{
-    catalog, retention::fence_tools, retention::permitted_memory, retention::scope_ingress,
-    retention::temporary, scratchpad_scope, session_dispatch::SessionDispatch, AlbertCogitator,
+    catalog, media_delivery::MediaDelivery, retention::fence_tools, retention::permitted_memory,
+    retention::scope_ingress, retention::temporary, scratchpad_scope,
+    session_dispatch::SessionDispatch, AlbertCogitator,
 };
 use crate::{
     artifacts::Artifacts, codex_http::CodexHttp, codex_model::CodexResponsesModel,
@@ -87,11 +88,7 @@ impl AlbertCogitator {
         let progress_store = self.scratchpad.clone();
         let progress_scope = scratchpad_scope(&conversation, owner);
         let feed = feed.with_stage_source(move || progress_store.progress_scoped(&progress_scope));
-        feed.register_connector_names(
-            ctx.connectors()
-                .iter()
-                .map(|connector| connector.id.to_string()),
-        );
+        feed.register_connectors(ctx.connectors());
         // Owner-only: restarting a connector (to reload its manifest) or the whole
         // process (to apply albert.toml) is an admin action. The tool records the
         // requested target here; the caller carries it out after the reply is sent.
@@ -176,11 +173,18 @@ impl AlbertCogitator {
                         .with_context(output_scope(session, scope.map(str::to_owned))),
                     None => tool,
                 };
-                if confirmed {
+                let tool = if confirmed {
                     tool.with_confirmation_timeout(Duration::from_secs(120))
                 } else {
                     tool
-                }
+                };
+                MediaDelivery::new(
+                    tool,
+                    self.session_service.clone(),
+                    session.clone(),
+                    self.config.code_workspace.clone(),
+                    reply_target.as_ref().is_some_and(|t| t.as_str() == "web"),
+                )
             });
             let restart = owner.then(|| RestartTool::new(pending.clone()));
             // Owner-only: read/edit its own config + prompt + skill files (jailed to the
@@ -473,7 +477,7 @@ impl AlbertCogitator {
         &self,
         base: AgentBuilder<M, (), NoToolConfig>,
         mut dispatch: SessionDispatch,
-        send_file: Option<SendFileTool>,
+        send_file: Option<MediaDelivery>,
         restart: Option<RestartTool>,
         selfconfig: Option<SelfConfig>,
         discovery: ConnectorCatalog,
@@ -499,6 +503,7 @@ impl AlbertCogitator {
         let session = dispatch.session.clone();
         let volatile = temporary(session.as_ref());
         let mut tools = permitted_memory(self.memory.delegation_tools(), volatile);
+        feed.register_memory_tool_names(tools.iter().map(|tool| tool.name()));
         tools.extend(vec![
             Box::new(dispatch) as Box<dyn ToolDyn>,
             Box::new(discovery),

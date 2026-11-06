@@ -13,8 +13,9 @@ use super::{
 };
 use crate::{
     cogitator::messaging::LogicalWork, cogitator::session_runtime::FrozenActions,
-    history::assistant_turn, history::journal_messages, history::tool_trace,
-    messaging::store::ReportAdmission, sessions::SessionContext, status::StatusFeed,
+    composer::PreparedSkills, history::assistant_turn, history::journal_messages,
+    history::tool_trace, messaging::store::ReportAdmission, sessions::SessionContext,
+    status::StatusFeed,
 };
 
 impl AlbertCogitator {
@@ -133,7 +134,14 @@ impl AlbertCogitator {
                 Ok(text) => {
                     history.push(prompt.clone());
                     history.extend(journal_messages(&feed.snapshot()));
-                    prompt = Message::user(text);
+                    prompt = Message::user(
+                        incoming
+                            .context
+                            .get::<PreparedSkills>()
+                            .filter(|skills| !skills.is_empty())
+                            .map(|skills| skills.seed(&text))
+                            .unwrap_or(text),
+                    );
                     None
                 }
                 Err(error) => Some(error),

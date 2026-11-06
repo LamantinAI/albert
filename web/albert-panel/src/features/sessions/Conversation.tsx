@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MessageMedia } from "./media/MessageMedia";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorMessage } from "../../api/client";
@@ -8,13 +15,14 @@ import { LampLoader } from "../../components/LampLoader";
 import { MessageBubble } from "./MessageBubble";
 import { Button, Notice } from "../../components/ui";
 import { StreamingReply } from "./StreamingReply";
+import { useComposerCommands } from "./composer/useComposerCommands";
 import { Composer } from "./Composer";
-import { Progress } from "./Progress";
 import { ConversationStart } from "./ConversationStart";
 import { ModelConnectionChoice } from "../models/ModelConnectionChoice";
 import { useConversation } from "./useConversation";
 import type { Session } from "./useConversation";
 import { useMessageSend } from "./useMessageSend";
+import { useReplyStartScroll } from "./useReplyStartScroll";
 
 export function Conversation({
   id,
@@ -56,6 +64,15 @@ export function Conversation({
     revision: number;
   }>();
   const nearBottom = useRef(true);
+  const mediaReady = useCallback(() => {
+    requestAnimationFrame(() => {
+      const node = scroll.current;
+      if (node && nearBottom.current) node.scrollTop = node.scrollHeight;
+    });
+  }, []);
+  const olderSentinel = useRef<HTMLDivElement>(null);
+  const olderInFlight = useRef(false);
+  const olderFailed = useRef(false);
   const olderAnchor = useRef<{ height: number; top: number } | null>(null);
   const previousCount = useRef(0);
   const session = conversation.state?.session;
@@ -63,6 +80,16 @@ export function Conversation({
     (message) => message.role !== "activity",
   );
   const active = conversation.state?.active_attempt;
+  const focusCompletedReply = useReplyStartScroll(
+    id,
+    active?.id,
+    conversation.state?.text,
+  );
+  const commands = useComposerCommands(
+    session,
+    onSessionChange,
+    conversation.refresh,
+  );
   const temporary = session?.kind === "temporary";
   const removed =
     conversation.missing ||
@@ -84,6 +111,14 @@ export function Conversation({
     (provisional ||
       (!session && !!startingText) ||
       (!!active && ["running", "queued", "cancelling"].includes(active.state)));
+  const liveAnswerId =
+    thinking && conversation.state?.text?.attempt_id === active?.id
+      ? messages.find(
+          (message) =>
+            message.role === "assistant" &&
+            conversation.state?.text?.message_ids.includes(message.id),
+        )?.id
+      : undefined;
   const lastMessage = messages.at(-1);
   const opening = conversation.loading && !provisional && !startingText;
 
@@ -113,7 +148,9 @@ export function Conversation({
   useLayoutEffect(() => {
     const node = scroll.current;
     if (!node) return;
-    if (olderAnchor.current) {
+    if (focusCompletedReply(node, nearBottom)) {
+      setNewMessages(false);
+    } else if (olderAnchor.current) {
       node.scrollTop =
         olderAnchor.current.top +
         node.scrollHeight -
@@ -122,7 +159,11 @@ export function Conversation({
     } else if (nearBottom.current) node.scrollTop = node.scrollHeight;
     else if (messages.length > previousCount.current) setNewMessages(true);
     previousCount.current = messages.length;
-  }, [conversation.messages, conversation.state?.text?.offset]);
+  }, [
+    conversation.messages,
+    conversation.state?.text?.offset,
+    focusCompletedReply,
+  ]);
 
   const {
     send,
@@ -158,7 +199,13 @@ export function Conversation({
     }
   }
   async function older() {
-    if (!scroll.current) return;
+    if (!scroll.current || olderInFlight.current || !conversation.hasMore)
+      return;
+    olderInFlight.current = true;
+    olderFailed.current = false;
+    nearBottom.current =
+      nearBottom.current &&
+      scroll.current.scrollHeight <= scroll.current.clientHeight + 1;
     setOlderLoading(true);
     setError("");
     olderAnchor.current = {
@@ -166,14 +213,36 @@ export function Conversation({
       top: scroll.current.scrollTop,
     };
     try {
-      await conversation.older();
+      if (!(await conversation.older())) {
+        olderAnchor.current = null;
+        olderFailed.current = true;
+      }
     } catch (error) {
+      olderFailed.current = true;
       olderAnchor.current = null;
       setError(errorMessage(error));
     } finally {
+      olderInFlight.current = false;
       setOlderLoading(false);
     }
   }
+  const loadOlder = useRef(older);
+  loadOlder.current = older;
+  useEffect(() => {
+    const sentinel = olderSentinel.current;
+    const root = scroll.current;
+    if (!sentinel || !root || opening || olderLoading || !conversation.hasMore)
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) olderFailed.current = false;
+        else if (!olderFailed.current) void loadOlder.current();
+      },
+      { root, rootMargin: "120px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [id, opening, olderLoading, conversation.hasMore]);
 
   if (removed) return null;
   return (
@@ -181,6 +250,7 @@ export function Conversation({
       <div
         className={`transcript ${opening ? "conversation-loading" : ""} ${!conversation.loading && messages.length === 0 && !conversation.hasMore && !pending && !thinking ? "transcript-empty" : ""}`}
         ref={scroll}
+        onLoadCapture={mediaReady}
         onScroll={() => {
           if (!scroll.current) return;
           nearBottom.current =
@@ -192,10 +262,8 @@ export function Conversation({
         }}
       >
         {conversation.hasMore && (
-          <div className="older-messages">
-            <Button disabled={olderLoading} onClick={() => void older()}>
-              {olderLoading ? "Loading…" : "Load older messages"}
-            </Button>
+          <div className="older-messages" ref={olderSentinel}>
+            {olderLoading && <span role="status">Loading messages…</span>}
           </div>
         )}
         {opening ? (
@@ -235,10 +303,18 @@ export function Conversation({
         {messages.map((message) => (
           <MessageBubble
             key={message.id}
+            sessionId={id}
+            onMediaReady={mediaReady}
             message={message}
+            active={message.id === liveAnswerId}
+            stopping={stopping || active?.state === "cancelling"}
             connected={conversation.connected}
             progress={
-              !ended && !thinking && !pending && message.id === lastMessage?.id
+              message.id === liveAnswerId ||
+              (!ended &&
+                !thinking &&
+                !pending &&
+                message.id === lastMessage?.id)
                 ? conversation.state?.progress
                 : null
             }
@@ -247,30 +323,33 @@ export function Conversation({
         {pending && (
           <article className="message message-pending">
             <header className="message-heading">
-              <strong>YOU</strong>
-              <span>
+              <time dateTime={pending.createdAt}>
+                {new Date(pending.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </time>
+              <span className="sr-only" role="status">
                 {sending ? "Sending" : "Acceptance not yet confirmed"}
               </span>
             </header>
-            <div className="message-text">{pending.text}</div>
+            {!!pending.text.trim() && (
+              <div className="message-text">{pending.text}</div>
+            )}
+            <MessageMedia attachments={pending.attachments} />
           </article>
         )}
         <StreamingReply
           state={conversation.state}
           messages={messages}
+          running={thinking && !liveAnswerId}
+          stopping={stopping || active?.state === "cancelling"}
+          connected={conversation.connected}
           onAdvance={() => {
             if (scroll.current && nearBottom.current)
               scroll.current.scrollTop = scroll.current.scrollHeight;
           }}
         />
-        {thinking && (
-          <Progress
-            snapshot={conversation.state?.progress}
-            active={thinking}
-            stopping={stopping || active?.state === "cancelling"}
-            connected={conversation.connected}
-          />
-        )}
         {ended && !conversation.unavailable && (
           <Notice>
             This temporary chat has ended or expired. Choose a different
@@ -320,8 +399,20 @@ export function Conversation({
           </Button>
         </div>
       )}
+      {commands.dialog}
+      {commands.error && (
+        <div className="chat-error">
+          <Notice kind="error">{commands.error}</Notice>
+        </div>
+      )}
       <Composer
         key={id}
+        hasSession={!provisional}
+        onCommand={commands.command}
+        hostBusy={commands.hostBusy}
+        commandNotice={commands.notice}
+        policyKey={`${context?.account?.id}:${context?.runtime_epoch}`}
+        locked={!!pending}
         onSend={send}
         onStop={() => void stop()}
         disabled={

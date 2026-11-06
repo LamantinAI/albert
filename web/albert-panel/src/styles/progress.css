@@ -8,12 +8,6 @@
   align-items: center;
   gap: 12px;
 }
-.progress-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .progress-goal {
   display: block;
   margin-top: 5px;
@@ -50,14 +44,15 @@
 .progress-toggle[aria-expanded="true"] > svg:last-child:not(.activity-paw) {
   transform: rotate(90deg);
 }
-.progress-current {
-  min-width: 0;
-  max-width: 34ch;
-  font-size: 13px;
-  color: var(--ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.progress-brand {
+  font: 500 11px/1.5 var(--sans);
+  letter-spacing: 0.3px;
+  color: var(--ink);
+}
+.progress-time {
+  margin-left: auto;
+  font: 9px var(--mono);
+  color: var(--muted);
 }
 .progress-elapsed {
   font: 10px var(--mono);
@@ -183,4 +178,13 @@
   .progress-row[data-live]::after {
     animation: none;
   }
+}
+
+.message-assistant > .task-progress {
+  margin-top: 0;
+  padding-left: 0;
+}
+
+.progress-toggle:disabled > svg:last-child:not(.activity-paw) {
+  opacity: 0.35;
 }

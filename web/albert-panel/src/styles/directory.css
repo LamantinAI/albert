@@ -194,7 +194,7 @@
   opacity: 0;
 }
 .chat-item:hover .session-action-trigger,
-.chat-item:focus-within .session-action-trigger,
+.chat-item:has(:focus-visible) .session-action-trigger,
 .chat-item-selected .session-action-trigger,
 .session-action-trigger[aria-expanded="true"] {
   opacity: 1;

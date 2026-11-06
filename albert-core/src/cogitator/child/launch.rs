@@ -184,10 +184,11 @@ impl AlbertCogitator {
             .collect::<Vec<_>>()
             .join("\n");
         let mut tools: Vec<_> = self
-            .child_tools_for(workspace.clone(), tool.session.as_ref())
+            .child_tools_with_progress(workspace.clone(), tool.session.as_ref(), Some(&run.feed))
             .into_iter()
             .filter(|t| task.tools.contains(&t.name()))
             .collect();
+        run.feed.register_connectors(&connectors);
         if !connectors.is_empty() {
             let mut dispatch = OctoDispatchTool::new(tool.ctx.bus(), source.clone(), catalog)
                 .with_scope(scope.clone())

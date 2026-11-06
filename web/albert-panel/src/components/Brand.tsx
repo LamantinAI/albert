@@ -117,14 +117,16 @@ export function Identity({ className = "" }: { className?: string }) {
 export function Brand({
   caption = true,
   className = "",
+  compact = false,
 }: {
   caption?: boolean;
   className?: string;
+  compact?: boolean;
 }) {
   return (
     <Link to="/" className={`brand ${className}`} aria-label="Albert home">
       <Paw className="brand-paw" />
-      <span>
+      <span className="brand-copy" aria-hidden={compact || undefined}>
         <MatrixWordmark compact />
         {caption && <span className="brand-caption">Your helping paw</span>}
       </span>

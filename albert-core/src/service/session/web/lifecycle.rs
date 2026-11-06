@@ -57,6 +57,7 @@ impl SessionService {
         .await?;
         discard_in(&mut tx, id.as_str()).await?;
         tx.commit().await.map_err(DatabaseError::from)?;
+        self.media().discard_session(id.as_str()).await;
         self.router
             .temporary()
             .discard_session(id, snapshot.fingerprint())?;
