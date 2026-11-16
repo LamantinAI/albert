@@ -1,14 +1,11 @@
 name: ci
 
-# The container build only runs on pushes to main and tags, so until now
-# nothing verified a pull request: `cargo test` existed but ran only where a
-# developer remembered to type it. This workflow makes the suite the gate.
-
 on:
   push:
     branches:
       - "main"
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read

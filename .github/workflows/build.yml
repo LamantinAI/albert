@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - "main"
-    tags:
-      - 'v*'
 
 permissions:
   contents: read
@@ -24,14 +22,12 @@ jobs:
       packages: write
     with:
       output: image
-      push: ${{ github.event_name != 'pull_request' }}
+      push: true
       context: .
       file: ${{ matrix.file }}
       meta-images: ghcr.io/${{ github.repository }}
       meta-tags: |
         type=ref,event=branch
-        type=ref,event=pr
-        type=semver,pattern={{version}}
     secrets:
       registry-auths: |
         - registry: ghcr.io
