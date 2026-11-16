@@ -80,9 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
     # group is `albert` (setuid drops supplementary groups, so this is what lets it share
     # the group-readable workspace the agent writes).
-    && groupadd --system albert \
-    && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert \
-    && useradd --system --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
+    && groupadd --system --gid 10001 albert \
+    && useradd --system --uid 10001 --no-create-home --gid albert --shell /usr/sbin/nologin albert \
+    && useradd --system --uid 10002 --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
     # Runtime state lives on the /data volume; a fresh named volume inherits this owner.
     && mkdir -p /data && chown albert:albert /data
 
@@ -112,19 +112,22 @@ RUN curl -fsSL -o /usr/local/bin/yt-dlp \
 
 WORKDIR /opt/albert
 COPY --from=build /albert /usr/local/bin/albert
-# Persona + connector manifests + skills are baked in; mutable state lives on /data.
-# albert.toml is deliberately NOT baked: the self-config skill edits it at runtime, and a
-# baked copy lives in the image's ephemeral layer — writes would report success and then
-# vanish on the next `up -d`. It is bind-mounted from an operator-owned file instead (see
-# docker-compose.yml); the container will not start without that mount, which is the point.
+# The deployment defaults are also kept outside the writable deployment directory,
+# so the entrypoint can initialize an empty mount without overwriting user changes.
 COPY soul.md system.md ./
 COPY config ./config
 COPY skills ./skills
+COPY albert.prod.toml /usr/share/albert/albert.prod.toml
+COPY docker/entrypoint.sh /usr/local/bin/albert-entrypoint
 # Relative connector state (including the default SQL file) belongs on the volume.
 RUN mkdir -p /data/state \
     && chown albert:albert /data/state \
     && ln -s /data/state /opt/albert/state \
-    && chown -R albert:albert /opt/albert
+    && chown -R albert:albert /opt/albert \
+    && mkdir -p /usr/share/albert/defaults \
+    && cp -a /opt/albert/. /usr/share/albert/defaults/ \
+    && cp /usr/share/albert/albert.prod.toml /usr/share/albert/defaults/albert.toml \
+    && chmod 0755 /usr/local/bin/albert-entrypoint
 
 ENV ALBERT_CONFIG=/opt/albert/albert.toml \
     KAERU_VAULT_PATH=/data/kaeru \
@@ -141,4 +144,4 @@ ENV ALBERT_CONFIG=/opt/albert/albert.toml \
 # so the dropped script user can read them without a setgid dance.
 USER albert
 
-ENTRYPOINT ["albert"]
+ENTRYPOINT ["albert-entrypoint"]

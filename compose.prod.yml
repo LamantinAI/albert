@@ -1,0 +1,42 @@
+services:
+  albert:
+    image: ghcr.io/lamantinai/albert:latest
+    restart: unless-stopped
+    ports:
+      - "9877:9877"
+    environment:
+      ALBERT_MEMORY_TOKEN: ${KAERU_MCP_AUTH_TOKEN:?Set KAERU_MCP_AUTH_TOKEN in .env}
+    cap_add:
+      - SETUID
+      - SETGID
+    volumes:
+      # The image initializes missing defaults here and preserves later edits.
+      - ./albert:/opt/albert
+      - albert-data:/data
+    depends_on:
+      - kaeru
+    networks:
+      - default
+      - memory
+
+  kaeru:
+    image: ghcr.io/lamantinai/kaeru-mcp:latest
+    restart: unless-stopped
+    environment:
+      KAERU_MCP_LISTEN_ADDRESS: 0.0.0.0
+      KAERU_MCP_ALLOWED_HOSTS: kaeru:9876
+      KAERU_MCP_AUTH_TOKEN: ${KAERU_MCP_AUTH_TOKEN:?Set KAERU_MCP_AUTH_TOKEN in .env}
+    volumes:
+      - kaeru-data:/home/kaeru/.local/share/kaeru
+      - kaeru-config:/home/kaeru/.config/kaeru
+    networks:
+      - memory
+
+volumes:
+  albert-data:
+  kaeru-data:
+  kaeru-config:
+
+networks:
+  memory:
+    internal: true

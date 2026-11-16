@@ -23,6 +23,29 @@ whole team. Three things set the shape of it:
 You talk to it; it remembers, it reminds, and it keeps a verifiable scratchpad for
 multi-step work.
 
+## Quick start
+
+With Docker, the Compose plugin and OpenSSL installed, create a deployment directory
+and download the Compose file:
+
+```sh
+curl -fsSLo compose.yml https://raw.githubusercontent.com/LamantinAI/albert/main/compose.prod.yml
+
+printf 'KAERU_MCP_AUTH_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+docker compose pull
+
+mkdir ./albert
+sudo chown 10001:10001 ./albert
+
+docker compose up -d
+docker compose logs -f
+```
+
+The image initializes `./albert` with configuration, prompts, connector manifests
+and skills. Edit those files on the host; restart with `docker compose restart`
+after changing startup configuration. Albert and Kaeru retain their state in Docker
+volumes. `docker compose down` stops the services without removing those volumes.
+
 ## Web workspace
 
 Open `http://127.0.0.1:9877/ui/` after starting Albert. Sign in with `owner` /

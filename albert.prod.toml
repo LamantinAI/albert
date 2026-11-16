@@ -1,0 +1,202 @@
+# Albert runtime config. Its path is set by ALBERT_CONFIG in .env (default: next
+# to the binary, else this crate dir). Secrets stay in the environment, named here
+# by their env-var name (never the value) — so this file is safe to commit.
+
+# LLM backend — two auth modes (details in docs/configuration.md):
+#   auth = "api_key"      -> base_url + openai_key_env (OpenRouter / OpenAI-compatible). The default.
+#   auth = "subscription" -> a ChatGPT subscription via the OpenAI Codex backend (OAuth). An option.
+auth  = "api_key"
+# Optional live model pool; see docs/model-pool.md and config/models.toml.example.
+# model_pool = "config/models.toml"
+model = "deepseek/deepseek-v4-flash"
+base_url = "https://openrouter.ai/api/v1"
+openai_key_env = "ALBERT_OPENAI_KEY"
+
+# Vision: can the model see photos sent in chat? Omit for the default heuristic
+# (subscription -> always yes; api_key -> guessed from the model name).
+# multimodal = true
+
+# The subscription ORGANS — hearing and transcribing (voice messages in chat go to it too),
+# speaking, drawing — are connectors, each on while its manifest is present
+# (config/connectors/{transcribe,speak,imagegen}), with its settings there. They ride on the
+# [subscription].auth_json token, whatever `auth` the brain uses. No transcribe organ ->
+# Albert says, with regret, that he can't hear voice messages.
+
+# Live progress in chat while a turn runs (typing indicator is always on; this
+# also streams tool calls / thoughts as an in-place edited status message).
+# stream_status = true
+
+# --- Subscription mode (option) — set auth = "subscription" above to switch ---
+# model = "gpt-5.4"     # Codex slug: gpt-5.6-sol|terra|luna, gpt-5.5, gpt-5.4, gpt-5.4-mini
+# [subscription]
+# # Reuse the OAuth tokens the `codex` CLI already manages (run `codex login` once);
+# # Albert reads auth.json each turn. base_url defaults to the Codex backend.
+# auth_json = "~/.codex/auth.json"
+# base_url = "https://chatgpt.com/backend-api/codex"
+
+# Owner's timezone (IANA name). The agent's "current time" — and thus its sense
+# of "today" and any reminder times it computes — is rendered in this zone rather
+# than UTC. Defaults to UTC if omitted. Set the calendar connector's own
+# `timezone` (config/connectors/calendar) to match, so listed events read local.
+timezone = "UTC"
+
+[prompt]
+# Persona and operating instructions — hot-reloaded (edit and save; no restart).
+# Paths resolve relative to this file.
+soul   = "soul.md"
+system = "system.md"
+
+[reflection]
+period_secs = 21600   # base memory-reflection routine cadence (6h)
+
+# Connectors (Telegram channel, calendar) are config-driven separately, under
+# config/connectors/*/*.toml (Octo's from_config_file). See those manifests.
+
+[history]
+# Retained session journals. Relative paths follow this config file's directory.
+# Session startup requires SQLite; legacy memory/file stores are not auto-converted.
+backend = "sqlite:state/history.db"
+# Consistent snapshots before internal history/control schema upgrades (WAL included).
+backup_dir = "state/history-backups"
+
+[sessions.limits]
+temporary_max_sessions = 32
+temporary_max_turns = 10000
+temporary_max_bytes = 33554432
+max_page_size = 100                 # ordinary chat/history pages still default to 10
+telegram_tracking_max_scopes = 256
+telegram_tracking_max_ids = 10000
+telegram_cleanup_batches = 4         # at most 100 exact message IDs per API call
+telegram_cleanup_timeout_ms = 3000
+
+# Session-message requests run only when the recipient session is idle.
+# These limits do not change normal chat replies or temporary RAM scratchpads.
+[sessions.messaging]
+enabled = true
+poll_ms = 200
+batch_size = 16
+max_concurrent = 4
+max_work_secs = 300
+max_tool_calls = 32
+max_output_bytes = 65536
+retention_secs = 86400
+
+[sessions.messaging.limits]
+max_payload_bytes = 65536
+max_metadata_bytes = 16384
+max_context_items = 8
+max_messages = 100000
+max_inbox_pending = 64
+max_outbox_pending = 256
+max_attempts = 3
+max_work_policies = 128
+max_hops = 8
+
+[scheduler]
+state_path = "state/scheduler.json"
+
+[agent]
+max_tool_turns = 30
+
+[skills]
+# Declarative skills: a folder of `<name>/SKILL.md` (frontmatter name/description +
+# instructions). Albert sees the catalog each turn, lists (skill_list) and applies
+# (skill_apply); an applied skill's instructions stay hot in an LRU cache of this
+# many. Path resolves relative to this file; a missing folder just means no skills.
+dir   = "skills"
+cache = 5
+# Page size for skill_list only; names and descriptions stay visible every turn.
+page  = 10
+
+[code]
+# Ephemeral workspace root the file tools (read/write/edit/list/glob/grep) are
+# jailed to. Resolved relative to this file; octo-code creates it on first use. A
+# future storage/telegram workspace bridge should point at the SAME directory.
+workspace = "state/workspace"
+
+# --- Memory backend: the Kaeru service in the production Compose stack.
+[memory]
+backend = "mcp"
+transport = "http"
+url = "http://kaeru:9876/mcp"
+token_env = "ALBERT_MEMORY_TOKEN"
+timeout_secs = 30
+
+# --- Cloud memory (option) — kaeru-cloud endpoints Albert can share to / pull from.
+# Absent = local-only (the default): the share/pull/cloud_recall tools are not even
+# shown to the model. Add one [clouds.<name>] per cloud (its URL + the env-var NAME
+# of its bearer token; the value stays in .env). Optional [clouds] default picks the
+# cloud a tool hits when its `cloud` arg is omitted.
+# [clouds]
+# default = "family"
+#
+# [clouds.family]
+# url       = "https://cloud.family.example"
+# token_env = "ALBERT_CLOUD_FAMILY_TOKEN"
+#
+# [clouds.work]
+# url       = "https://kaeru.work.example"
+# token_env = "ALBERT_CLOUD_WORK_TOKEN"
+
+# Bounded one-level delegation. Omit a child's connectors/tools to grant none.
+# See docs/subagents.md; model IDs come from the configured model pool.
+[subagents]
+enabled = true
+max_concurrent = 4
+max_retained = 64
+max_runs_per_turn = 8
+max_tool_turns = 17
+default_tool_turns = 11
+timeout_secs = 600
+
+# Compact journal inspection; full records remain in history storage.
+[subagents.inspection]
+page_size = 20
+preview_chars = 300
+artifact_bytes = 8192
+read_chars = 8192
+
+# Retained SQLite history: compact + fresh messages, never deletion by turn count.
+# Set window_tokens to the model's real limit (pool members can override downward).
+[context]
+enabled = true
+window_tokens = 1000000
+reserve_tokens = 32768
+response_tokens = 4096
+new_messages_percent = 70
+compact_output_tokens = 16384
+# Optional additional instructions, used for automatic and manual compaction:
+# compact_prompt = "Preserve decisions, unresolved tasks, and source links."
+tokenizer = "o200k"
+image_tokens = 4096
+timeout_secs = 300
+request_timeout_ms = 180000
+continuation_retries = 1
+continuation_retry_delay_ms = 1000
+max_compaction_passes = 16
+
+# Large tool results are saved before entering a model request.
+[context.artifacts]
+enabled = true
+threshold_bytes = 16384
+preview_chars = 2048
+read_chars = 8192
+max_file_bytes = 67108864
+max_scope_bytes = 536870912
+retention_secs = 604800
+
+# Optional bounds for the RAM working scratchpad (no SQL persistence or TTL).
+# [scratchpad]
+# pads = 128
+# stages = 128
+# notes = 128
+# attempts = 32
+# text_bytes = 16384
+# pad_bytes = 1048576
+# render_bytes = 16384
+# page_bytes = 65536
+# page_size = 32
+
+[web]
+enabled = true
+bind = "0.0.0.0:9877"
