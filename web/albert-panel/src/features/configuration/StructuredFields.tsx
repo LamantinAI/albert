@@ -1,51 +1,27 @@
-import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ConfigField } from "./useStructuredDraft";
-import { Icon } from "../../components/Icon";
 import { Select } from "../../components/Select";
-
-function Group({
-  title,
-  initiallyOpen,
-  children,
-}: {
-  title: string;
-  initiallyOpen: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(initiallyOpen);
-  return (
-    <details
-      className="config-group"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <summary className="disclosure">
-        <Icon name="chevron" size={16} />
-        <span>{title}</span>
-      </summary>
-      <div className="form-grid">{children}</div>
-    </details>
-  );
-}
+import { ConfigGroup } from "./ConfigGroup";
 
 export function StructuredFields({
   fields,
   edits,
   disabled,
   onChange,
+  children,
 }: {
   fields: ConfigField[];
   edits: Record<string, string>;
   disabled: boolean;
   onChange: (path: string, value: string) => void;
+  children?: ReactNode;
 }) {
   const groups = [...new Set(fields.map((field) => field.group))];
   return (
     <div className="structured-settings">
       {groups.map((group, index) => (
-        <Group key={group} title={group} initiallyOpen={index === 0}>
+        <ConfigGroup key={group} title={group} initiallyOpen={index === 0}>
           {fields
             .filter((field) => field.group === group)
             .map((field) => {
@@ -167,8 +143,9 @@ export function StructuredFields({
                 </div>
               );
             })}
-        </Group>
+        </ConfigGroup>
       ))}
+      {children}
     </div>
   );
 }

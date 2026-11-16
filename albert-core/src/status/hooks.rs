@@ -31,8 +31,9 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
         internal_call_id: &str,
         args: &str,
     ) -> impl Future<Output = ToolCallHookAction> + Send {
+        let waiting = self.confirmation_wait().is_some();
         let mut trace = self.trace.lock().unwrap();
-        if self.is_live() {
+        if self.is_live() && !waiting {
             trace.start(tool_name, tool_call_id.as_deref(), internal_call_id, args);
             self.start_tool_metric(internal_call_id, tool_name, false);
         }
@@ -49,6 +50,9 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
             clip(&display_args(tool_name, args).replace('\n', " "), 160)
         );
         async move {
+            if waiting {
+                return ToolCallHookAction::terminate("Waiting for human confirmation.");
+            }
             if !feed.is_live() {
                 return ToolCallHookAction::terminate("Session ended.");
             }
@@ -98,6 +102,8 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
                 ));
             }
         }
+        let waiting =
+            recorded && tool_name == "request_confirmation" && self.confirmation_wait().is_some();
         let live = self.is_live();
         let feed = self.clone();
         let update_stages = tool_name.starts_with("scratchpad_") || tool_name == "subagent";
@@ -108,6 +114,9 @@ impl<M: CompletionModel> PromptHook<M> for StatusFeed {
                 }
                 if update_stages {
                     feed.progress_stages().await;
+                }
+                if waiting {
+                    return HookAction::terminate("Waiting for human confirmation.");
                 }
                 HookAction::cont()
             } else {

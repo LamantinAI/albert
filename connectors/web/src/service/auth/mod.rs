@@ -1,6 +1,7 @@
 mod credentials;
 mod keys;
 mod password;
+mod refresh;
 mod users;
 
 use std::{
@@ -56,12 +57,19 @@ impl From<DatabaseError> for AuthError {
 pub struct LoginResult {
     pub token: String,
     pub credential: CredentialView,
+    pub csrf: String,
+    pub refresh: Option<RefreshCookie>,
+}
+pub struct RefreshCookie {
+    pub token: String,
+    pub expires_at: i64,
 }
 
 #[derive(Clone)]
 pub struct AuthSettings {
     pub public_origin: String,
     pub credential_ttl_seconds: u64,
+    pub refresh_ttl_seconds: u64,
     pub secure_cookie: bool,
     pub login_attempts: usize,
     pub login_window_seconds: u64,
@@ -72,6 +80,7 @@ impl Default for AuthSettings {
         Self {
             public_origin: String::new(),
             credential_ttl_seconds: 3600,
+            refresh_ttl_seconds: 30 * 86400,
             secure_cookie: false,
             login_attempts: 10,
             login_window_seconds: 60,
@@ -94,6 +103,8 @@ impl AuthService {
         settings: AuthSettings,
     ) -> Result<Arc<Self>, AuthError> {
         if !(60..=86400).contains(&settings.credential_ttl_seconds)
+            || !(settings.credential_ttl_seconds..=90 * 86400)
+                .contains(&settings.refresh_ttl_seconds)
             || settings.password_workers == 0
             || settings.login_attempts == 0
             || settings.login_window_seconds == 0

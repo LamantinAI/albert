@@ -39,6 +39,14 @@ pub struct ModelRole {
 }
 #[derive(Clone, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ModelRoleWrite {
+    pub id: String,
+    pub model_id: String,
+    pub description: String,
+    pub revision: String,
+}
+#[derive(Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ModelWrite {
     pub config: ModelConfig,
     pub api_key: Option<String>,
@@ -142,30 +150,16 @@ pub struct SecretList {
     pub items: Vec<String>,
 }
 #[derive(Clone, Serialize, ToSchema)]
-pub struct ApprovalView {
-    pub id: String,
-    pub connector: String,
-    pub state: String,
-    pub summary: Value,
-    pub expires_at: Option<i64>,
-}
-#[derive(Clone, Serialize, ToSchema)]
-pub struct ApprovalList {
-    pub items: Vec<ApprovalView>,
-}
-#[derive(Clone, Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ApprovalDecision {
-    pub approve: bool,
-}
-#[derive(Clone, Serialize, ToSchema)]
 pub struct RuntimeStatus {
     pub phase: String,
     pub model_ready: bool,
+    pub model_configured: bool,
+    pub memory_configured: bool,
     pub runtime_epoch: String,
     pub error: Option<String>,
 }
-#[derive(Clone, Serialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EmptyObject {}
 
 impl From<DomainRuntimeStatus> for RuntimeStatus {
@@ -173,6 +167,8 @@ impl From<DomainRuntimeStatus> for RuntimeStatus {
         Self {
             phase: value.phase,
             model_ready: value.model_ready,
+            model_configured: value.model_configured,
+            memory_configured: value.memory_configured,
             runtime_epoch: value.runtime_epoch,
             error: value.error,
         }

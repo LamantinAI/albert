@@ -12,8 +12,8 @@ use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
 use super::{
-    config::McpTransport, migration::has_initiative, migration::seed, tool::MemoryTool,
-    MemoryError, INITIATIVE,
+    config::McpTransport, migration::has_initiative, migration::initiatives_request,
+    migration::mutation, migration::seed, tool::MemoryTool, MemoryError, INITIATIVE,
 };
 
 mod transport;
@@ -26,22 +26,32 @@ pub struct McpMemory {
     timeout: Duration,
     definitions: Vec<Tool>,
     session: Mutex<Option<Arc<Session>>>,
+    credentials: Option<HashMap<String, String>>,
 }
 
 impl McpMemory {
+    #[cfg(test)]
     pub async fn open(
         transport: McpTransport,
         timeout_secs: u64,
     ) -> Result<Arc<Self>, MemoryError> {
+        Self::open_resolved(transport, timeout_secs, None).await
+    }
+    pub async fn open_resolved(
+        transport: McpTransport,
+        timeout_secs: u64,
+        credentials: Option<HashMap<String, String>>,
+    ) -> Result<Arc<Self>, MemoryError> {
         let duration = Duration::from_secs(timeout_secs);
-        let session = connect(&transport, duration).await?;
-        Self::from_session(transport, duration, session).await
+        let session = connect(&transport, duration, credentials.as_ref()).await?;
+        Self::from_session(transport, duration, session, credentials).await
     }
 
     async fn from_session(
         transport: McpTransport,
         duration: Duration,
         session: Session,
+        credentials: Option<HashMap<String, String>>,
     ) -> Result<Arc<Self>, MemoryError> {
         let definitions = prepare(&session, duration).await?;
         Ok(Arc::new(Self {
@@ -49,6 +59,7 @@ impl McpMemory {
             timeout: duration,
             definitions,
             session: Mutex::new(Some(Arc::new(session))),
+            credentials,
         }))
     }
 
@@ -66,7 +77,7 @@ impl McpMemory {
         if let Some(session) = current.as_ref().filter(|session| !session.is_closed()) {
             return Ok(session.clone());
         }
-        let session = connect(&self.transport, self.timeout).await?;
+        let session = connect(&self.transport, self.timeout, self.credentials.as_ref()).await?;
         let definitions = prepare(&session, self.timeout).await?;
         // A restarted server may have changed its contract. Do not call it with
         // schemas already advertised to a running model; require an Albert restart.
@@ -137,11 +148,13 @@ async fn prepare(session: &Session, duration: Duration) -> Result<Vec<Tool>, Mem
     // standing instructions and automatic reflection routine.
     for required in [
         "initiatives",
-        "cite",
-        "awake",
-        "overview",
-        "episode",
-        "at",
+        "note",
+        "context",
+        "search",
+        "read",
+        "task",
+        "task_update",
+        "reference",
         "reflect",
     ] {
         if !names.contains(required) {
@@ -150,16 +163,29 @@ async fn prepare(session: &Session, duration: Duration) -> Result<Vec<Tool>, Mem
             )));
         }
     }
-    let existing = call(session, duration, "initiatives", JsonObject::new()).await?;
+    let existing = call(
+        session,
+        duration,
+        "initiatives",
+        initiatives_request().as_object().unwrap().clone(),
+    )
+    .await?;
     if !has_initiative(&existing)? {
-        call(
+        let created = call(
             session,
             duration,
-            "cite",
+            "note",
             seed().as_object().expect("object literal").clone(),
         )
         .await?;
-        let verified = call(session, duration, "initiatives", JsonObject::new()).await?;
+        mutation(&created)?;
+        let verified = call(
+            session,
+            duration,
+            "initiatives",
+            initiatives_request().as_object().unwrap().clone(),
+        )
+        .await?;
         if !has_initiative(&verified)? {
             return Err(MemoryError::Protocol(
                 "migration did not create the albert initiative".into(),
@@ -203,7 +229,13 @@ mod tests {
     //! Exercise the real MCP handshake, pagination and tool protocol against a
     //! disposable server. No production vault, credentials or model calls.
 
-    use std::{env::remove_var, env::set_var, sync::Arc, sync::Mutex, time::Duration};
+    use std::{
+        env::{remove_var, set_var, var},
+        fs::write,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tempfile::tempdir;
 
     use axum::{
         extract::Request, http::StatusCode, middleware::from_fn, middleware::Next,
@@ -223,14 +255,17 @@ mod tests {
     use tokio::{io::duplex, net::TcpListener, spawn, time::sleep};
 
     use super::{transport::client_info, McpMemory};
-    use crate::{memory::config::McpTransport, memory::migration::NAME, memory::MemoryError};
+    use crate::{
+        config::Config, memory::config::McpTransport, memory::migration::NAME, memory::Memory,
+        memory::MemoryError,
+    };
 
     #[derive(Default)]
     struct State {
         exists: bool,
         creates: usize,
         calls: Vec<(String, JsonObject)>,
-        fail_cite: bool,
+        fail_note: bool,
         invalid_list: bool,
         omit_reflect: bool,
         delay_write: bool,
@@ -252,11 +287,11 @@ mod tests {
         ) -> Result<ListToolsResult, ErrorData> {
             let state = self.0.lock().unwrap();
             let names = if request.and_then(|r| r.cursor).is_none() {
-                vec!["initiatives", "cite", "awake", "overview"]
+                vec!["initiatives", "note", "context", "search", "reference"]
             } else if state.omit_reflect {
-                vec!["episode", "at", "fail"]
+                vec!["read", "task", "task_update", "fail"]
             } else {
-                vec!["episode", "at", "reflect", "fail"]
+                vec!["read", "task", "task_update", "reflect", "fail"]
             };
             let first = names[0] == "initiatives";
             let tools = names
@@ -264,6 +299,8 @@ mod tests {
                 .map(|name| {
                     let properties = if name == "initiatives" {
                         json!({})
+                    } else if name == "search" {
+                        json!({"initiatives":{"type":"array","items":{"type":"string"}}})
                     } else {
                         json!({"initiative": {"type": ["string", "null"]}})
                     };
@@ -302,27 +339,28 @@ mod tests {
                     "initiatives" if state.invalid_list => {
                         CallToolResult::success(vec![Content::text("unexpected response")])
                     }
-                    "initiatives" => {
-                        CallToolResult::success(vec![Content::text(if state.exists {
-                            "initiatives (2):\n  - albert\n  - other-project\n"
-                        } else {
-                            "initiatives (1):\n  - other-project\n"
-                        })])
-                    }
-                    "cite" if state.fail_cite => {
+                    "initiatives" => CallToolResult::structured(json!({
+                        "api_version":1,"operation":"initiatives","state":"ok","request_id":null,"replayed":false,
+                        "data":{"initiatives":if state.exists {vec!["albert", "other-project"]} else {vec!["other-project"]}},
+                        "issues":[],"coverage":{"initiatives":[],"complete":true,"rules_complete":true,"omitted":[]}
+                    })),
+                    "note" if state.fail_note => {
                         CallToolResult::error(vec![Content::text("read-only vault")])
                     }
-                    "cite" => {
+                    "note" if args.get("name").and_then(Value::as_str) == Some(NAME) => {
                         assert_eq!(args["initiative"], "albert");
                         assert_eq!(args["name"], NAME);
                         state.exists = true;
                         state.creates += 1;
-                        CallToolResult::success(vec![Content::text("created")])
+                        CallToolResult::structured(json!({
+                            "api_version":1,"operation":"note","state":"applied","request_id":null,"replayed":false,
+                            "data":{"primary":null,"created":[],"affected":[],"changes":[],"evidence":[],"failed_steps":[],"slots":[],"artifacts":[]},"issues":[]
+                        }))
                     }
                     "fail" => CallToolResult::error(vec![Content::text("memory denied")]),
                     _ => CallToolResult::structured(json!({"verb": name, "args": args})),
                 };
-                (result, state.delay_write && name == "episode")
+                (result, state.delay_write && name == "note")
             };
             if delay {
                 sleep(Duration::from_millis(200)).await;
@@ -346,6 +384,7 @@ mod tests {
             },
             duration,
             session,
+            None,
         )
         .await
     }
@@ -363,7 +402,7 @@ mod tests {
         let fake = FakeMemory::default();
         let first = attach(fake.clone(), Duration::from_secs(2)).await.unwrap();
         assert_eq!(fake.0.lock().unwrap().creates, 1);
-        assert_eq!(first.tools().len(), 8, "tools/list pagination is followed");
+        assert_eq!(first.tools().len(), 10, "tools/list pagination is followed");
         drop(first);
         let _second = attach(fake.clone(), Duration::from_secs(2)).await.unwrap();
         assert_eq!(fake.0.lock().unwrap().creates, 1);
@@ -373,7 +412,7 @@ mod tests {
     async fn default_scope_explicit_scope_structured_results_and_errors_survive_adapter() {
         let fake = FakeMemory::default();
         let memory = attach(fake.clone(), Duration::from_secs(2)).await.unwrap();
-        let episode = verb(&memory, "kaeru_episode");
+        let episode = verb(&memory, "kaeru_note");
         for (args, expected) in [
             ("{}", "albert"),
             ("{\"initiative\":null}", "albert"),
@@ -382,6 +421,16 @@ mod tests {
             let result: Value = from_str(&episode.call(args.into()).await.unwrap()).unwrap();
             assert_eq!(result["structuredContent"]["args"]["initiative"], expected);
         }
+        let search = verb(&memory, "kaeru_search");
+        let searched: Value =
+            from_str(&search.call("{\"text\":\"fact\"}".into()).await.unwrap()).unwrap();
+        assert_eq!(
+            searched["structuredContent"]["args"]["initiatives"],
+            json!(["albert"])
+        );
+        assert!(searched["structuredContent"]["args"]
+            .get("initiative")
+            .is_none());
         assert!(episode.call("not json".into()).await.is_err());
         assert!(episode.call("[]".into()).await.is_err());
         let global = verb(&memory, "kaeru_initiatives");
@@ -392,20 +441,17 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("memory denied"));
-        assert_eq!(
-            episode.definition(String::new()).await.name,
-            "kaeru_episode"
-        );
+        assert_eq!(episode.definition(String::new()).await.name, "kaeru_note");
     }
 
     #[tokio::test]
     async fn startup_failure_never_becomes_success_or_local_fallback() {
-        for field in ["fail_cite", "invalid_list", "omit_reflect", "prefixed"] {
+        for field in ["fail_note", "invalid_list", "omit_reflect", "prefixed"] {
             let fake = FakeMemory::default();
             {
                 let mut state = fake.0.lock().unwrap();
                 match field {
-                    "fail_cite" => state.fail_cite = true,
+                    "fail_note" => state.fail_note = true,
                     "invalid_list" => state.invalid_list = true,
                     "omit_reflect" => state.omit_reflect = true,
                     _ => state.prefixed = true,
@@ -426,7 +472,7 @@ mod tests {
             .await
             .unwrap();
         fake.0.lock().unwrap().delay_write = true;
-        let error = verb(&memory, "kaeru_episode")
+        let error = verb(&memory, "kaeru_note")
             .call("{}".into())
             .await
             .unwrap_err();
@@ -437,7 +483,7 @@ mod tests {
                 .unwrap()
                 .calls
                 .iter()
-                .filter(|(name, _)| name == "episode")
+                .filter(|(name, args)| name == "note" && !args.contains_key("request_id"))
                 .count(),
             1
         );
@@ -469,9 +515,9 @@ mod tests {
         )
         .await
         .unwrap();
-        verb(&memory, "kaeru_at").call("{}".into()).await.unwrap();
+        verb(&memory, "kaeru_read").call("{}".into()).await.unwrap();
         memory.session.lock().await.take();
-        verb(&memory, "kaeru_at").call("{}".into()).await.unwrap();
+        verb(&memory, "kaeru_read").call("{}".into()).await.unwrap();
         assert_eq!(fake.0.lock().unwrap().creates, 1);
         assert_eq!(
             fake.0
@@ -479,14 +525,14 @@ mod tests {
                 .unwrap()
                 .calls
                 .iter()
-                .filter(|(name, _)| name == "at")
+                .filter(|(name, _)| name == "read")
                 .count(),
             2
         );
         // A changed server contract must not be used with the old model toolset.
         memory.session.lock().await.take();
         fake.0.lock().unwrap().omit_reflect = true;
-        assert!(verb(&memory, "kaeru_at").call("{}".into()).await.is_err());
+        assert!(verb(&memory, "kaeru_read").call("{}".into()).await.is_err());
         drop(memory);
         server.abort();
     }
@@ -534,11 +580,46 @@ mod tests {
             Err(MemoryError::Config(_))
         ));
         set_var(variable, "memory-test-token");
-        let result = McpMemory::open(transport, 2).await;
+        let result = McpMemory::open(transport.clone(), 2).await;
         remove_var(variable);
         let memory = result.unwrap();
-        verb(&memory, "kaeru_at").call("{}".into()).await.unwrap();
+        verb(&memory, "kaeru_read").call("{}".into()).await.unwrap();
         assert_eq!(fake.0.lock().unwrap().creates, 1);
+        drop(memory);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("albert.toml");
+        let McpTransport::Http { url, .. } = &transport else {
+            unreachable!()
+        };
+        write(
+            dir.path().join(".env"),
+            format!("{variable}=memory-test-token\n"),
+        )
+        .unwrap();
+        let cfg = Config::parse_text(
+            &format!(
+                "[memory]\nbackend='mcp'\ntransport='http'\nurl='{url}'\ntoken_env='{variable}'"
+            ),
+            &path,
+        )
+        .unwrap();
+        let (backend, initialized) = Memory::initialize(&cfg, None).await.unwrap();
+        assert!(
+            var(variable).is_err(),
+            "saved credentials must not mutate global environment"
+        );
+        let Memory::Mcp(memory) = backend else {
+            panic!("MCP selection silently changed");
+        };
+        write(dir.path().join(".env"), format!("{variable}=a-new-token\n")).unwrap();
+        assert_ne!(Memory::settings_fingerprint(&cfg), initialized);
+        memory.session.lock().await.take();
+        verb(&memory, "kaeru_read").call("{}".into()).await.unwrap();
+        assert_eq!(
+            fake.0.lock().unwrap().creates,
+            1,
+            "reconnect uses captured credentials and does not reseed"
+        );
         drop(memory);
         server.abort();
     }

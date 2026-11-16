@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createSessionEventReceiver } from "./createSessionEventReceiver";
+import { mergeMessages } from "./mergeMessages";
+export { mergeMessages } from "./mergeMessages";
 
-import { api, ApiError, errorMessage } from "../../api/client";
 import type { ApiResponse } from "../../api/client";
-import type { components } from "../../api/schema";
-import { mergeProgress, progressDelta, progressIsNewer } from "./progress";
-import { mergeText, restoreText, textDelta } from "./text";
+import { api, ApiError, errorMessage } from "../../api/client";
 import { apiPath } from "../../api/paths";
-import { projectProgress } from "./ephemeralProgress";
+import type { components } from "../../api/schema";
 import type { ProgressView } from "./ephemeralProgress";
+import { projectProgress } from "./ephemeralProgress";
+import { progressIsNewer } from "./progress";
+import { restoreText } from "./text";
 
 export type Session = components["schemas"]["SessionView"];
 export type Message = Omit<
@@ -17,29 +20,6 @@ export type Message = Omit<
 export type SessionState = components["schemas"]["SessionState"];
 type SessionEvent = components["schemas"]["SessionEvent"];
 type MessagePage = ApiResponse<"/sessions/{id}/messages", "get">;
-
-export function mergeMessages(
-  old: Message[],
-  incoming: Message[],
-  older = false,
-) {
-  // Each server page is in immutable descending journal order. Never infer
-  // ordering from timestamps or lexical public IDs.
-  const chronological = [...incoming].reverse();
-  const updates = new Map(
-    chronological.map((message) => [message.id, message]),
-  );
-  if (older)
-    return [
-      ...chronological,
-      ...old.filter((message) => !updates.has(message.id)),
-    ];
-  const known = new Set(old.map((message) => message.id));
-  return [
-    ...old.map((message) => updates.get(message.id) ?? message),
-    ...chronological.filter((message) => !known.has(message.id)),
-  ];
-}
 
 export function useConversation(id: string | undefined) {
   const [state, setState] = useState<SessionState | null>(null);
@@ -203,88 +183,24 @@ export function useConversation(id: string | undefined) {
         if (!stopped) setLoading(false);
       }
     }
-    const receive = (event: MessageEvent) => {
-      if (stopped || missingRef.current) return;
-      try {
-        const value = JSON.parse(event.data) as SessionEvent;
-        if (value.session_id !== id) return;
-        if (value.id && eventIds.has(value.id)) return;
-        if (value.id) {
-          eventIds.add(value.id);
-          if (eventIds.size > 1000)
-            eventIds.delete(eventIds.values().next().value!);
-        }
-        const reset =
-          /gap|resync|reset/.test(value.kind) ||
-          (epoch.current !== null && value.runtime_epoch !== epoch.current);
-        setEvents((old) => [...old.slice(-49), value]);
-        if (value.kind === "text" && !reset) {
-          const delta = textDelta(value.data);
-          if (!delta || delta.attempt_id !== value.attempt_id) {
-            void reconcile(true);
-            return;
-          }
-          if (
-            latestState.current?.active_attempt?.id === delta.attempt_id ||
-            latestState.current?.text?.attempt_id === delta.attempt_id
-          ) {
-            setState((previous) => {
-              if (
-                !previous ||
-                (previous.active_attempt?.id !== delta.attempt_id &&
-                  previous.text?.attempt_id !== delta.attempt_id)
-              )
-                return previous;
-              const next = mergeText(previous.text, delta);
-              if (!next) {
-                queueMicrotask(() => {
-                  if (!stopped) void reconcile(false);
-                });
-                return previous;
-              }
-              return { ...previous, text: next };
-            });
-            if (delta.operation === "committed") void reconcile(false);
-          } else if (unknownAttempt.current !== delta.attempt_id) {
-            unknownAttempt.current = delta.attempt_id;
-            void reconcile(false);
-          }
-          return;
-        }
-        if (value.kind === "progress" && !reset) {
-          const delta = progressDelta(value.data);
-          if (!delta || delta.attempt_id !== value.attempt_id) {
-            void reconcile(true);
-            return;
-          }
-          if (latestState.current?.active_attempt?.id === delta.attempt_id) {
-            setState((previous) =>
-              previous?.active_attempt?.id === delta.attempt_id
-                ? {
-                    ...previous,
-                    progress: mergeProgress(previous.progress, delta),
-                  }
-                : previous,
-            );
-          } else if (
-            latestState.current?.progress?.attempt_id !== delta.attempt_id &&
-            unknownAttempt.current !== delta.attempt_id
-          ) {
-            unknownAttempt.current = delta.attempt_id;
-            void reconcile(false);
-          }
-          return;
-        }
-        if (value.kind === "status" && !reset) return;
-        void reconcile(reset);
-      } catch {
-        void reconcile(true);
-      }
-    };
+    const receive = createSessionEventReceiver({
+      id,
+      isStopped: () => stopped,
+      missingRef,
+      epoch,
+      setEvents,
+      latestState,
+      setState,
+      unknownAttempt,
+      reconcile,
+      eventIds,
+    });
     source.onmessage = receive;
     for (const kind of [
       "session",
       "session.event",
+      "credentials",
+      "approvals",
       "attempt.state",
       "message.committed",
       "status",

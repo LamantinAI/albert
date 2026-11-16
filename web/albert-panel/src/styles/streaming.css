@@ -1,0 +1,67 @@
+.stream-cursor {
+  display: inline-block;
+  width: 0.58em;
+  height: 1.06em;
+  line-height: 1;
+  margin-left: 0.09em;
+  background: var(--ochre);
+  border-radius: 0;
+  font-family: var(--mono);
+  vertical-align: -0.13em;
+}
+.stream-edge {
+  animation: stream-ink 0.26s ease-out both;
+}
+.stream-note {
+  display: block;
+  margin: 12px 0 0 33px;
+  color: var(--muted);
+}
+@keyframes stream-ink {
+  from,
+  0% {
+    color: color-mix(in srgb, var(--ochre) 70%, var(--ink-2));
+  }
+  35% {
+    color: color-mix(in srgb, var(--ochre) 18%, var(--ink-2));
+  }
+  to {
+    color: var(--ink-2);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-edge {
+    animation: none;
+  }
+}
+
+.conversation-connection {
+  padding: 0 28px 12px;
+  text-align: right;
+  color: var(--muted);
+  font: 10px var(--mono);
+}
+
+.message-user,
+.message-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.message-user > .message-heading,
+.message-pending > .message-heading {
+  align-self: flex-end;
+}
+.message-user > .message-text,
+.message-pending > .message-text {
+  width: fit-content;
+  max-width: min(100%, 640px);
+  margin-left: 0;
+  padding: 10px 14px;
+  border-radius: 8px 0 8px 8px;
+}
+.message-user > .message-media,
+.message-pending > .message-media {
+  width: min(100%, 640px);
+  justify-items: end;
+}

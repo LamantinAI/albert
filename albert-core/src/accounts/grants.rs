@@ -58,6 +58,9 @@ impl Debug for GrantState {
     }
 }
 impl GrantState {
+    pub(crate) fn account_id(&self) -> &str {
+        &self.account_id
+    }
     pub(crate) fn is_live(&self) -> bool {
         self.live.load(Ordering::Acquire)
     }

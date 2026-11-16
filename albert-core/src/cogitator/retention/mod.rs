@@ -36,33 +36,21 @@ pub(super) fn scope_ingress(
     authority.bind_scope(ingress, binding).map(Some)
 }
 
-/// Reviewed against pinned Kaeru 0.7.5 lookup/chains/manage implementations.
-/// Mixed read/write verbs, Awake, unknown names and all capture/export verbs are
-/// excluded. Updating a backend's tool surface requires an explicit review.
+/// Only canonical Kaeru 0.8 read-only operations are available in volatile
+/// conversations. Context records reminder delivery metadata and is excluded.
 pub(super) fn memory_read(name: &str) -> bool {
     matches!(
         name,
-        "kaeru_recall"
-            | "kaeru_search"
-            | "kaeru_at"
-            | "kaeru_history"
-            | "kaeru_neighbours"
-            | "kaeru_drill"
-            | "kaeru_trace"
-            | "kaeru_tagged"
-            | "kaeru_between"
-            | "kaeru_surface"
-            | "kaeru_ideas"
-            | "kaeru_outcomes"
-            | "kaeru_overview"
-            | "kaeru_initiatives"
-            | "kaeru_recent"
-            | "kaeru_why"
-            | "kaeru_path"
-            | "kaeru_lint"
+        "kaeru_search"
+            | "kaeru_read"
             | "kaeru_reflect"
-            | "kaeru_config"
+            | "kaeru_history"
+            | "kaeru_initiatives"
             | "kaeru_clouds"
+            | "kaeru_cloud_initiatives"
+            | "kaeru_cloud_recall"
+            | "kaeru_cloud_links"
+            | "kaeru_sync_review"
     )
 }
 
@@ -121,5 +109,24 @@ impl ToolDyn for FencedTool {
                 result = self.inner.call(args) => result,
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::memory_read;
+    use kaeru_core::api::tool_definitions;
+
+    #[test]
+    fn temporary_memory_tools_never_include_canonical_mutations_or_context_delivery_bookkeeping() {
+        for definition in tool_definitions() {
+            let name = format!("kaeru_{}", definition.name);
+            if memory_read(&name) {
+                assert!(definition.annotations.read_only_hint, "{name}");
+            }
+        }
+        assert!(!memory_read("kaeru_context"));
+        assert!(!memory_read("kaeru_note"));
+        assert!(!memory_read("kaeru_unknown_future_mutation"));
     }
 }

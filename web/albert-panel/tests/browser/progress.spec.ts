@@ -2,6 +2,69 @@ import { expect, test } from "@playwright/test";
 
 import { message, readyFixture, session } from "./fixture";
 
+for (const width of [1512, 390]) {
+  test(`compaction phase and elapsed time stay visible without tool activity at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await readyFixture(page);
+    let phase = "Compacting conversation history: part 1/3…";
+    const at = new Date(Date.now() - 65000).toISOString();
+    await page.route("**/api/v1/sessions/*/state", (route) =>
+      route.fulfill({
+        json: {
+          session,
+          active_attempt: {
+            id: "compact-attempt",
+            state: "running",
+            session_id: session.id,
+          },
+          runtime_epoch: "epoch-1",
+          status: [],
+          progress: {
+            attempt_id: "compact-attempt",
+            started_at: at,
+            updated_at: at,
+            truncated: false,
+            items: [
+              {
+                id: "phase",
+                kind: "phase",
+                label: phase,
+                state: "in_progress",
+                started_at: at,
+                updated_at: at,
+                elapsed_ms: null,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    await page.goto("/ui/chats/session-1");
+    const status = page.locator(".progress-phase");
+    await expect(status).toBeVisible();
+    await expect(status).toContainText(phase);
+    await expect(status.locator(".progress-elapsed")).toBeVisible();
+    await expect(status.locator(".progress-elapsed")).toContainText("1m");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+    await page.screenshot({ path: info.outputPath(`compaction-${width}.png`) });
+    phase = "Compacting conversation history: part 2/3…";
+    await page.reload();
+    await expect(status).toContainText(phase);
+    phase = "Thinking";
+    await page.reload();
+    await expect(status).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Task progress" }),
+    ).toBeVisible();
+  });
+}
+
 test("technical records stay out of chat and older messages remain reachable", async ({
   page,
 }) => {

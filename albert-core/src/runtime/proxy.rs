@@ -30,13 +30,22 @@ impl Cogitator for RuntimeCogitator {
     ) -> OctoResult<()> {
         *self.0.context.write().unwrap() = Some(context.clone());
         let _ = self.0.activate().await;
+        self.0.recover_session_deletions().await;
         let mut maintenance = JoinSet::new();
+        let mut erasures = JoinSet::new();
+        let mut erasure_tick = interval(Duration::from_secs(5));
+        erasure_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut messaging = interval(Duration::from_millis(
             self.0.base.sessions.messaging.poll_ms,
         ));
         messaging.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             select! {
+                _ = erasure_tick.tick(), if erasures.is_empty() => {
+                    let runtime = self.0.clone();
+                    erasures.spawn(async move { runtime.recover_session_deletions().await; });
+                },
+                _ = erasures.join_next(), if !erasures.is_empty() => {},
                 _ = messaging.tick() => { if let Some(agent)=self.0.current() { agent.panel_maintenance(&context).await; } },
                 event = events.next() => match event {
                     Some(event) => {
@@ -62,7 +71,9 @@ impl Cogitator for RuntimeCogitator {
         if let Some(agent) = self.0.current() {
             agent.panel_stop(&context).await;
         }
+        self.0.mcp.close().await;
         maintenance.shutdown().await;
+        erasures.shutdown().await;
         Ok(())
     }
 }

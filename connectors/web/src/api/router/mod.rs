@@ -1,75 +1,89 @@
-mod account;
+//! Typed resource router composition; handlers own their HTTP and OpenAPI contracts.
+mod actor;
+mod approvals;
+mod attachments;
+mod auth;
 mod authorization;
 mod browser_context;
-mod resources;
+mod configuration;
+mod connections;
+mod credentials;
+mod host;
+mod input;
+mod mcp;
+mod memory;
+mod model_roles;
+mod models;
+mod operator;
+mod profile;
+mod renewal;
+mod sessions;
+mod skills;
 mod stream;
-
-use std::{collections::HashMap, convert::Infallible};
+mod subscription;
+mod telegram;
+mod users;
 
 use axum::{
-    body::Bytes, extract::DefaultBodyLimit, extract::Path, extract::Query, extract::Request,
-    extract::State, http::header::CACHE_CONTROL, http::HeaderMap, http::Method, http::StatusCode,
-    middleware::from_fn, middleware::Next, response::IntoResponse, response::Response,
-    routing::get, routing::on, routing::MethodFilter, Extension, Json, Router,
+    extract::DefaultBodyLimit, extract::Request, extract::State, http::header::CACHE_CONTROL,
+    http::HeaderMap, middleware::from_fn, middleware::Next, response::Response, routing::get, Json,
+    Router,
 };
-use serde::de::DeserializeOwned;
-use serde_json::from_slice;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-use self::{
-    account::account_request, browser_context::context, browser_context::set_cookie,
-    resources::host_request, stream::events,
-};
-use super::{
-    docs::schema, docs::ROUTES, errors::ApiError, errors::ApiResult, extractors::csrf,
-    extractors::login_origin, extractors::principal as authenticated_principal,
-    extractors::secure_request, media::request as media_request, models::LoginRequest,
-    state::ApiState,
+use self::browser_context::context;
+use crate::api::{
+    docs::schema, errors::ApiResult, models::ApiErrorBody, models::ClientContext, state::ApiState,
 };
 
-#[derive(Clone, Copy)]
-struct RouteSpec {
-    method: &'static str,
-    path: &'static str,
+pub(super) fn domain_routes(media_limit: usize) -> OpenApiRouter<ApiState> {
+    OpenApiRouter::new()
+        .routes(routes!(browser_context))
+        .merge(operator::router())
+        .merge(auth::router())
+        .merge(users::router())
+        .merge(credentials::router())
+        .merge(connections::router())
+        .merge(telegram::router())
+        .merge(subscription::router())
+        .merge(profile::router())
+        .merge(sessions::router())
+        .merge(models::router())
+        .merge(mcp::router())
+        .merge(memory::router())
+        .merge(model_roles::router())
+        .merge(skills::router())
+        .merge(configuration::router())
+        .merge(approvals::router())
+        .merge(attachments::router(media_limit))
+}
+
+#[utoipa::path(get, operation_id = "account_browser_context", path = "/context", summary = "Get context", tag = "account", responses((status = 200, body = ClientContext), (status = 500, body = ApiErrorBody)))]
+async fn browser_context(State(state): State<ApiState>, headers: HeaderMap) -> ApiResult<Response> {
+    context(&state, &headers).await
 }
 
 #[cfg(test)]
 pub fn router(state: ApiState) -> Router {
     router_with_body_limit(state, 4 * 1024 * 1024)
 }
-
 pub fn router_with_body_limit(state: ApiState, max_body_bytes: usize) -> Router {
     router_with_media_limit(state, max_body_bytes, max_body_bytes)
 }
-
 pub fn router_with_media_limit(
     state: ApiState,
     max_body_bytes: usize,
     media_bytes: usize,
 ) -> Router {
-    let mut router = Router::new();
-    for &(method, path, _, _) in ROUTES {
-        let method_filter =
-            MethodFilter::try_from(Method::from_bytes(method.as_bytes()).expect("static method"))
-                .expect("supported method");
-        router = router.route(
-            &format!("/api/v1{path}"),
-            on(method_filter, dispatch)
-                .layer::<_, Infallible>(Extension(RouteSpec { method, path }))
-                .layer(DefaultBodyLimit::max(if path == "/attachments" {
-                    media_bytes
-                } else {
-                    max_body_bytes
-                })),
-        );
-    }
-    router
+    let (routes, _) = domain_routes(media_bytes).split_for_parts();
+    Router::new()
+        .nest("/api/v1", routes)
         .route("/api/v1/openapi.json", get(|| async { Json(schema()) }))
         .route("/openapi.json", get(|| async { Json(schema()) }))
         .layer(DefaultBodyLimit::max(max_body_bytes))
         .layer(from_fn(response_headers))
         .with_state(state)
 }
-
 async fn response_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response
@@ -80,84 +94,6 @@ async fn response_headers(request: Request, next: Next) -> Response {
         "nosniff".parse().expect("static header"),
     );
     response
-}
-
-async fn dispatch(
-    State(state): State<ApiState>,
-    Extension(spec): Extension<RouteSpec>,
-    Path(params): Path<HashMap<String, String>>,
-    Query(query): Query<HashMap<String, String>>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> ApiResult<Response> {
-    if spec.path == "/context" {
-        return context(&state, &headers).await;
-    }
-    if spec.path == "/auth/credentials" {
-        let input: LoginRequest = parse(&body)?;
-        login_origin(&state, &headers, &input.username, &input.password)?;
-        let login = state.auth.login(input).await?;
-        let mut response = Json(login.credential).into_response();
-        set_cookie(
-            &state,
-            &mut response,
-            &login.token,
-            state.auth.settings().credential_ttl_seconds,
-            secure_request(&state, &headers)?,
-        )?;
-        return Ok(response);
-    }
-    let caller = authenticated_principal(&state, &headers).await?;
-    if !matches!(spec.method, "GET" | "HEAD") {
-        csrf(&state, &headers, &caller)?;
-    }
-    let allowed_rotation = (spec.method == "PUT" && spec.path == "/account/credentials")
-        || (spec.method == "DELETE" && spec.path == "/auth/credentials/{id}");
-    if caller.must_rotate() && !allowed_rotation {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "credential_rotation_required",
-            "Change the default credentials before continuing.",
-        ));
-    }
-    let secure = !matches!(spec.method, "GET" | "HEAD") && secure_request(&state, &headers)?;
-    if let Some(response) = account_request(&state, &caller, spec, &params, &body, secure).await? {
-        return Ok(response);
-    }
-    if let Some(response) = media_request(
-        &state,
-        &caller,
-        spec.method,
-        spec.path,
-        &params,
-        &headers,
-        &body,
-    )
-    .await?
-    {
-        return Ok(response);
-    }
-    if spec.path.ends_with("/events") {
-        return events(state, caller, &params, &query, &headers).await;
-    }
-    let result = host_request(&state, &caller, spec, &params, &query, &headers, &body).await?;
-    Ok(Json(result).into_response())
-}
-
-fn parse<T: DeserializeOwned>(body: &[u8]) -> ApiResult<T> {
-    from_slice(body)
-        .map_err(|_| ApiError::invalid("The request body does not match the expected object."))
-}
-fn id(params: &HashMap<String, String>, key: &str) -> ApiResult<String> {
-    resource_id(params, key)
-}
-
-pub(crate) fn resource_id(params: &HashMap<String, String>, key: &str) -> ApiResult<String> {
-    params
-        .get(key)
-        .filter(|v| !v.is_empty() && v.len() <= 2048 && !v.contains('\0'))
-        .cloned()
-        .ok_or_else(|| ApiError::invalid("Invalid resource ID."))
 }
 
 #[cfg(test)]

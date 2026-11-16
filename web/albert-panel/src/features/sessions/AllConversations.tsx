@@ -1,18 +1,18 @@
-import { Link } from "react-router-dom";
+import { NewConversationButton } from "./NewConversationButton";
+import { useOperator } from "../operator/OperatorContext";
+import { OperatorBoard } from "../operator/OperatorBoard";
 
 import { PageHeading } from "../../components/ui";
 import { SessionDirectory } from "./SessionDirectory";
 
 export function AllConversations() {
+  const { isOperator } = useOperator();
+  if (isOperator) return <OperatorBoard />;
   return (
     <div className="workspace-body">
       <PageHeading
         title="Conversations"
-        actions={
-          <Link to="/chats?new=permanent" className="button button-primary">
-            New chat
-          </Link>
-        }
+        actions={<NewConversationButton iconOnly />}
       />
       <SessionDirectory full onNavigate={() => {}} />
     </div>

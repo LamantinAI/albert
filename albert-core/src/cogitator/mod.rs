@@ -6,6 +6,7 @@
 //!
 //! Owner-only ACL commands live in [`crate::acl`]; base routines in [`crate::routines`].
 
+use crate::mcp::McpRegistry;
 #[cfg(test)]
 mod artifact_tests;
 #[cfg(any(test, feature = "test-support"))]
@@ -43,12 +44,15 @@ mod child;
 mod compaction;
 mod context;
 pub use context::source_context;
+mod confirmations;
 pub(crate) mod control;
+mod credentials;
 mod errors;
 mod feedback;
 mod inbound;
 mod media;
 mod media_delivery;
+mod outcome;
 mod output;
 mod output_visibility;
 
@@ -82,6 +86,7 @@ pub struct AlbertCogitator {
     models: ModelPool,
     history: Arc<dyn HistoryStore>,
     session_service: Option<Arc<SessionService>>,
+    mcp: Option<Arc<McpRegistry>>,
     session_history: Option<Arc<SessionHistory>>,
     request_gates: session_runtime::RequestGates,
     messaging: Option<Arc<messaging::MessagingRuntime>>,
@@ -126,7 +131,7 @@ impl Cogitator for AlbertCogitator {
         messaging.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             select! {
-                _ = messaging.tick(), if self.messaging.is_some() => { self.messaging_tick(&ctx).await; },
+                _ = messaging.tick() => { if self.messaging.is_some(){self.messaging_tick(&ctx).await;} self.credential_tick(&ctx).await; self.confirmation_tick(&ctx).await; },
                 next = subscription.next() => match next {
                     Some(envelope) if matches!(envelope.kind.as_str(), "albert.session.closed" | "albert.presentation.detached" | "albert.presentation.opened") => {
                         let me = self.clone(); let context = ctx.clone();

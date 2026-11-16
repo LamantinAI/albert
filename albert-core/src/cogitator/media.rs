@@ -3,7 +3,7 @@ use octo_core::{Blob, Envelope, InboundMessage};
 use super::{context::source_context, retention::temporary, AlbertCogitator, UserInput};
 use crate::{
     composer::PreparedSkills,
-    media::{encode_selected, save_input_file, Asset, MediaInput},
+    media::{encode_prepared, encode_selected, workspace_note, Asset, MediaInput},
     sessions::SessionContext,
 };
 
@@ -22,13 +22,17 @@ impl AlbertCogitator {
                     Err(_) => text.push_str("\nAudio attached, but transcription preparation failed. Do not claim to have listened to it."),
                 }
             } else if !temporary {
-                if let Ok(path) =
-                    save_input_file(&self.config.code_workspace, &asset.id, blob.bytes())
+                if let Some(file) = media
+                    .workspace_files
+                    .iter()
+                    .find(|file| file.asset_id == asset.id)
                 {
-                    text.push_str(&format!("\nAttached file {:?} is available at workspace path {:?}. This file is not native visual input.", asset.filename, path));
+                    text.push_str(&workspace_note(asset, file));
+                } else {
+                    text.push_str(&format!("\nAttached file {:?} is retained for download, but no workspace copy is available in this chat. Do not claim to have read it.", asset.filename));
                 }
             } else {
-                text.push_str(&format!("\nAttached {:?} ({}). Playback is available to the user; automatic audio/video analysis is unavailable in this temporary chat.", asset.filename, asset.content_type));
+                text.push_str(&format!("\nAttached {:?} ({}). The file is available to the user, but file tools and audio/video analysis are unavailable in this temporary chat. Save the conversation and resend the attachment to enable workspace preparation.", asset.filename, asset.content_type));
             }
         }
         UserInput {
@@ -55,7 +59,7 @@ impl AlbertCogitator {
             } else {
                 format!("{source}\n{}", media.text)
             };
-            return Ok(encode_selected(
+            return Ok(encode_prepared(
                 text,
                 media.assets.clone(),
                 incoming
@@ -63,6 +67,7 @@ impl AlbertCogitator {
                     .get::<PreparedSkills>()
                     .map(PreparedSkills::stamps)
                     .unwrap_or_default(),
+                media.workspace_files.clone(),
             ));
         }
         let blobs: Vec<Blob> = if let Some(blob) = incoming.payload_as::<Blob>() {

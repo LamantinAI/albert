@@ -6,9 +6,14 @@ use crate::{
 pub(super) fn host_access(caller: &Principal, operation: &HostOperation) -> ApiResult<()> {
     if matches!(
         operation,
-        HostOperation::Telegram(TelegramOperation::Credential { .. })
+        HostOperation::ModelUsage
+            | HostOperation::SubscriptionLimits
+            | HostOperation::Credential(_)
+            | HostOperation::Telegram(TelegramOperation::Credential { .. })
             | HostOperation::OpenAiSubscription(_)
             | HostOperation::OpenAiLogin(_)
+            | HostOperation::Mcp(_)
+            | HostOperation::Memory(_)
             | HostOperation::Model(_)
             | HostOperation::Skill(_)
             | HostOperation::Config(_)
@@ -95,6 +100,9 @@ mod tests {
         for path in [
             "/api/v1/users",
             "/api/v1/model-pool",
+            "/api/v1/model-usage",
+            "/api/v1/openai-subscription/limits",
+            "/api/v1/memory",
             "/api/v1/openai-login-attempts/nonexistent",
             "/api/v1/openai-subscription",
             "/api/v1/secrets",

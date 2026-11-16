@@ -7,7 +7,13 @@ test("an existing chat opens the shared connection choice and API cancel returns
   await readyFixture(
     page,
     clientContext({
-      setup: { phase: "model", model_ready: false, identity_required: false },
+      setup: {
+        phase: "model",
+        model_ready: false,
+        model_configured: false,
+        memory_configured: true,
+        identity_required: false,
+      },
     }),
   );
   await page.goto("/ui/chats/session-1");

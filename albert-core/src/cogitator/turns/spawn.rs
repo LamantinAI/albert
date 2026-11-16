@@ -1,3 +1,4 @@
+use super::continuation::TurnContinuation;
 use std::{sync::atomic::Ordering, sync::Arc};
 
 use octo_core::{CogitatorContext, Envelope};
@@ -42,6 +43,17 @@ impl AlbertCogitator {
             .or_insert_with(|| Arc::new(Mutex::new(ChannelState::default())))
             .clone();
         let mut locked = state.lock().await;
+        let continuation_receipt = TurnContinuation::from_envelope(&incoming);
+        if let Some(receipt) = &continuation_receipt {
+            if !locked.is_idle()
+                || self
+                    .session_service
+                    .as_ref()
+                    .is_none_or(|service| !receipt.pending(service))
+            {
+                return;
+            }
+        }
         let incoming_policy = incoming
             .context
             .get::<SessionContext>()
@@ -68,7 +80,7 @@ impl AlbertCogitator {
         // task. A duplicate must not cancel it or schedule another model call.
         let boundary = if incoming.context.get::<SessionContext>().is_some() {
             match self.append_native(&incoming, &input).await {
-                Ok(receipt) if receipt.duplicate => return,
+                Ok(receipt) if receipt.duplicate && continuation_receipt.is_none() => return,
                 Ok(receipt) => Some(receipt.record_ids[0] - 1),
                 Err(error) => {
                     warn!(%error, "native input was not accepted");
@@ -90,6 +102,7 @@ impl AlbertCogitator {
             Vec::new()
         };
         let interrupted = locked.interrupt().await;
+        locked.last_outcome = None;
         let reuse_checkpoint = interrupted.as_ref().is_some_and(|previous| {
             compatible_actor(
                 previous.continuation.as_ref().unwrap_or(&previous.feedback),
@@ -235,32 +248,41 @@ impl AlbertCogitator {
         let voice = input.voice;
         let continuation = Some(incoming.clone());
         let feedback = incoming.clone();
-        let task = spawn(async move {
-            Box::pin(me.run_turn(
-                incoming,
-                voice,
-                prompt,
-                history,
+        let schedule = || {
+            let task = spawn(async move {
+                Box::pin(me.run_turn(
+                    incoming,
+                    voice,
+                    prompt,
+                    history,
+                    owner,
+                    &owned_ctx,
+                    &owned_scope,
+                    owned_feed,
+                    owned_state,
+                ))
+                .await;
+            });
+            // Insert before releasing the gate; a fast completion cannot clear its
+            // slot before registration (the old spawn/insert race).
+            locked.active = Some(ActiveTurn {
+                tool_policy,
+                feedback,
+                continuation,
+                compact_id,
+                scope,
+                task,
+                feed,
+                messages,
                 owner,
-                &owned_ctx,
-                &owned_scope,
-                owned_feed,
-                owned_state,
-            ))
-            .await;
-        });
-        // Insert before releasing the gate; a fast completion cannot clear its
-        // slot before registration (the old spawn/insert race).
-        locked.active = Some(ActiveTurn {
-            tool_policy,
-            feedback,
-            continuation,
-            compact_id,
-            scope,
-            task,
-            feed,
-            messages,
-            owner,
-        });
+            });
+        };
+        if let Some(receipt) = continuation_receipt {
+            if let Some(service) = &self.session_service {
+                receipt.schedule(service, schedule);
+            }
+        } else {
+            schedule();
+        }
     }
 }

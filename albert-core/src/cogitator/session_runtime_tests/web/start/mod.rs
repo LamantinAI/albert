@@ -151,6 +151,7 @@ async fn media_first_admission_matches_the_live_prompt_and_runs_exactly_once() {
                     text: text.into(),
                     assets: prepared.assets(),
                     blobs: prepared.blobs(),
+                    workspace_files: Vec::new(),
                 }),
         );
         let mut events = fixture

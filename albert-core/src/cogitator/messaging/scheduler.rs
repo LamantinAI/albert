@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, sync::Arc};
+use std::{sync::atomic::Ordering, sync::Arc, sync::Mutex as StateMutex};
 
 use chrono::Utc;
 use octo_core::{ChannelId, CogitatorContext, ConnectorId};
@@ -172,6 +172,7 @@ impl AlbertCogitator {
                 )
                 .with_session(Some(source.context().session_id().as_str()))
                 .with_session_context(Some(source.context().clone()))
+                .with_attempt(scope.clone())
                 .initially_detached()
                 .with_diagnostics(Some(DiagnosticScope {
                     lane: "message",
@@ -180,9 +181,12 @@ impl AlbertCogitator {
                     attempt_id: scope.clone(),
                     run_id: None,
                 }));
+            let terminal = Arc::new(StateMutex::new(None));
+            let owned_terminal = terminal.clone();
             let owned_feed = feed.clone();
             let task = spawn(async move {
                 me.execute_message(MessageExecution {
+                    terminal: owned_terminal,
                     runtime,
                     ctx,
                     source,
@@ -194,6 +198,7 @@ impl AlbertCogitator {
                 .await;
             });
             gate.message = Some(MessageTask {
+                terminal,
                 id,
                 scope,
                 cancel,

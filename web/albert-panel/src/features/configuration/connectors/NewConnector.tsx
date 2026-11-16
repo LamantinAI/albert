@@ -8,7 +8,10 @@ import type { ConnectorCatalog } from "./catalog";
 import { ConnectorBack } from "./ConnectorBack";
 
 export function NewConnector({ catalog }: { catalog: ConnectorCatalog }) {
-  const types = catalog.available_types.filter((type) => type.kind !== "http");
+  const types = [
+    ...catalog.available_types.filter((type) => type.kind !== "http"),
+    { kind: "mcp", label: "MCP server" },
+  ];
   const first = types[0]?.kind ?? "";
   const [kind, setKind] = useState(first);
   const [id, setId] = useState(first);
@@ -24,6 +27,10 @@ export function NewConnector({ catalog }: { catalog: ConnectorCatalog }) {
         className="card connector-create"
         onSubmit={(event) => {
           event.preventDefault();
+          if (kind === "mcp") {
+            navigate("/settings/connections/mcp/new");
+            return;
+          }
           if (catalog.items.some((item) => item.id === id)) {
             setError("That name is already used. Choose a different name.");
             return;

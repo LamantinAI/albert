@@ -53,21 +53,23 @@ impl AlbertCogitator {
         scope: Option<&str>,
         ingress: Option<Ingress>,
     ) -> (String, Option<String>) {
-        self.run_agent_scoped(
-            ctx,
-            channel,
-            preamble,
-            prompt,
-            history,
-            reply_target,
-            owner,
-            feed,
-            scope,
-            ingress,
-            None,
-            None,
-        )
-        .await
+        let (answer, restart) = self
+            .run_agent_scoped(
+                ctx,
+                channel,
+                preamble,
+                prompt,
+                history,
+                reply_target,
+                owner,
+                feed,
+                scope,
+                ingress,
+                None,
+                None,
+            )
+            .await;
+        (answer.into_text(), restart)
     }
 }
 

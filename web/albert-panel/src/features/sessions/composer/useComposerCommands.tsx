@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError, errorMessage, requestId } from "../../../api/client";
 import { useDialogs } from "../../../components/useDialogs";
 import type { Session } from "../useConversation";
-import { useHostControl } from "./useHostControl";
 import type { ComposerCommand } from "./types";
+import { useHostControl } from "./useHostControl";
 
 export function useComposerCommands(
   session: Session | undefined,
@@ -28,7 +28,7 @@ export function useComposerCommands(
       await host.run(kind === "restart" ? "process" : "models");
       return;
     }
-    if (!session || kind === "settings") return;
+    if (!session || kind === "settings" || kind === "credentials") return;
     busy.current = true;
     setError("");
     try {

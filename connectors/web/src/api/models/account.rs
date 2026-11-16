@@ -33,6 +33,7 @@ pub enum SetupPhase {
     Credentials,
     Profile,
     Model,
+    Memory,
     Ready,
     RuntimeError,
 }
@@ -40,6 +41,8 @@ pub enum SetupPhase {
 pub struct SetupView {
     pub phase: SetupPhase,
     pub model_ready: bool,
+    pub model_configured: bool,
+    pub memory_configured: bool,
     pub identity_required: bool,
 }
 #[derive(Clone, Serialize, ToSchema)]
@@ -50,6 +53,8 @@ pub struct ClientContext {
     pub runtime_epoch: String,
     pub csrf: Option<String>,
     pub current_credential_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential_expires_at: Option<i64>,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -68,6 +73,12 @@ pub struct CredentialUpdate {
 pub struct CredentialView {
     pub id: String,
     pub expires_at: i64,
+}
+#[derive(Serialize, ToSchema)]
+pub struct RefreshView {
+    pub id: String,
+    pub expires_at: i64,
+    pub csrf: String,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

@@ -1,7 +1,22 @@
+mod mcp;
+pub use self::mcp::{
+    McpConnection, McpServerConfig, McpServerList, McpServerView, McpServerWrite, McpToolList,
+    McpToolQuery, McpToolView,
+};
+mod approvals;
+pub use self::approvals::{
+    ApprovalDecision, ApprovalKind, ApprovalList, ApprovalListQuery, ApprovalQuery, ApprovalState,
+    ApprovalView,
+};
+mod credentials;
+pub use credentials::{
+    CredentialCreate, CredentialQuery, CredentialRequestList, CredentialRequestView,
+    CredentialSubmission,
+};
 mod composer;
 pub use composer::{CompactCreate, ComposerSkill, ComposerView, SelectedSkillView, SkillSelection};
 mod media;
-pub use media::AttachmentView;
+pub use media::{AttachmentView, BinaryContent};
 pub mod connectors;
 pub use connectors::{ConnectorList, ConnectorTypeView, ConnectorView};
 pub mod telegram;
@@ -22,23 +37,24 @@ pub use text::{TextDelta, TextSnapshot};
 pub use account::{
     AccountRole, AccountView, ApiErrorBody, ApiErrorDetail, Capabilities, ClientContext,
     CredentialUpdate, CredentialView, IdentityList, IdentityView, LoginRequest, ProfileView,
-    SetupPhase, SetupView, UserCreate, UserList, UserUpdate,
+    RefreshView, SetupPhase, SetupView, UserCreate, UserList, UserUpdate,
 };
 pub use configuration::{
     ConfigDraftInput, ConfigDraftView, ConfigField, ConfigFieldChange, ConfigFieldKind,
 };
 pub use control::{
-    ApplyRequest, ApplyView, ApprovalDecision, ApprovalList, ApprovalView, ConfigDocument,
-    ConfigList, ConfigWrite, EmptyObject, ModelConfig, ModelOrder, ModelPoolView, ModelPreference,
-    ModelRole, ModelView, ModelWrite, RuntimeStatus, SecretList, SecretWrite, SkillImport,
-    SkillList, SkillUpdate, SkillView, SkillWrite, ValidationView,
+    ApplyRequest, ApplyView, ConfigDocument, ConfigList, ConfigWrite, EmptyObject, ModelConfig,
+    ModelOrder, ModelPoolView, ModelPreference, ModelRole, ModelRoleWrite, ModelView, ModelWrite,
+    RuntimeStatus, SecretList, SecretWrite, SkillImport, SkillList, SkillUpdate, SkillView,
+    SkillWrite, ValidationView,
 };
 pub use progress::{ProgressDelta, ProgressItem, ProgressSnapshot};
 mod progress_activity;
 pub use progress_activity::ProgressActivity;
 pub use session::{
-    AttemptView, CancelRequest, MessageCreate, MessageList, MessageReceipt, MessageView, PageQuery,
-    SessionCreate, SessionEvent, SessionList, SessionState, SessionUpdate, SessionView,
+    AttemptView, CancelRequest, EventQuery, MessageCreate, MessageList, MessageReceipt,
+    MessageView, PageQuery, SessionCreate, SessionEvent, SessionList, SessionState, SessionUpdate,
+    SessionView,
 };
 
 pub mod openai_login;
@@ -136,3 +152,9 @@ mod tests {
         );
     }
 }
+
+mod operator;
+pub use operator::{
+    ModelUsageSummary, ModelUsageView, OperatorCard, OperatorQuery, OperatorSnapshot,
+    SubscriptionLimitsView, SubscriptionWindow,
+};

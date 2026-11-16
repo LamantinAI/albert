@@ -11,7 +11,6 @@ use std::{path::PathBuf, sync::Arc, sync::RwLock};
 use rig::{completion::Message, message::ToolResultContent, message::UserContent};
 
 use crate::config::Config;
-#[cfg(any(test, feature = "test-support"))]
 pub use config::RoleProfile;
 pub use config::{ModelSpec, PoolConfig};
 #[cfg(any(test, feature = "test-support"))]
@@ -502,5 +501,19 @@ mod tests {
         changed.models.retain(|model| model.id == "second");
         pool.apply_panel(changed, None);
         assert_eq!(pool.snapshot().selected, "second");
+    }
+    #[test]
+    fn explicit_operator_reselection_replaces_a_live_override_after_incidental_reload() {
+        let pool = ModelPool {
+            state: Arc::new(RwLock::new(pool())),
+            path: Arc::new(RwLock::new(None)),
+        };
+        pool.panel_prefer("second").unwrap();
+        let before = pool.snapshot();
+        pool.apply_panel(before.config.clone(), None);
+        assert_eq!(pool.snapshot().selected, "second");
+        pool.panel_prefer(&before.config.default).unwrap();
+        assert_eq!(pool.snapshot().selected, "first");
+        assert_eq!(before.selected, "second");
     }
 }

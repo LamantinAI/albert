@@ -193,6 +193,21 @@ section to keep embedded kaeru, or explicitly set `backend = "embedded"`.
 Embedded kaeru uses `KAERU_VAULT_PATH` as before. A dedicated **kaeru MCP server**
 can instead own the vault:
 
+The web panel exposes this choice in **Settings → Agent → Memory**. On a fresh
+browser-first installation it also appears immediately after the first model
+connection, for both API keys and subscriptions. The agent initializes only after
+the choice is saved. Existing installations adopt their current backend without
+repeating setup. The small internal setup checkpoint stores selection state;
+memory contents remain in the selected Kaeru storage.
+
+HTTP bearer tokens can be entered through the masked field, or referenced by an
+existing credential name. Values go to the server secret store and are never
+returned by the memory API. A blank token field keeps the saved credential.
+Changing a running agent's backend or credentials saves the desired settings and
+shows **Restart required**; an explicit process restart applies them. An unchanged
+selection, or a change reverted to the active settings, needs no restart. Switching
+backends preserves the original storage and does not copy its contents.
+
 ```toml
 [memory]
 backend = "mcp"
@@ -234,7 +249,7 @@ daemon at the same RocksDB vault concurrently.
 
 Albert connects, discovers all pages of tools and runs its **v1 application
 migration before accepting events**. It checks `initiatives`; if `albert` is
-absent, it makes an ordinary `cite` of a short Albert identity reference with
+absent, it makes an ordinary `note` of a short Albert identity observation with
 `initiative = "albert"`, then verifies creation. This uses kaeru's existing
 capture path: writing the record also registers its initiative. Subsequent
 starts leave an existing initiative unchanged. Embedded memory makes the same
@@ -242,19 +257,26 @@ call through `kaeru-rig`; no separate schema-marker record is created.
 Kaeru itself owns its database schema migrations. No local conversations or
 memories are copied when switching backends.
 
-MCP verbs appear as `kaeru_<verb>`, with the server's schemas. Calls that accept
-`initiative` default to `albert`; an explicit project name is preserved, just as
-with embedded memory. The automatic reflection routine uses the selected backend.
-The server must expose kaeru's unprefixed verbs, including `initiatives`, `cite`,
-`awake`, `overview`, `episode`, `at` and `reflect`. Use kaeru-mcp **0.7.4 or later**;
-Albert's embedded dependency is also 0.7.4 so both use the same verb names.
-Custom prompts must replace `kaeru_remember`, `kaeru_read` and `kaeru_test` with
-`kaeru_episode`, `kaeru_at` and `kaeru_evidence` respectively and follow their
-current argument schemas.
+MCP verbs appear as `kaeru_<verb>`, with the server's schemas. Initiative-scoped
+calls default to `albert`; an explicit project name is preserved, just as with
+embedded memory. Search uses `initiatives = ["albert"]`; context graph selection
+and explicitly global exports keep their own scope. The automatic reflection
+routine uses the selected backend. Use a **Kaeru 0.8.0-compatible MCP server**;
+Albert pins its embedded dependency to **0.8.0**. Required native tools include
+`initiatives`, `note`, `context`, `search`, `read`, `task`, `task_update`,
+`reference` and `reflect`. Custom instructions should use those canonical tools
+and their current argument schemas.
+
+Startup checks the typed response state, operation and API version. Partial or
+incomplete initiative discovery is not evidence that an initiative is absent.
+Read-only temporary conversations and restricted children receive only tools
+classified as read-only by the SDK; `context` is excluded because it can update
+reminder delivery metadata.
 
 `timeout_secs` bounds connection, discovery and each call. A failed startup or
-migration stops startup with an error; there is no silent fallback to local
-memory. A transport failure is returned to the agent, and the next call reconnects
+migration prevents agent activation; the web panel keeps the saved choice and
+offers **Retry initialization**. There is no silent fallback to local memory.
+A transport failure is returned to the agent, and the next call reconnects
 and checks the initiative again. The failed call is not automatically replayed:
 a write whose response was lost may already have committed. Changed tool schemas
 after a reconnect require restarting Albert. Changing `[memory]` also requires a

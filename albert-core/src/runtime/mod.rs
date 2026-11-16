@@ -1,7 +1,12 @@
 //! The control plane stays available while cognition is unconfigured or fails.
+use self::mcp::ConfigCredentials;
+use crate::{mcp::McpRegistry, subscription_limits::SubscriptionLimits};
+mod erasure;
 mod health;
 mod proxy;
+mod setup;
 pub use proxy::RuntimeCogitator;
+mod mcp;
 
 use std::{
     path::PathBuf, sync::atomic::AtomicBool, sync::atomic::Ordering, sync::Arc, sync::RwLock,
@@ -24,12 +29,16 @@ pub struct AgentRuntime {
     pub path: PathBuf,
     pub base: Config,
     pub sessions: Arc<SessionService>,
+    pub mcp: Arc<McpRegistry>,
     pub authority: Authority,
     pub subscription: Arc<SubscriptionAuth>,
+    pub subscription_limits: SubscriptionLimits,
     active: RwLock<Option<Arc<AlbertCogitator>>>,
+    memory_fingerprint: RwLock<Option<String>>,
     context: RwLock<Option<CogitatorContext>>,
     status: RwLock<DomainRuntimeStatus>,
     activation: Mutex<()>,
+    erasure: Mutex<()>,
     pub restart_requested: Arc<AtomicBool>,
 }
 
@@ -42,7 +51,13 @@ impl AgentRuntime {
         restart_requested: Arc<AtomicBool>,
         transport: Arc<dyn HostTransport>,
     ) -> Arc<Self> {
+        let mcp = McpRegistry::new(
+            base.deploy_dir.clone(),
+            Arc::new(ConfigCredentials(path.clone())),
+        );
         Arc::new(Self {
+            mcp,
+            subscription_limits: SubscriptionLimits::default(),
             transport,
             path,
             subscription: Arc::new(
@@ -54,14 +69,18 @@ impl AgentRuntime {
             sessions,
             authority,
             active: RwLock::new(None),
+            memory_fingerprint: RwLock::new(None),
             context: RwLock::new(None),
             status: RwLock::new(DomainRuntimeStatus {
                 phase: "starting".into(),
                 model_ready: false,
+                model_configured: false,
+                memory_configured: false,
                 runtime_epoch: format!("{:032x}", random::<u128>()),
                 error: None,
             }),
             activation: Mutex::new(()),
+            erasure: Mutex::new(()),
             restart_requested,
         })
     }
@@ -90,6 +109,7 @@ impl AgentRuntime {
 
     pub async fn activate(&self) -> Result<(), String> {
         let _activation = self.activation.lock().await;
+        self.reload_mcp().await;
         if !self.path.exists() {
             self.unavailable(None);
             return Ok(());
@@ -98,6 +118,7 @@ impl AgentRuntime {
             self.unavailable(Some("Agent configuration is invalid. Review Settings."));
             "Agent configuration is invalid. Review Settings.".to_owned()
         })?;
+        let memory_selected = self.refresh_setup_status(&config).await?;
         let pool = config
             .models
             .clone()
@@ -123,18 +144,31 @@ impl AgentRuntime {
             self.unavailable(None);
             return Ok(());
         }
+        if !memory_selected {
+            self.memory_phase("memory_setup", None);
+            return Ok(());
+        }
         let Some(context) = self.context() else {
-            return Err("Runtime is still starting. Retry Apply shortly.".into());
+            self.memory_phase(
+                "memory_error",
+                Some("Runtime is still starting. Retry memory initialization shortly."),
+            );
+            return Err("Runtime is still starting. Retry memory initialization shortly.".into());
         };
         if let Some(current) = self.current() {
             current.panel_reload(&config, &context);
         } else {
+            self.memory_phase("memory_initializing", None);
             let vault = Some(config.embedded_vault_path());
-            let memory = Memory::open_at(&config, vault).await.map_err(|_| {
-                self.unavailable(Some(
-                    "Agent memory could not be initialized. Review memory settings.",
-                ));
-                "Agent memory could not be initialized. Review memory settings.".to_owned()
+            let (memory, fingerprint) = Memory::initialize(&config, vault).await.map_err(|_| {
+                self.memory_phase(
+                    "memory_error",
+                    Some(
+                        "Agent memory could not be initialized. Review memory settings and retry.",
+                    ),
+                );
+                "Agent memory could not be initialized. Review memory settings and retry."
+                    .to_owned()
             })?;
             let capabilities = if subscription_usable {
                 vec!["subscription", "imagegen"]
@@ -160,9 +194,11 @@ impl AgentRuntime {
                 self.subscription.clone(),
                 self.authority.clone(),
             )
+            .with_mcp(self.mcp.clone())
             .with_transport(self.transport.clone())
             .with_sessions(self.sessions.clone());
             agent.panel_initialize(&context);
+            *self.memory_fingerprint.write().unwrap() = Some(fingerprint);
             *self.active.write().unwrap() = Some(agent);
         }
         let mut state = self.status.write().unwrap();
@@ -185,6 +221,8 @@ impl AgentRuntime {
 pub struct DomainRuntimeStatus {
     pub phase: String,
     pub model_ready: bool,
+    pub model_configured: bool,
+    pub memory_configured: bool,
     pub runtime_epoch: String,
     pub error: Option<String>,
 }

@@ -3,6 +3,7 @@
 
 mod cancel;
 mod compact;
+mod continuation;
 mod run;
 mod run_context;
 mod spawn;
@@ -21,6 +22,7 @@ use crate::{
 
 #[derive(Default)]
 pub(super) struct ChannelState {
+    last_outcome: Option<String>,
     active: Option<ActiveTurn>,
     pub(in crate::cogitator) message: Option<MessageTask>,
 }
@@ -162,10 +164,12 @@ mod tests {
         let (tx_a, rx_a) = oneshot::channel();
         let (tx_b, mut rx_b) = oneshot::channel();
         let mut a = ChannelState {
+            last_outcome: None,
             message: None,
             active: Some(blocked(vec![Message::user("a")], tx_a)),
         };
         let mut b = ChannelState {
+            last_outcome: None,
             message: None,
             active: Some(blocked(vec![Message::user("b")], tx_b)),
         };

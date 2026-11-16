@@ -1,10 +1,15 @@
+use crate::api::models::OperatorQuery;
+use crate::service::{mcp::McpService, memory::MemoryService};
 mod approvals;
 #[cfg(feature = "embedded-panel")]
 mod assets;
 mod mount;
 mod profile;
+mod resources;
 pub(crate) mod sessions;
 mod telegram;
+#[cfg(test)]
+pub(crate) mod testing;
 
 pub use profile::configured_owner;
 
@@ -19,14 +24,14 @@ use tokio::sync::Mutex;
 
 use self::{approvals::ApprovalService, sessions::SessionHost};
 use crate::{
-    api::errors::ApiResult, api::host::EventStream, api::host::Host, api::host::HostOperation,
-    api::host::HostResponse, api::host::ModelOperation, api::host::ProfileOperation,
-    api::host::SessionEventRequest, api::host::SkillOperation, api::host::SubscriptionOperation,
-    api::media::MediaOperation, api::media::MediaResponse, api::models::RuntimeStatus,
-    api::principal::Principal, api::router_with_media_limit as api_router, api::state::ApiState,
-    service::auth::AuthService, service::control::ControlService,
-    service::openai_login::OpenAiLoginService, service::panel_models::ModelService,
-    service::panel_skills::SkillService,
+    api::errors::ApiError, api::errors::ApiResult, api::host::EventStream, api::host::Host,
+    api::host::HostOperation, api::host::HostResponse, api::host::ModelOperation,
+    api::host::ProfileOperation, api::host::SessionEventRequest, api::host::SkillOperation,
+    api::host::SubscriptionOperation, api::media::MediaOperation, api::media::MediaResponse,
+    api::models::RuntimeStatus, api::principal::Principal,
+    api::router_with_media_limit as api_router, api::state::ApiState, service::auth::AuthService,
+    service::control::ControlService, service::openai_login::OpenAiLoginService,
+    service::panel_models::ModelService, service::panel_skills::SkillService,
 };
 
 pub struct Panel {
@@ -34,25 +39,34 @@ pub struct Panel {
     pub auth: Arc<AuthService>,
     pub(crate) sessions: Arc<SessionHost>,
     models: ModelService,
+    mcp: McpService,
+    memory: MemoryService,
     openai_login: Arc<OpenAiLoginService>,
     skills: SkillService,
     control: ControlService,
-    approvals: ApprovalService,
+    approvals: Arc<ApprovalService>,
 }
 
 impl Panel {
     pub fn new(runtime: Arc<AgentRuntime>, auth: Arc<AuthService>) -> Arc<Self> {
         auth.attach_accounts(runtime.sessions.accounts().clone());
+        runtime.sessions.credentials().enable_ui();
+        runtime.sessions.confirmations().enable_ui();
         let gate = Arc::new(Mutex::new(()));
         let models = ModelService::new(runtime.path.clone(), runtime.base.clone(), gate.clone());
         let openai_login = OpenAiLoginService::new(runtime.clone(), auth.clone(), models.clone());
+        let approvals = Arc::new(ApprovalService::new(runtime.clone()));
+        let sessions = SessionHost::new(runtime.clone(), auth.clone());
+        sessions.bind_approvals(approvals.clone());
         Arc::new(Self {
-            sessions: SessionHost::new(runtime.clone(), auth.clone()),
+            sessions,
             models,
+            mcp: McpService::new(runtime.clone(), gate.clone()),
+            memory: MemoryService::new(runtime.clone(), gate.clone()),
             openai_login,
             skills: SkillService::new(runtime.base.clone(), gate.clone()),
             control: ControlService::new(runtime.clone(), gate),
-            approvals: ApprovalService::new(runtime.clone()),
+            approvals,
             runtime,
             auth,
         })
@@ -61,6 +75,13 @@ impl Panel {
 
 #[async_trait]
 impl Host for Panel {
+    async fn operator_events(
+        &self,
+        caller: Principal,
+        query: OperatorQuery,
+    ) -> ApiResult<EventStream> {
+        self.sessions.operator_stream(caller, query).await
+    }
     async fn media(
         &self,
         caller: &Principal,
@@ -77,6 +98,14 @@ impl Host for Panel {
         operation: HostOperation,
     ) -> ApiResult<HostResponse> {
         match operation {
+            HostOperation::Operator(query) => Ok(HostResponse::Operator(
+                self.sessions.operator_snapshot(caller, &query).await?,
+            )),
+            HostOperation::ModelUsage => self.resource_usage(caller).await,
+            HostOperation::SubscriptionLimits => self.resource_limits(caller).await,
+            HostOperation::Credential(operation) => {
+                self.sessions.credential_operation(caller, operation).await
+            }
             HostOperation::Connectors => Ok(HostResponse::Connectors(
                 self.control.connector_catalog(caller)?,
             )),
@@ -107,6 +136,8 @@ impl Host for Panel {
                 Ok(HostResponse::Identities(self.identities(caller).await?))
             }
             HostOperation::Session(operation) => self.sessions.operation(caller, operation).await,
+            HostOperation::Mcp(operation) => self.mcp.operation(caller, operation).await,
+            HostOperation::Memory(operation) => self.memory.operation(caller, operation).await,
             HostOperation::Model(operation) => {
                 let permit = caller.owner_permit()?;
                 let changed = !matches!(&operation, ModelOperation::List);
@@ -120,7 +151,7 @@ impl Host for Panel {
                 }
                 if let Some(agent) = self.runtime.current() {
                     if let Some(id) = preferred {
-                        let _ = agent.panel_prefer(&id);
+                        agent.panel_prefer(&id).map_err(|_| ApiError::conflict("The operator is saved, but its runtime selection could not be applied. Reload the model pool."))?;
                     }
                     result.preferred = Some(agent.panel_models().selected);
                 }

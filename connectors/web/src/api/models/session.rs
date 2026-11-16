@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use super::{AttachmentView, ProgressSnapshot, SelectedSkillView, SkillSelection, TextSnapshot};
 
@@ -106,10 +106,18 @@ pub struct SessionEvent {
 pub struct CancelRequest {
     pub session_id: String,
 }
-#[derive(Clone, Default, Deserialize, ToSchema)]
+#[derive(Clone, Default, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 pub struct PageQuery {
     pub after: Option<String>,
     pub limit: Option<usize>,
     pub order: Option<String>,
     pub through_id: Option<String>,
+}
+
+#[derive(Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct EventQuery {
+    pub after: Option<String>,
+    pub runtime_epoch: Option<String>,
 }

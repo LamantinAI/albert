@@ -12,6 +12,7 @@ use tokio::{spawn, time::timeout};
 use super::{message, reply, Fixture};
 use crate::{
     cogitator::context::scratchpad_scope, cogitator::retention::temporary,
+    db::repo::identity::bind, service::session::web::WebActor, sessions::actor::ActorToolPolicy,
     sessions::transport::OutputScope as TelegramOutputScope, sessions::SessionContext,
     sessions::SessionEnded, subagents::Args, subagents::SubagentTool,
 };
@@ -65,12 +66,12 @@ async fn temporary_root_and_child_have_read_only_memory_and_no_durable_catalog_e
         .collect();
     assert!(names.contains(&"kaeru_search"));
     for denied in [
-        "kaeru_jot",
-        "kaeru_episode",
-        "kaeru_cite",
+        "kaeru_note",
+        "kaeru_task_update",
+        "kaeru_reference",
         "kaeru_revise",
         "kaeru_export",
-        "kaeru_awake",
+        "kaeru_context",
     ] {
         assert!(!names.contains(&denied), "{denied}");
     }
@@ -92,8 +93,8 @@ async fn temporary_root_and_child_have_read_only_memory_and_no_durable_catalog_e
         .as_array()
         .unwrap()
         .iter()
-        .any(|name| name == "kaeru_jot"));
-    let task = from_value(json!({"task":"write memory","context":"temporary","models":["healthy"],"tools":["kaeru_jot"]})).unwrap();
+        .any(|name| name == "kaeru_note"));
+    let task = from_value(json!({"task":"write memory","context":"temporary","models":["healthy"],"tools":["kaeru_note"]})).unwrap();
     assert!(fixture
         .host
         .subagent_command(&tool, Args::Spawn { task })
@@ -199,6 +200,15 @@ async fn full_temporary_tool_output_stays_in_ram_and_inspection_never_materializ
 
 #[tokio::test]
 async fn trusted_end_purges_runtime_buffers_and_fake_json_cannot_close_another_session() {
+    check_closed_runtime(false).await;
+}
+
+#[tokio::test]
+async fn permanent_deletion_stops_active_work_children_and_clears_private_runtime_buffers() {
+    check_closed_runtime(true).await;
+}
+
+async fn check_closed_runtime(permanent: bool) {
     let fixture = Fixture::new().await;
     let original = fixture.context("telegram", "7", "7").await;
     let session = fixture
@@ -206,6 +216,15 @@ async fn trusted_end_purges_runtime_buffers_and_fake_json_cannot_close_another_s
         .start_temporary(&original, None)
         .await
         .unwrap();
+    let session = if permanent {
+        fixture
+            .service
+            .save_temporary(&session, "Saved private chat", None)
+            .await
+            .unwrap()
+    } else {
+        session
+    };
     let other = fixture.context("console", "local", "console").await;
     let conversation = ("session".to_owned(), session.root_history_key());
     for owner in [false, true] {
@@ -289,21 +308,50 @@ async fn trusted_end_purges_runtime_buffers_and_fake_json_cannot_close_another_s
         .handle(Arc::new(fake), &fixture.ctx)
         .await;
     assert!(!fixture.host.turns.lock().unwrap().is_empty());
-    let ended = fixture.service.end_temporary(&session, None).await.unwrap();
-    assert!(ended.discarded);
-    let event = Envelope::new(
-        ConnectorId::new("host"),
-        EventKind::new("albert.session.closed"),
-        (),
-    )
-    .with_context(SessionEnded {
-        session_id: session.session_id().clone(),
-    });
-    fixture
-        .host
-        .clone()
-        .handle(Arc::new(event), &fixture.ctx)
-        .await;
+    if permanent {
+        let user = session.private_user_id().unwrap().clone();
+        let mut tx = fixture.service.history().begin_journal().await.unwrap();
+        bind(&mut tx, "web", "delete-account", user.as_str())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let actor = WebActor {
+            account_id: "delete-account".into(),
+            user_id: user,
+            tools: ActorToolPolicy::ExistingHost,
+        };
+        fixture
+            .service
+            .web_delete(
+                &actor,
+                session.session_id(),
+                session.session().revision,
+                &fixture.host.config.code_workspace,
+            )
+            .await
+            .unwrap();
+        fixture
+            .host
+            .panel_discard_session(session.session_id(), &fixture.ctx)
+            .await
+            .unwrap();
+    } else {
+        let ended = fixture.service.end_temporary(&session, None).await.unwrap();
+        assert!(ended.discarded);
+        let event = Envelope::new(
+            ConnectorId::new("host"),
+            EventKind::new("albert.session.closed"),
+            (),
+        )
+        .with_context(SessionEnded {
+            session_id: session.session_id().clone(),
+        });
+        fixture
+            .host
+            .clone()
+            .handle(Arc::new(event), &fixture.ctx)
+            .await;
+    }
     assert!(!session.is_live());
     assert!(fixture
         .host

@@ -97,12 +97,19 @@ test("login and forced credential rotation have a usable dark workspace layout",
   });
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/auth/refresh"))
+      return route.fulfill({
+        status: 401,
+        json: { error: { code: "unauthorized", message: "Sign in." } },
+      });
     if (path.endsWith("/auth/credentials")) {
       context = clientContext({
         account: { ...account, must_change_password: true },
         setup: {
           phase: "credentials",
           model_ready: false,
+          model_configured: false,
+          memory_configured: true,
           identity_required: false,
         },
       });
@@ -112,7 +119,13 @@ test("login and forced credential rotation have a usable dark workspace layout",
     }
     if (path.endsWith("/account/credentials")) {
       context = clientContext({
-        setup: { phase: "model", model_ready: false, identity_required: false },
+        setup: {
+          phase: "model",
+          model_ready: false,
+          model_configured: false,
+          memory_configured: true,
+          identity_required: false,
+        },
       });
       return route.fulfill({ json: context.account });
     }
@@ -122,6 +135,7 @@ test("login and forced credential rotation have a usable dark workspace layout",
           speech_available: false,
           can_select_skills: true,
           can_compact: true,
+          can_manage_credentials: true,
           can_restart: true,
           can_reload_models: true,
           max_file_bytes: 32 * 1024 * 1024,
@@ -146,6 +160,16 @@ test("login and forced credential rotation have a usable dark workspace layout",
     fullPage: true,
   });
   await page.getByLabel("Password", { exact: true }).fill("owner");
+  await page.getByRole("button", { name: "Show secret" }).click();
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute(
+    "type",
+    "text",
+  );
+  await page.getByRole("button", { name: "Hide secret" }).click();
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute(
+    "type",
+    "password",
+  );
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Set up your profile" }),

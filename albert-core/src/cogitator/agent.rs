@@ -1,37 +1,28 @@
 mod attempt;
 mod chat;
 mod entry;
+mod provider;
+mod tools;
 mod types;
-use self::entry::root_diagnostics;
 pub(super) use self::types::AttemptTools;
-use std::{future::pending as never, sync::Arc, sync::Mutex, time::Duration, time::Instant};
+use self::{entry::root_diagnostics, types::TurnTools};
+use std::{future::pending as never, sync::Arc, sync::Mutex, time::Duration};
 
 use octo_approval::Ingress;
-use octo_code::{EditTool, GlobTool, GrepTool, ListTool, ReadTool, WriteTool};
 use octo_core::{ChannelId, CogitatorContext, ConnectorId};
-use octo_openai_auth::Subscription as SubToken;
 use octo_rig::{OctoDispatchTool, RestartTool, SendFileTool};
-use rig::{
-    agent::AgentBuilder, agent::NoToolConfig, client::CompletionClient,
-    completion::CompletionModel, completion::Message, completion::Prompt, completion::PromptError,
-    http_client::HeaderMap, http_client::HeaderValue, http_client::ReqwestClient,
-    providers::openai, providers::openrouter::Client as OpenRouterClient, tool::ToolDyn,
-};
+use rig::completion::Message;
 use tokio::select;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 use super::{
-    catalog, media_delivery::MediaDelivery, retention::fence_tools, retention::permitted_memory,
-    retention::scope_ingress, retention::temporary, scratchpad_scope,
-    session_dispatch::SessionDispatch, AlbertCogitator,
+    catalog, media_delivery::MediaDelivery, outcome::AgentOutcome, retention::scope_ingress,
+    retention::temporary, scratchpad_scope, session_dispatch::SessionDispatch, AlbertCogitator,
 };
 use crate::{
-    artifacts::Artifacts, codex_http::CodexHttp, codex_model::CodexResponsesModel,
-    cogitator::errors::model_failure, config::AuthMode, connector_catalog::ConnectorCatalog,
-    context::BudgetedModel, messaging::contract::WorkRef, models::needs_vision, models::Failure,
-    models::FailureKind, models::ModelSpec, openrouter_http::OpenRouterHttp, scratchpad::PadScope,
-    selfconfig::SelfConfig, sessions::output::output_scope, sessions::SessionContext,
-    status::text::ObservedModel, status::StatusFeed, subagents::SubagentTool,
+    artifacts::Artifacts, connector_catalog::ConnectorCatalog, messaging::contract::WorkRef,
+    models::needs_vision, selfconfig::SelfConfig, sessions::output::output_scope,
+    sessions::SessionContext, status::StatusFeed, subagents::SubagentTool,
 };
 
 impl AlbertCogitator {
@@ -49,10 +40,10 @@ impl AlbertCogitator {
         ingress: Option<Ingress>,
         session: Option<SessionContext>,
         logical_work: Option<WorkRef>,
-    ) -> (String, Option<String>) {
+    ) -> (AgentOutcome, Option<String>) {
         if let Some(session) = &session {
             if !session.authorized().await {
-                return ("Account access changed.".into(), None);
+                return (AgentOutcome::Failed("Account access changed.".into()), None);
             }
         }
         let chat_only = session.as_ref().is_some_and(SessionContext::chat_only);
@@ -61,7 +52,12 @@ impl AlbertCogitator {
         } else {
             match scope_ingress(&self.authority, ingress, session.as_ref()) {
                 Ok(ingress) => ingress,
-                Err(_) => return ("Session authority is unavailable.".into(), None),
+                Err(_) => {
+                    return (
+                        AgentOutcome::Failed("Session authority is unavailable.".into()),
+                        None,
+                    )
+                }
             }
         };
         let feed = feed.with_diagnostics(Some(root_diagnostics(
@@ -96,6 +92,11 @@ impl AlbertCogitator {
         // One drive run consumes its tool instances, and the forced-refresh retry
         // below needs a second set — so the tools are built per attempt.
         let discovery = (!chat_only).then(|| ConnectorCatalog::new(ctx.connectors()));
+        let mcp = self
+            .mcp
+            .as_ref()
+            .and_then(|registry| registry.snapshot(session.as_ref()).ok())
+            .unwrap_or_default();
         let child_tool = (!chat_only && self.config.subagents.enabled).then(|| {
             SubagentTool::new(
                 Arc::downgrade(self),
@@ -108,6 +109,7 @@ impl AlbertCogitator {
             .with_session(session.clone())
             .with_diagnostics(feed.diagnostics())
             .with_progress(feed.clone())
+            .with_mcp(mcp.clone())
         });
         let make_tools = || {
             if chat_only {
@@ -190,8 +192,8 @@ impl AlbertCogitator {
             // Owner-only: read/edit its own config + prompt + skill files (jailed to the
             // deploy dir, allow-listed). Applied via the restart tool above.
             let selfconfig = owner.then(|| SelfConfig::new(self.config.deploy_dir.clone()));
-            AttemptTools::Root((
-                SessionDispatch {
+            AttemptTools::Root(TurnTools {
+                dispatch: SessionDispatch {
                     inner: dispatch,
                     session: session.clone(),
                     messaging: self.messaging_tools(
@@ -205,17 +207,25 @@ impl AlbertCogitator {
                 send_file,
                 restart,
                 selfconfig,
-                discovery.as_ref().expect("host tool policy").clone(),
-                child_tool.clone(),
-                Artifacts::new(
+                discovery: discovery.as_ref().expect("host tool policy").clone(),
+                children: child_tool.clone(),
+                artifacts: Artifacts::new(
                     self.config.code_workspace.clone(),
                     &conversation,
                     owner,
                     None,
                     self.config.context.artifacts.clone(),
                 ),
-                scratchpad_scope(&conversation, owner),
-            ))
+                pad_scope: scratchpad_scope(&conversation, owner),
+                credential: self.request_credential_tool(session.as_ref(), scope, ingress.clone()),
+                mcp: mcp.clone(),
+                confirmation: self.request_confirmation_tool(
+                    session.as_ref(),
+                    scope,
+                    ingress.clone(),
+                    feed.clone(),
+                ),
+            })
         };
         let children = if chat_only {
             String::new()
@@ -237,7 +247,7 @@ impl AlbertCogitator {
                 let prompt = prompt.clone();
                 let feed = feed.clone();
                 async move {
-                    self.model_attempt(
+                    self.model_attempt_outcome(
                         &model,
                         force_refresh,
                         preamble,
@@ -259,310 +269,16 @@ impl AlbertCogitator {
             biased;
             _ = async { match &session { Some(s) => s.access_cancelled().await, None => never::<()>().await } } => {
                 if let Some(scope) = scope { self.cancel_scope(scope, ctx).await; }
-                return ("Account access changed.".into(), None);
+                return (AgentOutcome::Failed("Account access changed.".into()), None);
             },
             result = execution => result,
-        }.unwrap_or_else(|error| {
-                if temporary(session.as_ref()) && error.contains("context budget") {
-                    format!("{error}\nSave this chat before continuing with a larger tool result.")
-                } else {
-                    error
-                }
-            });
+        }.unwrap_or_else(|error| AgentOutcome::Failed(
+            if temporary(session.as_ref()) && error.contains("context budget") {
+                format!("{error}\nSave this chat before continuing with a larger tool result.")
+            } else { error }
+        ));
         // Drain any restart the model requested during the loop (owner turns only).
         let restart_target = pending.lock().ok().and_then(|mut p| p.take());
         (answer, restart_target)
-    }
-
-    pub(super) async fn model_attempt(
-        &self,
-        model: &ModelSpec,
-        force_refresh: bool,
-        preamble: &str,
-        tools: AttemptTools,
-        channel: &str,
-        prompt: Message,
-        history: Vec<Message>,
-        feed: StatusFeed,
-    ) -> Result<String, Failure> {
-        if !feed.is_live() {
-            return Err(Failure {
-                kind: FailureKind::Fatal,
-                message: "Session ended.".into(),
-            });
-        }
-        let unavailable = |message: &str| Failure {
-            kind: FailureKind::Unavailable,
-            message: message.into(),
-        };
-        let reasoning_params = model.reasoning_params().map_err(|message| Failure {
-            kind: FailureKind::Incompatible,
-            message,
-        })?;
-        let turn_budget = match &tools {
-            AttemptTools::Child { budget, .. } => Some(budget.clone()),
-            _ => None,
-        };
-        let compact = matches!(&tools, AttemptTools::Compact { .. });
-        let metadata = matches!(&tools, AttemptTools::Metadata { .. });
-        let diagnostics = feed.diagnostics_for(compact);
-        let diagnostic_model_id = model.id.as_str();
-        let timeout_ms = if compact {
-            self.config.context.request_timeout_ms
-        } else {
-            model.request_timeout_ms
-        };
-        let started = Instant::now();
-        let http = ReqwestClient::builder()
-            .timeout(Duration::from_millis(timeout_ms))
-            .build()
-            .map_err(|_| unavailable("Could not construct HTTP client."))?;
-
-        let mut budget = self.config.context.for_model(model);
-        if let AttemptTools::Compact { max_tokens } | AttemptTools::Metadata { max_tokens } = &tools
-        {
-            budget.response_tokens = *max_tokens;
-        }
-        let budget = budget.enabled.then_some(budget);
-        let preview = matches!(
-            &tools,
-            AttemptTools::Root(_) | AttemptTools::ChatOnly { .. }
-        )
-        .then(|| feed.clone());
-        let result = match model.provider {
-            AuthMode::ApiKey => {
-                let key = self
-                    .config
-                    .model_key(model.api_key_env.as_deref())
-                    .filter(|key| !key.trim().is_empty())
-                    .ok_or_else(|| unavailable("API key is unavailable."))?;
-                let mut builder = OpenRouterClient::builder()
-                    .api_key(key.as_str())
-                    .http_client(OpenRouterHttp::new(http));
-                let base = model.base_url.as_deref().unwrap_or(&self.config.base_url);
-                if !base.is_empty() {
-                    builder = builder.base_url(base);
-                }
-                let client = builder
-                    .build()
-                    .map_err(|_| unavailable("Could not construct API client."))?;
-                self.drive_attempt(
-                    AgentBuilder::new(
-                        BudgetedModel::new(
-                            ObservedModel::new(client.completion_model(&model.model), preview),
-                            budget,
-                            true,
-                        )
-                        .with_diagnostics(diagnostics)
-                        .with_diagnostic_model(diagnostic_model_id)
-                        .with_diagnostic_feed(feed.clone())
-                        .with_model_params(reasoning_params)
-                        .with_turn_budget(turn_budget)
-                        .with_recovery(
-                            if metadata {
-                                0
-                            } else {
-                                self.config.context.continuation_retries
-                            },
-                            self.config.context.continuation_retry_delay_ms,
-                            feed.clone(),
-                        ),
-                    )
-                    .preamble(preamble),
-                    tools,
-                    channel,
-                    prompt,
-                    history,
-                    feed,
-                )
-                .await
-            }
-            AuthMode::Subscription => {
-                let sub = if force_refresh {
-                    self.auth.force_refresh().await
-                } else {
-                    self.auth.fresh().await
-                }
-                .map_err(|_| {
-                    unavailable("Subscription authentication failed; check albert login.")
-                })?;
-                let client = self
-                    .subscription_client(
-                        &sub,
-                        model
-                            .base_url
-                            .as_deref()
-                            .unwrap_or(&self.config.subscription_base_url),
-                        http,
-                    )
-                    .map_err(|_| unavailable("Could not construct subscription client."))?;
-                let model = CodexResponsesModel::make(&client, &model.model);
-                self.drive_attempt(
-                    AgentBuilder::new(
-                        BudgetedModel::new(ObservedModel::new(model, preview), budget, false)
-                            .with_diagnostics(diagnostics)
-                            .with_diagnostic_model(diagnostic_model_id)
-                            .with_diagnostic_feed(feed.clone())
-                            .with_model_params(reasoning_params)
-                            .with_turn_budget(turn_budget)
-                            .with_recovery(
-                                if metadata {
-                                    0
-                                } else {
-                                    self.config.context.continuation_retries
-                                },
-                                self.config.context.continuation_retry_delay_ms,
-                                feed.clone(),
-                            ),
-                    )
-                    .preamble(preamble),
-                    tools,
-                    channel,
-                    prompt,
-                    history,
-                    feed,
-                )
-                .await
-            }
-        }
-        .map_err(|error| {
-            let failure = model_failure(error);
-            warn!(model_id=%model.id, compact, timeout_ms, elapsed_ms=started.elapsed().as_millis(),
-                kind=?failure.kind, "model attempt failed");
-            failure
-        })?;
-        if result.trim().is_empty() {
-            return Err(Failure {
-                kind: FailureKind::Incompatible,
-                message: "Model returned an empty answer.".into(),
-            });
-        }
-        Ok(result)
-    }
-
-    /// A ChatGPT-subscription rig client: rig's OpenAI provider (Responses API by
-    /// default) pointed at the Codex backend, with the OAuth access token as the
-    /// bearer and the account id in the mandatory `ChatGPT-Account-ID` header.
-    pub(super) fn subscription_client(
-        &self,
-        sub: &SubToken,
-        base_url: &str,
-        http: ReqwestClient,
-    ) -> Result<openai::Client<CodexHttp>, String> {
-        if let Some(plan) = &sub.plan {
-            info!(plan, "subscription auth loaded");
-        }
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "chatgpt-account-id",
-            HeaderValue::from_str(&sub.account_id).map_err(|e| format!("bad account id: {e}"))?,
-        );
-        headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
-        openai::Client::builder()
-            .base_url(base_url)
-            .api_key(sub.access_token.as_str())
-            .http_headers(headers)
-            .http_client(CodexHttp::with_client(http))
-            .build()
-            .map_err(|e| format!("client build: {e}"))
-    }
-
-    /// Attach the toolset (kaeru memory + dispatch + scratchpad + skills) to a
-    /// fresh agent builder and run one bounded tool-loop. Generic over the model
-    /// so both auth modes share it; `install` takes the no-tools-yet builder, so
-    /// it runs before the dispatch/scratchpad tools are chained on. Returns the
-    /// raw loop error so the caller can decide (retry a revoked-token 401, or
-    /// classify it for the pool).
-    pub(super) async fn drive<M>(
-        &self,
-        base: AgentBuilder<M, (), NoToolConfig>,
-        mut dispatch: SessionDispatch,
-        send_file: Option<MediaDelivery>,
-        restart: Option<RestartTool>,
-        selfconfig: Option<SelfConfig>,
-        discovery: ConnectorCatalog,
-        children: Option<SubagentTool>,
-        channel: &str,
-        prompt: Message,
-        history: Vec<Message>,
-        feed: StatusFeed,
-        artifacts: Artifacts,
-        pad_scope: PadScope,
-    ) -> Result<String, PromptError>
-    where
-        M: CompletionModel + 'static,
-    {
-        let pad = self.scratchpad.scoped_handle(pad_scope.clone());
-        debug!(
-            channel,
-            clouds = !self.config.clouds.is_empty(),
-            max_turns = self.config.max_tool_turns,
-            "building agent + running tool-loop"
-        );
-        let messaging = dispatch.messaging.take();
-        let session = dispatch.session.clone();
-        let volatile = temporary(session.as_ref());
-        let mut tools = permitted_memory(self.memory.delegation_tools(), volatile);
-        feed.register_memory_tool_names(tools.iter().map(|tool| tool.name()));
-        tools.extend(vec![
-            Box::new(dispatch) as Box<dyn ToolDyn>,
-            Box::new(discovery),
-            Box::new(pad.goal()),
-            Box::new(pad.step()),
-            Box::new(pad.mark()),
-            Box::new(pad.note()),
-            Box::new(pad.clear()),
-            Box::new(pad.plan()),
-            Box::new(self.skills.list_tool()),
-            Box::new(self.skills.search_tool()),
-            Box::new(self.skills.apply_tool()),
-            Box::new(self.skills.file_tool()),
-            Box::new(ReadTool),
-            Box::new(WriteTool),
-            Box::new(EditTool),
-            Box::new(ListTool),
-            Box::new(GlobTool),
-            Box::new(GrepTool),
-        ]);
-        if let Some(tool) = messaging {
-            tools.push(Box::new(tool));
-        }
-        if let Some(tool) = send_file {
-            tools.push(Box::new(tool));
-        }
-        if let Some(tool) = restart {
-            tools.push(Box::new(tool));
-        }
-        if let Some(sc) = selfconfig {
-            tools.extend(vec![
-                Box::new(self.models.select_tool()) as Box<dyn ToolDyn>,
-                Box::new(sc.read_tool()),
-                Box::new(sc.list_tool()),
-                Box::new(sc.write_tool()),
-                Box::new(sc.edit_tool()),
-                Box::new(sc.set_secret_tool()),
-                Box::new(sc.list_secrets_tool()),
-            ]);
-        }
-        if let Some(tool) = children {
-            tools.push(Box::new(tool));
-        }
-        let artifacts = if volatile {
-            artifacts.without_disk()
-        } else {
-            artifacts
-        };
-        let tools = fence_tools(artifacts.wrap(tools), session);
-        let stage_store = self.scratchpad.clone();
-        let stage_scope = pad_scope.clone();
-        let feed = feed.with_stage_source(move || stage_store.progress_scoped(&stage_scope));
-        feed.register_tool_names(tools.iter().map(|tool| tool.name()));
-        let agent = base.tools(tools).build();
-        agent
-            .prompt(prompt)
-            .with_hook(feed)
-            .max_turns(self.config.max_tool_turns)
-            .with_history(history)
-            .await
     }
 }

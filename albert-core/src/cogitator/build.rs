@@ -6,10 +6,10 @@ use octo_openai_auth::SubscriptionAuth;
 
 use super::{messaging::MessagingRuntime, AlbertCogitator};
 use crate::{
-    config::Config, history::HistoryStore, memory::Memory, messaging::store::MessageStore,
-    models::ModelPool, prompt::PromptFiles, scratchpad::ScratchpadStore,
-    service::session::SessionService, sessions::transport::HostTransport,
-    sessions::transport::LocalTransport, skills::SkillStore,
+    config::Config, history::HistoryStore, mcp::McpRegistry, memory::Memory,
+    messaging::store::MessageStore, models::ModelPool, prompt::PromptFiles,
+    scratchpad::ScratchpadStore, service::session::SessionService,
+    sessions::transport::HostTransport, sessions::transport::LocalTransport, skills::SkillStore,
 };
 
 impl AlbertCogitator {
@@ -36,6 +36,7 @@ impl AlbertCogitator {
             config,
             history,
             session_service: None,
+            mcp: None,
             session_history: None,
             request_gates: Default::default(),
             messaging: None,
@@ -49,6 +50,12 @@ impl AlbertCogitator {
         })
     }
 
+    pub(crate) fn with_mcp(mut self: Arc<Self>, registry: Arc<McpRegistry>) -> Arc<Self> {
+        Arc::get_mut(&mut self)
+            .expect("install MCP before sharing cognition")
+            .mcp = Some(registry);
+        self
+    }
     pub(crate) fn with_transport(
         mut self: Arc<Self>,
         transport: Arc<dyn HostTransport>,

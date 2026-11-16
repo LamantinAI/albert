@@ -13,6 +13,9 @@ pub(super) struct Progress {
 }
 
 impl Progress {
+    pub fn current(&self) -> Option<ProgressSnapshot> {
+        self.snapshot.clone()
+    }
     pub fn apply(&mut self, delta: &ProgressDelta) -> bool {
         if delta.attempt_id.is_empty()
             || delta.attempt_id.len() > 256

@@ -29,6 +29,11 @@ impl ChannelState {
     }
     pub(in crate::cogitator) fn is_idle(&mut self) -> bool {
         if self.message.as_ref().is_some_and(MessageTask::is_finished) {
+            self.last_outcome = self
+                .message
+                .as_ref()
+                .and_then(MessageTask::outcome)
+                .map(str::to_owned);
             self.message = None;
         }
         self.active.is_none() && self.message.is_none()
@@ -44,6 +49,7 @@ impl ChannelState {
     }
     pub(super) async fn interrupt(&mut self) -> Option<Interrupted> {
         let active = self.active.take()?;
+        self.last_outcome = Some("interrupted".into());
         close_feedback(&active.feedback);
         active.task.abort();
         let _ = active.task.await; // no old hooks/replies may race the checkpoint

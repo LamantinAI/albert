@@ -1,123 +1,49 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import {
-  Link,
-  NavLink,
-  Outlet,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-
+import { OperatorProvider } from "../features/operator/OperatorContext";
+import { ViewSwitcher } from "../features/operator/ViewSwitcher";
+import { NewConversationButton } from "../features/sessions/NewConversationButton";
+import { Suspense } from "react";
+import { Link, NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Icon } from "../components/Icon";
 import { Button, Notice } from "../components/ui";
-import {
-  SessionDirectory,
-  useSessionDirectory,
-} from "../features/sessions/SessionDirectory";
-import { useSidebarLayout } from "./useSidebarLayout";
-import { useSignOut } from "./useSignOut";
+import { SessionDirectory } from "../features/sessions/SessionDirectory";
 import { PageLoading } from "./PageLoading";
-import { useClientContext } from "./context";
-
-const sections = [
-  { path: "/models", label: "Models", icon: "models" },
-  { path: "/skills", label: "Skills", icon: "skills" },
-  { path: "/settings/connections", label: "Connections", icon: "plug" },
-  { path: "/settings/prompts", label: "Persona & instructions", icon: "book" },
-  { path: "/settings/secrets", label: "Credentials", icon: "key" },
-  { path: "/settings", label: "Agent", icon: "robot" },
-  { path: "/approvals", label: "Approvals", icon: "shield" },
-  { path: "/users", label: "People", icon: "users" },
-] as const;
-
-export function Shell() {
-  const directory = useSessionDirectory();
-  const { context } = useClientContext();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [mobile, setMobile] = useState(false);
-  const { compact, desktop, setCollapsed } = useSidebarLayout();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const inSettings =
-    location.pathname === "/workspace" ||
-    sections.some((section) => location.pathname.startsWith(section.path));
-  useEffect(() => {
-    if (inSettings) setSettingsOpen(true);
-  }, [location.pathname, inSettings]);
-  const { signOut: logout, busy: signingOut, error } = useSignOut();
-  const sidebar = useRef<HTMLElement>(null);
-  const menu = useRef<HTMLButtonElement>(null);
-  const settingsToggle = useRef<HTMLButtonElement>(null);
-  const sidebarToggle = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!compact) return;
-    const focused = document.activeElement;
-    const restore =
-      focused instanceof HTMLElement &&
-      sidebar.current?.contains(focused) &&
-      !!focused.closest("#sidebar-expanded-navigation,.session-actions-popup");
-    directory.actions.close();
-    if (restore) sidebarToggle.current?.focus({ preventScroll: true });
-  }, [compact, directory.actions.close]);
-  const closeNavigation = useCallback((returnFocus = false) => {
-    setMobile(false);
-    if (returnFocus) requestAnimationFrame(() => menu.current?.focus());
-  }, []);
-  const onNavigate = useCallback(() => closeNavigation(), [closeNavigation]);
-  useEffect(() => {
-    setMobile(false);
-  }, [location.pathname, location.search]);
-  useEffect(() => {
-    if (!mobile) return;
-    const before = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    sidebar.current?.querySelector<HTMLElement>("a, button")?.focus();
-    function keydown(event: KeyboardEvent) {
-      if (document.querySelector("dialog[open]")) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeNavigation(true);
-      }
-      if (event.key !== "Tab") return;
-      const elements = [
-        ...(sidebar.current?.querySelectorAll<HTMLElement>(
-          "a[href],button:not(:disabled),input:not(:disabled)",
-        ) ?? []),
-      ].filter(
-        (node) => node.getClientRects().length > 0 && !node.closest("[inert]"),
-      );
-      const first = elements[0],
-        last = elements.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    }
-    document.addEventListener("keydown", keydown);
-    const media = matchMedia("(max-width: 760px)");
-    const resize = () => {
-      if (!media.matches) setMobile(false);
-    };
-    media.addEventListener("change", resize);
-    return () => {
-      document.body.style.overflow = before;
-      document.removeEventListener("keydown", keydown);
-      media.removeEventListener("change", resize);
-    };
-  }, [mobile]);
-  const username = context?.account?.username ?? "";
-  const changeSidebar = (collapsed: boolean) => {
-    directory.actions.close();
-    setCollapsed(collapsed);
-  };
-  const newChat = (temporary: boolean) => {
-    directory.setFirstDraft(null);
-    closeNavigation();
-    navigate(`/chats?new=${temporary ? "temporary" : "permanent"}`);
-  };
+import type { ShellProps } from "./useShell";
+import { useShell } from "./useShell";
+import { WorkspaceToolbar } from "./WorkspaceToolbar";
+export function Shell(props: ShellProps) {
+  return (
+    <OperatorProvider>
+      <ShellContent {...props} />
+    </OperatorProvider>
+  );
+}
+function ShellContent(props: ShellProps) {
+  const {
+    sections,
+    directory,
+    context,
+    navigate,
+    mobile,
+    setMobile,
+    compact,
+    desktop,
+    settingsOpen,
+    setSettingsOpen,
+    inSettings,
+    logout,
+    signingOut,
+    error,
+    sidebar,
+    menu,
+    settingsToggle,
+    sidebarToggle,
+    closeNavigation,
+    onNavigate,
+    username,
+    changeSidebar,
+    newChat,
+  } = useShell(props);
   return (
     <div className="app-shell" data-sidebar-collapsed={compact || undefined}>
       {mobile && (
@@ -159,27 +85,8 @@ export function Shell() {
           >
             {context?.caps.chat && (
               <div className="sidebar-actions">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    directory.setFirstDraft(null);
-                    navigate("/chats?new=permanent");
-                  }}
-                >
-                  <Icon name="plus" size={16} />
-                  New chat
-                </Button>
-                <Button
-                  className="icon-button"
-                  title="New temporary chat"
-                  aria-label="New temporary chat"
-                  onClick={() => {
-                    directory.setFirstDraft(null);
-                    navigate("/chats?new=temporary");
-                  }}
-                >
-                  <Icon name="temporary" />
-                </Button>
+                <NewConversationButton primary onNavigate={onNavigate} />
+                <ViewSwitcher onNavigate={onNavigate} />
               </div>
             )}
             <SessionDirectory onNavigate={onNavigate} />
@@ -292,14 +199,7 @@ export function Shell() {
                 >
                   <Icon name="plus" size={18} />
                 </Button>
-                <Button
-                  className="rail-control"
-                  aria-label="New temporary chat"
-                  title="New temporary chat"
-                  onClick={() => newChat(true)}
-                >
-                  <Icon name="temporary" size={18} />
-                </Button>
+                <ViewSwitcher onNavigate={onNavigate} />
               </>
             )}
             {context?.caps.chat && (
@@ -359,33 +259,12 @@ export function Shell() {
         </div>
       </aside>
       <main className="workspace" inert={mobile || undefined}>
-        <div className="workspace-tools">
-          <Button
-            ref={menu}
-            variant="ghost"
-            className="icon-button mobile-menu"
-            aria-label="Open navigation"
-            aria-expanded={mobile}
-            aria-controls="workspace-navigation"
-            onClick={() => setMobile(true)}
-          >
-            <Icon name="menu" />
-          </Button>
-          <Brand caption={false} className="workspace-brand" />
-          <span
-            className="workspace-status"
-            aria-label={
-              context?.setup.model_ready
-                ? "Model pool ready"
-                : "Model pool needs configuration"
-            }
-          >
-            <span
-              className={`connection-dot ${!context?.setup.model_ready ? "status-pending" : ""}`}
-            />
-            Model pool
-          </span>
-        </div>
+        <WorkspaceToolbar
+          menu={menu}
+          mobile={mobile}
+          onOpenNavigation={() => setMobile(true)}
+          modelReady={!!context?.setup.model_configured}
+        />
         {error && (
           <div className="workspace-error">
             <Notice kind="error">{error}</Notice>

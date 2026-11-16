@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
 import type { FormEvent } from "react";
-import { Field } from "../../components/ui";
+import { useEffect, useRef } from "react";
 import { Icon } from "../../components/Icon";
+import { Field } from "../../components/ui";
 
 export function SubscriptionAuthorize({ url }: { url: string | null }) {
   return (
@@ -76,6 +76,7 @@ export function SubscriptionReturn({
       </ol>
       <Field
         label="Callback URL or authorization code"
+        type="password"
         value={callback}
         onChange={(event) => onChange(event.target.value)}
         maxLength={8192}

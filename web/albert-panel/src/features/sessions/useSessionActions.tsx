@@ -1,24 +1,20 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { endTemporaryChat } from "./endTemporaryChat";
+import { useSessionDeletion } from "./useSessionDeletion";
+import { sessionActionPresentation } from "./sessionActionPresentation";
+import { useSessionActionTarget } from "./useSessionActionTarget";
 
 import { api, ApiError, errorMessage, requestId } from "../../api/client";
 import { uiPath } from "../../api/paths";
-import type { ApiBody } from "../../api/client";
-import { Button, Notice } from "../../components/ui";
 import { useDialogs } from "../../components/useDialogs";
-import { SessionActionsPopover } from "./SessionActionsPopover";
 import type { Directory } from "./SessionDirectory";
 import type { Session } from "./useConversation";
 
-type Target = {
-  session: Session;
-  anchor: HTMLButtonElement;
-  list: HTMLElement | null;
-};
-type SaveAttempt = Target & {
-  key: string;
-  body: ApiBody<"/sessions/{id}", "patch">;
-};
+import type {
+  SessionSaveAttempt as SaveAttempt,
+  SessionActionTarget as Target,
+} from "./sessionActionTypes";
 type Tools = Pick<
   Directory,
   "updateKnown" | "refreshSession" | "removeSession"
@@ -32,76 +28,18 @@ export function useSessionActions(
     navigate = useNavigate();
   const { confirm, prompt, dialog } = useDialogs(location.pathname);
   const menuId = useId();
-  const [target, setTarget] = useState<Target | null>(null);
-  const current = useRef<Target | null>(null);
   const [error, setError] = useState("");
   const [pendingSave, setPendingSave] = useState<SaveAttempt | null>(null);
   const [busy, setBusy] = useState(false);
   const [preparing, setPreparing] = useState(false);
-  const mutating = useRef(false),
-    alive = useRef(true),
-    generation = useRef(0);
   const active = useRef(activeId);
   active.current = activeId;
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-      generation.current++;
-    };
-  }, []);
-
-  const close = useCallback((focus = false) => {
-    if (focus && current.current?.anchor.isConnected)
-      current.current.anchor.focus({ preventScroll: true });
-    current.current = null;
-    generation.current++;
-    setTarget(null);
-  }, []);
-  useEffect(() => {
-    close();
-  }, [location.pathname, close]);
-
-  const open = useCallback(
-    (session: Session, anchor: HTMLButtonElement) => {
-      if (mutating.current) return;
-      if (current.current?.session.id === session.id) {
-        close(true);
-        return;
-      }
-      const next = {
-        session,
-        anchor,
-        list: anchor.closest<HTMLElement>(".chat-list"),
-      };
-      generation.current++;
-      current.current = next;
-      setTarget(next);
-    },
-    [close],
-  );
-
-  function restore(value: Target) {
-    const anchor = value.anchor;
-    requestAnimationFrame(() => {
-      const focused = document.activeElement;
-      if (
-        focused !== document.body &&
-        focused !== anchor &&
-        focused?.isConnected
-      )
-        return;
-      if (anchor.isConnected) anchor.focus({ preventScroll: true });
-      else
-        (value.list?.isConnected
-          ? value.list
-          : document.querySelector(".sidebar")
-        )
-          ?.querySelector<HTMLElement>("input,a[href],button:not(:disabled)")
-          ?.focus({ preventScroll: true });
-    });
-  }
-  async function forDialog(kind: Session["kind"]): Promise<Target | null> {
+  const { target, current, mutating, alive, generation, close, open, restore } =
+    useSessionActionTarget();
+  async function forDialog(
+    kind: Session["kind"],
+    allowArchived = false,
+  ): Promise<Target | null> {
     const selected = current.current;
     if (!selected || mutating.current) return null;
     const token = generation.current;
@@ -122,7 +60,13 @@ export function useSessionActions(
         ended({ ...selected, session });
         return null;
       }
-      if (session.kind !== kind || session.state !== "active") {
+      if (
+        session.kind !== kind ||
+        !(
+          session.state === "active" ||
+          (allowArchived && session.state === "archived")
+        )
+      ) {
         close(true);
         setError("This conversation changed. Open its actions again.");
         return null;
@@ -134,11 +78,7 @@ export function useSessionActions(
     } catch (reason) {
       if (alive.current && generation.current === token) {
         close(true);
-        if (
-          selected.session.kind === "temporary" &&
-          reason instanceof ApiError &&
-          [404, 410].includes(reason.status)
-        )
+        if (reason instanceof ApiError && [404, 410].includes(reason.status))
           ended(selected);
         else setError(errorMessage(reason));
       }
@@ -275,112 +215,41 @@ export function useSessionActions(
       navigate("/chats", { replace: true });
     restore(value);
   }
-  async function end() {
-    const value = await forDialog("temporary");
-    if (!value) return;
-    if (
-      !(await confirm({
-        title: "End temporary chat?",
-        description:
-          "Its unsaved conversation will be discarded. Save it first if you want to keep it. External actions already performed will remain.",
-        confirmLabel: "End chat",
-        cancelLabel: "Keep chat",
-        danger: true,
-      })) ||
-      !alive.current
-    )
-      return;
-    mutating.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await api("/sessions/{id}", "patch", {
-        path: { id: value.session.id },
-        revision: value.session.revision,
-        body: { revision: value.session.revision, state: "ended" },
-      });
-      if (alive.current) ended(value);
-    } catch (reason) {
-      if (alive.current) {
-        const observed = await refreshSession(value.session.id).catch(
-          (failure) => failure,
-        );
-        if (!alive.current) return;
-        if (
-          observed instanceof ApiError &&
-          [404, 410].includes(observed.status)
-        )
-          ended(value);
-        else setError(errorMessage(reason));
-      }
-    } finally {
-      mutating.current = false;
-      if (alive.current) setBusy(false);
-    }
-  }
+  const lifecycle = {
+    prepare: forDialog,
+    confirm,
+    finish: ended,
+    refreshSession,
+    mutating,
+    alive,
+    setBusy,
+    setError,
+  };
+  const deletion = useSessionDeletion(lifecycle);
+  const end = () => endTemporaryChat(lifecycle);
 
-  const popup = target && (
-    <SessionActionsPopover
-      anchor={target.anchor}
-      id={menuId}
-      ready={!busy && !preparing}
-      onClose={close}
-    >
-      {target.session.kind === "temporary" ? (
-        <>
-          <Button
-            variant="ghost"
-            role="menuitem"
-            aria-label="Save chat"
-            disabled={
-              busy ||
-              preparing ||
-              (!!pendingSave && pendingSave.session.id !== target.session.id)
-            }
-            onClick={() => void save()}
-          >
-            {pendingSave?.session.id === target.session.id
-              ? "Retry save"
-              : "Save"}
-          </Button>
-          <Button
-            variant="danger"
-            role="menuitem"
-            disabled={busy || preparing}
-            onClick={() => void end()}
-          >
-            Delete
-          </Button>
-        </>
-      ) : (
-        <Button
-          variant="ghost"
-          role="menuitem"
-          disabled={busy || preparing}
-          onClick={() => void rename()}
-        >
-          Rename
-        </Button>
-      )}
-    </SessionActionsPopover>
-  );
-  const feedback = error && (
-    <div className="session-actions-feedback">
-      <Notice kind="error">
-        {error}
-        {pendingSave && (
-          <Button disabled={busy} onClick={() => void executeSave(pendingSave)}>
-            Retry save
-          </Button>
-        )}
-      </Notice>
-    </div>
-  );
+  const { popup, feedback } = sessionActionPresentation({
+    target,
+    menuId,
+    busy,
+    preparing,
+    close,
+    pendingSave,
+    pendingDelete: deletion.pending,
+    remove: deletion.remove,
+    retryDelete: deletion.retry,
+    save,
+    end,
+    rename,
+    error,
+    executeSave,
+  });
   return {
     open,
     close,
     menuId,
     targetId: target?.session.id,
+    deletingSession: deletion.deletingSession,
     busy,
     popup,
     dialog,

@@ -9,6 +9,9 @@
 //! turn goes on — live feedback must never break cognition.
 
 mod activity;
+mod confirmation;
+mod format;
+use self::format::{clip, display_args, summarize_result};
 pub mod domain;
 
 use std::{mem::take, sync::atomic::AtomicBool, sync::atomic::Ordering, sync::Arc, sync::Mutex};
@@ -22,12 +25,14 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::{
-    history::sessions::Backend, sessions::transport::TurnFeedback, sessions::SessionContext,
+    confirmations::ConfirmationWait, history::sessions::Backend, sessions::transport::TurnFeedback,
+    sessions::SessionContext,
 };
 
 mod feedback;
 mod hooks;
 mod metrics;
+pub mod operator;
 mod presentation;
 pub mod progress;
 pub mod text;
@@ -63,6 +68,7 @@ pub struct StatusFeed {
     /// Shared across clones; survives being moved through the tool-loop.
     actions: Arc<Mutex<Vec<String>>>,
     trace: Arc<Mutex<Trace>>,
+    confirmation_wait: Arc<Mutex<Option<ConfirmationWait>>>,
     result_observer: Option<Arc<ResultObserver>>,
     stage_source: Option<Arc<StageSource>>,
     text: Arc<Mutex<Option<TextCursor>>>,
@@ -103,6 +109,7 @@ impl StatusFeed {
             })),
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
+            confirmation_wait: Arc::new(Mutex::new(None)),
             result_observer: None,
             stage_source: None,
             text: Arc::new(Mutex::new(None)),
@@ -137,6 +144,7 @@ impl StatusFeed {
             feed: None,
             actions: Arc::new(Mutex::new(Vec::new())),
             trace: Arc::new(Mutex::new(Trace::default())),
+            confirmation_wait: Arc::new(Mutex::new(None)),
             result_observer: None,
             stage_source: None,
             text: Arc::new(Mutex::new(None)),
@@ -285,44 +293,6 @@ impl StatusFeed {
     async fn emit(&self, line: String) {
         self.publish_line("chat.status", line, None).await;
     }
-}
-
-/// Tool args as shown in the live status and recorded in the action log — with secret
-/// values redacted so `config_set_secret`'s value never reaches chat or history.
-fn display_args(tool_name: &str, args: &str) -> String {
-    if tool_name == "config_set_secret" {
-        let name = serde_json::from_str::<serde_json::Value>(args)
-            .ok()
-            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string))
-            .unwrap_or_else(|| "?".to_string());
-        return format!("{{name: {name}, value: <redacted>}}");
-    }
-    args.to_string()
-}
-
-/// Compress a tool result to a few tokens — `ok` / `err: …` when the payload says so,
-/// else a hard clip. Results are the expensive half of an action record; args are kept.
-fn summarize_result(result: &str) -> String {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(result) {
-        if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
-            return format!("err: {}", clip(e, 80));
-        }
-        match v.get("ok").and_then(serde_json::Value::as_bool) {
-            Some(true) => return "ok".to_string(),
-            Some(false) => return "err".to_string(),
-            None => {}
-        }
-    }
-    clip(&result.replace('\n', " "), 80)
-}
-
-/// Clip to at most `max` chars on a char boundary, marking the cut with an ellipsis.
-fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let cut: String = s.chars().take(max).collect();
-    format!("{cut}…")
 }
 
 #[cfg(test)]

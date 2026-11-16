@@ -1,13 +1,16 @@
 use albert_core::{
     db::account::LoginAccount, db::repo::account::by_id, db::repo::account::by_name,
-    db::repo::account::credential, db::repo::account::issue, db::repo::account::revoke,
-    db::repo::account::rotate,
+    db::repo::account::credential, db::repo::account::revoke, db::repo::account::rotate,
+    db::repo::browser_refresh::issue, db::repo::browser_refresh::NewRefresh,
 };
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
-use super::{random_id, role, validate_username, view, AuthError, AuthService, LoginResult};
+use super::refresh::token_digest;
+use super::{
+    random_id, role, validate_username, view, AuthError, AuthService, LoginResult, RefreshCookie,
+};
 use crate::{
     api::models::AccountRole, api::models::AccountView, api::models::CredentialUpdate,
     api::models::CredentialView, api::models::LoginRequest, api::principal::Principal,
@@ -50,26 +53,26 @@ impl AuthService {
         let now = Utc::now().timestamp();
         let id = random_id();
         let expires = now + self.settings.credential_ttl_seconds as i64;
-        let claims = Claims {
-            sub: account.id.clone(),
-            jti: id.clone(),
-            v: account.token_version,
-            role: role(&account.role)?,
-            must_change_password: account.must_change_password,
-            csrf: random_id(),
-            exp: expires,
-            iat: now,
-            nbf: now,
-            iss: "albert".into(),
-            aud: "albert-web".into(),
+        let csrf = random_id();
+        let refresh = RefreshCookie {
+            token: random_id(),
+            expires_at: now + self.settings.refresh_ttl_seconds as i64,
         };
-        let token = encode(
-            &Header::new(Algorithm::HS256),
-            &claims,
-            &EncodingKey::from_secret(&self.key),
+        let token = self.access_token(&account, &id, &csrf, now, expires)?;
+        if !issue(
+            &self.pool,
+            &id,
+            &account,
+            now,
+            expires,
+            NewRefresh {
+                digest: &token_digest(&refresh.token),
+                csrf: &csrf,
+                expires_at: refresh.expires_at,
+            },
         )
-        .map_err(|_| AuthError::Configuration)?;
-        if !issue(&self.pool, &id, &account, now, expires).await? {
+        .await?
+        {
             return Err(AuthError::Conflict);
         }
         Ok(LoginResult {
@@ -78,7 +81,37 @@ impl AuthService {
                 id,
                 expires_at: expires,
             },
+            csrf,
+            refresh: Some(refresh),
         })
+    }
+    pub(super) fn access_token(
+        &self,
+        account: &LoginAccount,
+        id: &str,
+        csrf: &str,
+        now: i64,
+        expires: i64,
+    ) -> Result<String, AuthError> {
+        let claims = Claims {
+            sub: account.id.clone(),
+            jti: id.into(),
+            v: account.token_version,
+            role: role(&account.role)?,
+            must_change_password: account.must_change_password,
+            csrf: csrf.into(),
+            exp: expires,
+            iat: now,
+            nbf: now,
+            iss: "albert".into(),
+            aud: "albert-web".into(),
+        };
+        encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(&self.key),
+        )
+        .map_err(|_| AuthError::Configuration)
     }
     pub async fn authenticate(&self, token: &str) -> Result<Principal, AuthError> {
         if token.len() > 8192 {
@@ -115,17 +148,16 @@ impl AuthService {
             || stored.id != claims.jti
             || stored.token_version != claims.v
             || stored.revoked_at.is_some()
-            || stored.issued_at != claims.iat
-            || stored.expires_at != claims.exp
+            || stored.issued_at > claims.iat
+            || stored.expires_at < claims.exp
             || stored.expires_at <= now
         {
             return Err(AuthError::Unauthorized);
         }
-        Ok(Principal::authenticated(
-            view(account)?,
-            claims.jti,
-            claims.csrf,
-        ))
+        Ok(
+            Principal::authenticated(view(account)?, claims.jti, claims.csrf)
+                .with_expiry(claims.exp),
+        )
     }
     pub async fn revoke_credential(
         &self,

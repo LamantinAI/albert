@@ -7,6 +7,7 @@ pub struct Principal {
     account: AccountView,
     credential_id: String,
     csrf: String,
+    expires_at: Option<i64>,
 }
 impl Principal {
     pub(crate) fn authenticated(account: AccountView, credential_id: String, csrf: String) -> Self {
@@ -14,7 +15,15 @@ impl Principal {
             account,
             credential_id,
             csrf,
+            expires_at: None,
         }
+    }
+    pub(crate) fn with_expiry(mut self, expires_at: i64) -> Self {
+        self.expires_at = Some(expires_at);
+        self
+    }
+    pub fn expires_at(&self) -> Option<i64> {
+        self.expires_at
     }
     pub fn account(&self) -> &AccountView {
         &self.account

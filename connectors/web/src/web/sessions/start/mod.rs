@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use albert_core::{
-    cogitator::source_context, composer::message_digest, history::Turn, media::encode_selected,
+    cogitator::source_context, composer::message_digest, history::Turn, media::encode_prepared,
     service::session::web::start::StartRecord, service::session::web::WebActor,
     sessions::acceptance::AcceptedStart, sessions::actor::ActorToolPolicy,
 };
@@ -113,7 +113,13 @@ impl SessionHost {
             }
             let selected = self.prepare_skills(actor, &selections)?;
             let media = self
-                .prepare_media(actor, None, &input.text, &input.attachments)
+                .prepare_media(
+                    actor,
+                    None,
+                    &input.text,
+                    &input.attachments,
+                    input.temporary,
+                )
                 .await?;
             let envelope = input_envelope(actor, input.text.clone(), id.as_str());
             let source = source_context(&envelope);
@@ -122,10 +128,15 @@ impl SessionHost {
             } else {
                 format!("{source}\n{}", input.text)
             };
-            let transcript = encode_selected(transcript, media.assets, selected.stamps());
+            let transcript = encode_prepared(
+                transcript,
+                media.assets,
+                selected.stamps(),
+                media.workspace_files,
+            );
             self.runtime
                 .sessions
-                .web_start_create(
+                .web_start_create_prepared(
                     actor,
                     id.as_str(),
                     &digest,
@@ -136,6 +147,7 @@ impl SessionHost {
                         digest: input_digest.clone(),
                         turns: vec![Turn::user(transcript)],
                     },
+                    Some(&self.runtime.base.code_workspace),
                 )
                 .await
                 .map_err(session_error)?
@@ -163,7 +175,7 @@ impl SessionHost {
                 }
             };
             let media = match self
-                .prepare_media(actor, Some(&row.session), &input.text, &input.attachments)
+                .accepted_media(actor, &row, &input.text, &input.attachments, &input_digest)
                 .await
             {
                 Ok(media) => media,

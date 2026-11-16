@@ -1,3 +1,4 @@
+use crate::subagents::SubagentTool;
 use std::path::PathBuf;
 
 use rig::tool::ToolDyn;
@@ -11,6 +12,25 @@ use crate::{
 };
 
 impl AlbertCogitator {
+    pub(super) fn validate_child_tools(
+        &self,
+        tool: &SubagentTool,
+        names: &[String],
+    ) -> Result<(), String> {
+        let mut available = self.child_tools_for(PathBuf::new(), tool.session.as_ref());
+        available.extend(
+            tool.mcp
+                .iter()
+                .cloned()
+                .map(|tool| Box::new(tool) as Box<dyn ToolDyn>),
+        );
+        for name in names {
+            if !available.iter().any(|tool| tool.name() == *name) {
+                return Err(format!("Native tool cannot be delegated: {name}"));
+            }
+        }
+        Ok(())
+    }
     pub(super) fn child_tools_for(
         &self,
         workspace: PathBuf,

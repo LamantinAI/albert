@@ -18,6 +18,7 @@ use rig::{
     completion::Usage, providers::openai::responses_api::ResponsesCompletionModel,
     providers::openai::Client, streaming::StreamingCompletionResponse,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::codex_http::CodexHttp;
 
@@ -28,11 +29,14 @@ pub struct CodexResponsesModel {
     inner: ResponsesCompletionModel<CodexHttp>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReportedResponse {
+    pub usage: Option<Usage>,
+}
+
 impl CompletionModel for CodexResponsesModel {
-    // The agent tool-loop reads only `choice`/`usage`/`message_id`, never the raw
-    // provider payload, and the streaming path yields no single JSON body to fill
-    // it with — so `()` is both sufficient and simplest.
-    type Response = ();
+    // Preserve whether usage was reported before rig normalizes missing metrics.
+    type Response = ReportedResponse;
     type StreamingResponse =
         <ResponsesCompletionModel<CodexHttp> as CompletionModel>::StreamingResponse;
     type Client = Client<CodexHttp>;
@@ -54,15 +58,15 @@ impl CompletionModel for CodexResponsesModel {
         while let Some(item) = stream.next().await {
             item?; // propagate provider / parse errors; side effects do the folding
         }
-        let usage = stream
+        let reported = stream
             .response
             .as_ref()
-            .and_then(GetTokenUsage::token_usage)
-            .unwrap_or_else(Usage::new);
+            .and_then(GetTokenUsage::token_usage);
+        let usage = reported.unwrap_or_else(Usage::new);
         Ok(CompletionResponse {
             choice: stream.choice.clone(),
             usage,
-            raw_response: (),
+            raw_response: ReportedResponse { usage: reported },
             message_id: stream.message_id.clone(),
         })
     }

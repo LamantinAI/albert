@@ -8,7 +8,8 @@ use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    acl::tag, composer::CompactRequest, sessions::error::SessionError,
+    acl::tag, composer::CompactRequest, confirmations::ConfirmationContinuation,
+    credentials::CredentialContinuation, sessions::error::SessionError,
     sessions::error::SessionResult, sessions::native::batch_identity,
     sessions::transport::NativeIngress,
 };
@@ -70,7 +71,11 @@ impl NativeRequest {
             namespace: format!(
                 "albert/native/{:x}{}",
                 Sha256::digest(origin),
-                if incoming.context.get::<CompactRequest>().is_some() {
+                if incoming.context.get::<CredentialContinuation>().is_some() {
+                    "/credential"
+                } else if incoming.context.get::<ConfirmationContinuation>().is_some() {
+                    "/confirmation"
+                } else if incoming.context.get::<CompactRequest>().is_some() {
                     "/compact"
                 } else {
                     ""

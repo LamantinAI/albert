@@ -5,7 +5,7 @@ use crate::{
     db::repo::identity::bind as bind_identity,
 };
 
-const ACCOUNT_COLUMNS: &str = "id,username,password_hash,role,canonical_user_id,must_change_password,disabled,token_version,revision";
+pub(super) const ACCOUNT_COLUMNS: &str = "id,username,password_hash,role,canonical_user_id,must_change_password,disabled,token_version,revision";
 
 pub async fn by_id(pool: &SqlitePool, id: &str) -> Result<Option<LoginAccount>, sqlx::Error> {
     query_as(&format!(
@@ -65,16 +65,6 @@ pub async fn credential(
     id: &str,
 ) -> Result<Option<BrowserCredential>, sqlx::Error> {
     query_as("SELECT id,account_id,token_version,issued_at,expires_at,revoked_at FROM albert_browser_credentials WHERE id=?").bind(id).fetch_optional(pool).await
-}
-pub async fn issue(
-    pool: &SqlitePool,
-    id: &str,
-    account: &LoginAccount,
-    now: i64,
-    expires: i64,
-) -> Result<bool, sqlx::Error> {
-    Ok(query("INSERT INTO albert_browser_credentials(id,account_id,token_version,issued_at,expires_at) SELECT ?,id,token_version,?,? FROM albert_login_accounts WHERE id=? AND revision=? AND disabled=0")
-        .bind(id).bind(now).bind(expires).bind(&account.id).bind(account.revision).execute(pool).await?.rows_affected()==1)
 }
 pub async fn revoke(
     pool: &SqlitePool,

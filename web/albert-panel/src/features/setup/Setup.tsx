@@ -24,7 +24,7 @@ export function Setup() {
             </div>
             <div className="setup-step">
               <span>2</span>
-              <span>Your first chat</span>
+              <span>Model & memory</span>
             </div>
           </div>
           <PageHeading eyebrow="Welcome to Albert" title="Set up your profile">
@@ -38,7 +38,7 @@ export function Setup() {
             Next, open your first chat
             {context?.setup.model_ready || !context?.caps.manage_models
               ? "."
-              : " and choose how to connect a model."}
+              : " and choose your model and memory."}
           </p>
         </>
       ) : (

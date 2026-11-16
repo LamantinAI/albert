@@ -33,22 +33,32 @@ path you haven't confirmed exists.
   `connector.toml`. Confirm the real name with `config_list config/connectors/<id>`.
 - `skills/<name>/SKILL.md` — skills (like this one).
 
-Secrets live in `.env` — handled ONLY by the dedicated `config_set_secret` /
-`config_list_secrets` tools (the read/write/edit tools refuse it). Also off-limits to
+Secrets live in `.env` — enter them through the dedicated Credentials panel.
+The read/write/edit tools refuse this file; `config_list_secrets` lists names only. Also off-limits to
 those tools: the `albert` binary, `state/`, the kaeru vault.
 
 ## Secrets
 
 A manifest names a secret by its env-var (e.g. `${secret.jira_token}` → `JIRA_TOKEN`),
-never the value. To supply the value yourself:
+never the value. To obtain a missing credential:
 
-- `config_list_secrets` → the NAMES currently set (never values) — check what's missing.
-- `config_set_secret { name, value }` → add or replace one secret. Write-only: you can
-  set a secret but never read existing ones back. Apply with `restart` afterwards.
-- **Never repeat a secret value in your reply** — not even to confirm; say "set" and the
-  name only. The owner gave it to you in confidence.
+1. Check `config_list_secrets` for the name; existing values are never returned.
+2. Call `request_credential {name}` and ask the owner to use the Credentials panel
+   in the authorized web conversation. Do not request a secret as a chat message.
+3. Return to the owner and wait. A metadata receipt continues the private session
+   at an idle boundary; do not poll or keep a tool call waiting for the value.
+4. Use the actual name in the receipt: the owner may edit the suggested name.
+   A cancelled/expired request is not a saved credential. Do not automatically
+   reopen a request the owner cancelled.
+5. Saving does not activate a running connector. Use the existing apply/restart
+   procedure and verify activation separately.
 
-This lets you wire a new connector end to end: write its manifest, set its token, restart.
+The owner can also open Commands → Credentials to create or update a server
+credential manually. If the request tool is unavailable, point to the control
+panel or host settings instead. Never read stored values through files or scripts.
+Only if the owner has already explicitly pasted a value in chat for storage may
+`config_set_secret {name,value}` be used as the legacy fallback. Never repeat that
+value in a reply, summary or memory; confirm only the name and status.
 
 ## Model pool and subagent assignments
 

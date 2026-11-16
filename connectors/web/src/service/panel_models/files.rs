@@ -102,10 +102,6 @@ pub(crate) fn read_optional(
     }
 }
 
-pub(crate) fn ensure_directory(root: &Path, path: &Path) -> ApiResult<()> {
-    ensure_directory_mode(root, path, 0o700)
-}
-
 pub(crate) fn ensure_directory_mode(root: &Path, path: &Path, mode: u32) -> ApiResult<()> {
     let target = checked(root, path)?;
     let relative = target

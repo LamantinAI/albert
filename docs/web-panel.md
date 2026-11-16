@@ -20,12 +20,43 @@ to open the panel. Open **http://127.0.0.1:9877/ui/**.
    one-time code. After credentials connect, choose a model from the account-specific
    catalog; no model ID or model settings are required before authorization.
    `albert login` remains the interactive terminal alternative.
-4. Start a permanent or temporary conversation.
+4. Choose built-in Kaeru memory or a dedicated Kaeru MCP server. HTTP supports an
+   optional masked bearer token; stdio uses named server credential references.
+   Saving initializes the selected backend and creates the Albert initiative if
+   needed. A connection failure keeps this choice and offers a retry.
+5. Start a permanent or temporary conversation.
 
 The initial account is seeded once. Restarting never resets its password. Model
 or memory failures leave the control plane available for repair. Ordinary users
 are created by an owner and receive their own private profile and conversations.
 They must replace their initial credentials on first login too.
+
+Existing agents keep their configured memory when upgraded. Owners can edit it
+under **Settings → Agent → Memory**. A running agent keeps its current backend
+until an explicit process restart; saving a different selection shows that
+requirement. Memory settings use the dedicated `/memory` API resource and are
+separate from the general-purpose MCP server registry.
+
+## Agent settings
+
+Agent fields and Memory share one **Save changes** action. It validates the complete
+candidate before saving; a saved configuration is distinct from an applied one.
+Use the explicit **Restart Albert** action when a process restart is required.
+Restart requests retain their durable receipt when the connection is interrupted.
+
+Fields display effective values, with **Default**, **Custom** and **Reset** keeping
+inheritance visible. Duration and size selectors change only the display unit;
+edits are converted to exact native integers before validation. Fields/Raw switches
+keep pending edits, including the write-only token and unfinished environment
+references. Raw memory edits and dedicated Memory edits that overlap are rejected
+before mutation.
+
+Combined saves check both the Agent document revision and the aggregate configuration
+revision. They write one merged Agent document, preserving unrelated settings and
+comments. Credentials, the document and setup metadata are separate stores: a
+partial or uncertain result keeps the draft and offers explicit review, without
+silently retrying a credential submission. Merely observing that a token exists
+does not prove it equals a newly submitted value.
 
 ## Accounts and conversations
 
@@ -168,6 +199,27 @@ Native connector image/audio ingress is captured on admission. The pinned Telegr
 transport supplies only a video thumbnail/caption, so original Telegram videos
 require a future structured transport extension.
 
+Uploads also accept nonempty documents, source files, archives and other binary
+files. Recognized native media keep signature validation; unsupported formats use
+`application/octet-stream` and download-only rendering, regardless of their
+declared MIME type. Uploading a document does not execute it, unpack it, or place
+its contents in model context.
+
+For permanent owner conversations, the web host prepares a private workspace copy
+under an opaque relative name before admission. A bounded attachment reference
+and the preparation result stay with the canonical message, including its first
+input. Albert uses ordinary file tools to inspect the copy when needed. Repeated
+preparation can reuse an identical regular file but never replaces modified files
+or follows symlinks. Failed preparation is explicit. First-input recovery reloads
+the accepted reference rather than creating another file or changing its recorded
+result. Workspace copies are mutable working files; immutable original downloads
+continue to follow the conversation's attachment lifecycle.
+
+Temporary and chat-only conversations can retain and download these attachments
+without gaining host file-tool access or writing workspace copies. To inspect a
+temporary document with host tools, save the conversation and resend it. This
+keeps temporary bytes in bounded RAM until the existing Save/End lifecycle applies.
+
 Limits are configured under `[sessions.media]`. Defaults allow eight web
 attachments per message, at most one audio recording, and 32 MiB per file. Staging
 expires after one hour, with a 64 MiB / 64-file account limit and a 256 MiB /
@@ -237,6 +289,59 @@ size/count limits still come from `[sessions.media]`. Temporary voice recordings
 remain playable in RAM, with transcription unavailable until the chat is saved;
 the composer states this before sending.
 
+## Credential guard
+
+Commands → Credentials opens an owner-only server-credential panel above the
+composer. It nearly matches the input width and slides upward from behind its
+fully outlined foreground in 150 ms, with reduced motion disabling the effect.
+The header stays inside; compact check/close actions align with the masked value
+field. It has an editable environment-variable name and Save/Update/Cancel actions. The same panel opens for the name-only `request_credential`
+tool in an authorized private owner turn. Groups, ordinary accounts, delegated
+children and routine runs gain no credential capability. Agent requests require
+permanent host-tool scope; manual global owner entry also works from an unsent
+or temporary draft, without creating or promoting a conversation.
+
+Sensitive input uses a dedicated authenticated, CSRF-protected submission resource.
+Its value goes directly to the host's existing `.env` writer. It is not a model
+tool argument, normal chat message, attachment, memory record or progress/SSE
+payload. Responses and events contain only names, request IDs and states. The
+password stays in the form input rather than message state; browser storage keeps
+only a request ID and submission phase, never a name or value. Multiline paste is
+rejected before a password input can flatten it. Closing or switching scopes
+clears the field. Stored values are never populated into the form.
+
+A successful save reports the actual submitted name. Requests have bounded RAM
+retention and terminal tombstones under `[sessions.credentials]`: defaults are
+15 minutes for entry, five minutes for terminal replay, one hour for a pending
+notification, 64 pending requests and 256 total entries. Values are nonempty
+single-line text, at most 16 KiB by default. All in-process secret writers share
+serialization so updates to different names do not lose one another. Competing
+updates to the same name follow accepted write order; no compare-and-swap is
+implied. A terminal replay returns its existing receipt without another write.
+
+Agent-origin receipts wait for an idle session boundary and start at most one
+name-only continuation; they do not interrupt busy work. Manual entry records a
+name-only notice for the next normal turn and does not wake a model. Unsent drafts
+have no journal and create no chat. Temporary notices stay in RAM. Credential
+metadata events and GET snapshots remain usable after the originating turn ends.
+Session closure, cancellation, expiry and current account authority fence pending
+work. Completed saves are not rolled back by a late cancel.
+
+Secret-file and journal commits are separate. A metadata failure leaves the
+credential saved with notification pending; retrying notification never rewrites
+the value. After an ambiguous write or process restart, the outcome is explicitly
+unknown. The client checks metadata, does not automatically resend a value and
+keeps uncertain input locked until status resolves or the request is cancelled.
+Saving is separate from applying a connector's configuration.
+
+The guard prevents value exposure through this handoff flow. It is not an OS or
+broker boundary against every privileged tool or user process. Existing filesystem
+permissions and execution policy still apply. Password masking does not encrypt
+HTTP; retain the documented proxy/HTTPS and local-development hosting policy.
+Values explicitly pasted into ordinary chat remain ordinary input; this feature
+does not claim to erase them. Instructions prefer the panel and retain the raw
+legacy setter only for values the owner already explicitly supplied for storage.
+
 ## Live activity
 
 User message headings contain only their timestamp. Assistant work uses one heading
@@ -255,6 +360,11 @@ answer. Copy stays below the answer. The goal appears on its own line below
 the operation. It is local to that open chat view and disappears on reload or reopening;
 completed server snapshots are not restored as historical cards. An active attempt
 still reconnects to live progress. No presentation history is written to the database.
+
+Non-generic active phases remain visible beneath the activity header even before
+any tool calls. Compaction shows the runtime's current part and elapsed time,
+including after reopening a running conversation. The timer is separate from the
+live status announcement so screen readers do not announce it every second.
 
 `SessionState.progress` provides a bounded snapshot; scoped SSE progress deltas
 update it without reloading message pages for every tool call. Reconnection and
@@ -418,10 +528,20 @@ After restart, a requested connector that failed to load is reported as a failed
 application rather than a successful model reload. Changing the panel's address
 or origin requires opening its new address.
 
-The Approvals page shows the owner's pending native SQL operations and explicit
-Approve/Decline controls. The SQL executor still checks the original immutable
-operation, principal, limits, expiry and session scope. The panel does not grant
-the model permission to approve its own requests or bypass the SQL guardrails.
+The Approvals page and the conversation composer share a typed owner decision
+queue. Conversational confirmations pause the model loop, record its completed
+tool result and resume the original private session exactly once after an explicit
+Confirm or Decline. Closing the drawer only dismisses it. Expiry, cancellation,
+revocation and session close suppress continuation. These requests remain bounded
+in RAM; accepted decision receipts use the existing message journal.
+
+Native protected actions use domain adapters; SQL is the first production adapter.
+The executor checks immutable operation identity, grants, scope and expiry. A lost
+reply remains unknown until the exact operation's authoritative status resolves
+it; an empty pending queue is not evidence of success. The composer drawer uses
+the credential panel's overlay style without changing transcript height. Requests
+attach only to their validated original private session, never the selected chat.
+Unbound legacy operations remain accessible through the authorized owner queue.
 
 ## Listener settings
 
@@ -432,11 +552,36 @@ bind = "127.0.0.1:9877"
 # Optional: restrict requests to a particular browser-visible origin.
 # public_origin = "https://albert.example.org"
 credential_ttl_seconds = 3600
+refresh_ttl_seconds = 2592000
 login_attempts = 10
 login_window_seconds = 60
 password_workers = 2
 max_body_bytes = 8388608
 ```
+
+Each browser login has its own database-backed credential and opaque refresh
+secret. The access JWT defaults to one hour; refresh defaults to an absolute
+30-day lifetime from login. Both cookies are HttpOnly and SameSite=Strict, with
+Secure applied under the existing HTTPS policy. Only the refresh digest is stored
+in SQLite; its value is never returned to JavaScript or placed in browser storage.
+The bounded refresh secret stays stable during its lifetime, while signed access
+tokens are renewed. Shared CSRF and monotonic access expiry keep concurrent tabs
+valid without overwriting another device's session.
+
+`POST /auth/refresh` requires the refresh cookie, matching Origin and the custom
+`x-albert-refresh: 1` header. The panel restores a refresh-only browser at startup,
+renews before access expiry and on foreground return, and retries an authenticated
+API/upload request at most once with its original idempotency key and body. A
+temporary network/server error preserves the current UI. Invalid login credentials
+and provider errors do not trigger global logout. Event streams recheck current
+database authority, so a renewed login can continue streaming while revocation
+still closes it.
+
+Logging out revokes only that login and clears both cookies. Password changes,
+role changes and account disabling invalidate previous credentials across devices.
+The additive refresh migration preserves existing accounts, conversations and
+unexpired access tokens; an existing browser signs in once to receive its first
+refresh cookie.
 
 Direct access and HTTPS termination work automatically when the proxy preserves
 the browser's Host authority. Origin must match that authority; CSRF checks remain
@@ -622,3 +767,130 @@ Frontend checks use `npm --prefix web/albert-panel test` and `test:browser`. The
 `test:backend` suite requires a fresh isolated Albert instance and a local mock
 provider via `ALBERT_E2E_URL` and `ALBERT_E2E_MODEL_ORIGIN`. It must not point at a
 personal deployment or a paid model endpoint.
+
+## Operator and model roles
+
+Models use the shared settings list. The Operator handles ordinary conversation;
+selecting it saves the configured default and explicitly updates the live choice
+for future turns, including when the same saved default is selected again after
+a temporary runtime override. Editing another model or role preserves that override.
+Running turns keep their immutable model snapshot.
+
+Roles are editable assignments with a model, role name and description. They
+configure the existing opt-in delegated-task routing: without an explicit model
+or role assignment, a child uses its parent's base model. Assignments grant no
+connectors, native tools or administrative authority.
+
+Role edits use the current pool revision. A simple edit changes the primary
+assignment and description while retaining existing fallback models and reasoning
+effort. Advanced settings remain available for those compatibility fields. Model
+removal requires explicitly reassigning or removing every role that references it;
+failed validation leaves the persisted pool and credentials unchanged.
+
+
+
+## Operator view
+
+The sidebar's List/Operator control switches the conversation directory between
+its existing list and a live card grid. Entering Operator collapses the desktop
+sidebar automatically; it can still be expanded manually. Leaving Operator restores
+the ordinary sidebar preference. New chat uses the same action in both
+views and opens a draft; it does not create an empty catalog entry. Temporary
+conversations remain available through the composer commands.
+
+Cards preserve the existing session action menu and display the host, the last
+three safe activity steps, and independent lamps for work, approval and credential
+requests. Active work includes remaining subagents. Idle is distinct from an
+explicit completed, failed, interrupted or cancelled outcome. Completion and
+activity observations are process-local: restarting the runtime does not infer
+success from recorded messages. The recent-conversation list also shows the work
+lamp without changing its layout.
+
+A single authenticated aggregate stream observes the caller's private sessions.
+Its bounded membership follows visible cards and rows across catalog pages, rather
+than stopping at the first loaded page. Navigation visibility changes refresh that
+scope without requiring a scroll. Group histories are not included. Session metadata changes refresh the directory;
+revocation and session closure fence subsequent updates. The bounded RAM-only
+activity projection excludes tool arguments, results, arbitrary goal text and
+provider reasoning, and remains observable when another chat is selected.
+
+Model pool opens a compact resource disclosure. It is closed initially in ordinary
+views and opens automatically in Operator. Each configured model appears once;
+the current operator and role assignments sort first. The owner sees reported
+model usage for the current UTC day. Missing metrics stay unknown; an explicit
+reported zero remains zero. Cached input is a subset of input tokens and is never
+added to the total again. Accounting covers normal turns, subagents, addressed
+session work, compact and metadata calls at the provider boundary. Existing
+conversation history is not used to reconstruct earlier usage.
+
+The internal database migration adds separate usage metadata and a tracking-start
+marker, without rewriting messages or compact records. Writes are bounded and do
+not fail inference; incomplete reporting is indicated in the resource disclosure.
+
+Subscription limits are a separate, initially expanded section shared by the
+account rather than duplicated per model. They reuse Albert's subscription auth
+handle and a bounded, identity-scoped cache. Requests are made only when an owner
+opens the resource disclosure. Unsupported endpoints, missing windows and stale
+observations are shown explicitly and never change model readiness or force an
+OAuth reconnect. Standard Codex backend paths map to the sibling account-usage
+endpoint, preserving a reverse-proxy prefix; arbitrary provider endpoints are not
+guessed. Redirects are not followed.
+
+The typed API resources are `GET /operator/snapshot`, `GET /operator/events`,
+`GET /model-usage` and `GET /openai-subscription/limits`. Their contracts are exported
+from Utoipa alongside the existing session and model APIs.
+
+
+## MCP connections
+
+Connections includes a separate MCP server registry. MCP is implemented by the
+reusable `octo-mcp` client library and Albert's native tool adapters, independently
+of Octo envelope connectors. Owners configure Streamable HTTP or stdio, credential
+references, enablement and an explicit allowed tool subset. Discovery exposes
+paginated metadata; schemas are fetched only when requested. New tools are never
+enabled automatically. The dedicated Kaeru memory connection remains separate.
+
+Server configuration lives in `config/mcp.toml` by default; `mcp_registry` can select
+another configuration document. The typed editor preserves other servers and
+client limits, uses exact revisions, and exposes raw TOML through Advanced. A new
+connection discovers its tools before access is selected. Credentials are resolved
+on the host and are excluded from tool definitions and transport error messages.
+
+Native definitions are captured once per turn and retained across provider retry
+and fallback. Each call rechecks the current account, enabled tool, server
+generation and contract revision. Children receive only the individual MCP tool
+names explicitly delegated from their parent's captured surface. Server annotations
+do not grant authority. Cancelling a root call does not close a surviving child's
+MCP connection; retired connections drain their active calls. Explicit server
+shutdown revokes the entire server lifecycle. Indeterminate calls are never replayed.
+
+
+## Deleting permanent conversations
+
+The conversation menu offers Delete for owned permanent private chats, including
+saved temporary chats. The confirmation explains that chat history, compacts,
+attachments and managed attachment copies are deleted; other workspace files,
+backups and completed external actions remain. Deleting the active conversation
+returns to New chat. Group-bound and other users’ sessions cannot be deleted.
+
+`DELETE /api/v1/sessions/{id}` requires the exact revision in `If-Match` and the
+normal browser mutation protection. A changed revision returns 412 and requires
+fresh confirmation. Repeated deletion of an owned tombstone resumes cleanup and
+returns 204 only after completion. A 503 `cleanup_pending` response keeps an
+explicit retry; a subsequent 404/410 read alone does not prove cleanup completed.
+
+Erasure closes session authority and removes root/child records, compacts and
+owned media in one transaction. Default channel chats are replaced by empty
+Standard sessions and private selectors follow the replacement. Historical native
+fences and minimal request identities remain, so delayed input and old first-run
+requests cannot recreate the deleted conversation. Inter-session envelopes owned
+by the conversation are erased without editing legitimate copies already sent to
+another conversation.
+
+A durable cleanup queue retains exact managed attachment UUIDs and their original
+workspace roots. Existing-session file preparation records ownership before its
+blocking writer starts and holds the session backend lease until that writer
+finishes. Initial-message ownership commits with its accepted session. Cleanup
+removes only reserved `media-<UUID>` names and scoped tool-result files, retries
+after interruption, and runs even when no model is configured. Renamed or
+independently created workspace files are outside the deletion scope.

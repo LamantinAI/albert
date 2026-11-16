@@ -104,6 +104,20 @@ impl ScopeRegistry {
             .transpose()
     }
 
+    /// Resolve a host-issued account scope without treating its opaque grant ID
+    /// as an account identity. Revoked, expired and unknown scopes stay unbound.
+    pub fn account_for_scope(&self, binding: &ScopeBinding) -> Option<String> {
+        if !binding.opaque_id.starts_with("account/") {
+            return None;
+        }
+        let state = self.inner.lock().ok()?;
+        let (grant, lease, expires) = state
+            .accounts
+            .get(&format!("{}/{}", binding.opaque_id, binding.epoch))?;
+        (*expires > Instant::now() && grant.is_live() && lease.is_live())
+            .then(|| grant.account_id().to_owned())
+    }
+
     /// Call only after checking the current durable marker. A closed scope is
     /// never reopened merely because the final old Arc was dropped.
     pub fn issue(&self, id: &SessionId, epoch: Option<&str>) -> SessionResult<Arc<SessionLease>> {
@@ -164,12 +178,7 @@ impl ScopeRegistry {
 impl ScopeValidator for ScopeRegistry {
     fn allows(&self, binding: &ScopeBinding) -> bool {
         if binding.opaque_id.starts_with("account/") {
-            return self.inner.lock().ok().and_then(|state| {
-                let (grant, lease, expires) = state
-                    .accounts
-                    .get(&format!("{}/{}", binding.opaque_id, binding.epoch))?;
-                Some(*expires > Instant::now() && grant.is_live() && lease.is_live())
-            }) == Some(true);
+            return self.account_for_scope(binding).is_some();
         }
         let Some(id) = binding.opaque_id.strip_prefix("session/") else {
             return false;

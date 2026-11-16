@@ -27,6 +27,9 @@ impl StatusFeed {
         if self.memory_tool_known(name) {
             return Some(ProgressActivity::Memory);
         }
+        if name.starts_with("mcp_") {
+            return Some(ProgressActivity::Connector);
+        }
         Some(match name {
             "scratchpad_goal" | "scratchpad_step" | "scratchpad_mark" | "scratchpad_note"
             | "scratchpad_clear" | "scratchpad_plan" => ProgressActivity::Scratchpad,
@@ -34,7 +37,8 @@ impl StatusFeed {
             "read" | "write" | "edit" | "list" | "glob" | "grep" | "artifact" | "send_file" => {
                 ProgressActivity::Files
             }
-            "config_read"
+            "request_credential"
+            | "config_read"
             | "config_list"
             | "config_write"
             | "config_edit"

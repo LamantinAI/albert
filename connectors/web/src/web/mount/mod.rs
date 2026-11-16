@@ -6,7 +6,7 @@ use axum::{
 };
 use tower::ServiceExt;
 
-use crate::api::docs::ROUTES;
+use crate::api::docs::paths;
 
 pub(super) fn router(routes: Router) -> Router {
     Router::new().fallback(dispatch).with_state(routes)
@@ -65,7 +65,7 @@ fn boundary<'a>(path: &'a str, marker: &str) -> Option<&'a str> {
 fn api_route(path: &str) -> bool {
     let tail = path.strip_prefix("/api/v1").unwrap_or(path);
     tail == "/openapi.json"
-        || ROUTES.iter().any(|(_, pattern, _, _)| {
+        || paths().any(|pattern| {
             let expected: Vec<_> = pattern.split('/').collect();
             let actual: Vec<_> = tail.split('/').collect();
             expected.len() == actual.len()
@@ -165,13 +165,17 @@ fn safe_path(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "embedded-panel")]
+    use super::router as mounted_router;
+    #[cfg(feature = "embedded-panel")]
     use axum::{
         body::to_bytes, body::Body, http::header::ACCEPT, http::header::CONTENT_SECURITY_POLICY,
         http::header::LOCATION, http::Request, http::StatusCode,
     };
+    #[cfg(feature = "embedded-panel")]
     use tower::ServiceExt;
 
-    use super::{canonical_path, router as mounted_router, safe_path};
+    use super::{canonical_path, safe_path};
     #[cfg(feature = "embedded-panel")]
     use crate::web::assets::router as assets_router;
 

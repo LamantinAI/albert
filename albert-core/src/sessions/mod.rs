@@ -1,6 +1,14 @@
 //! Host-authenticated session policy. These admission types are deliberately not
 //! deserializable: an actor or model cannot submit its own owner or reply route.
 pub mod acceptance;
+mod admission;
+mod identity;
+mod route;
+pub use self::{
+    admission::{Admission, AdmissionScope},
+    identity::{ExternalIdentity, UserId},
+    route::ReplyRoute,
+};
 pub mod actor;
 pub mod error;
 pub mod ingress;
@@ -12,11 +20,13 @@ pub mod presentation;
 pub mod settings;
 pub mod transport;
 
+#[cfg(test)]
+use octo_history::SessionOrigin;
 use std::{future::pending, sync::Arc};
 
 #[cfg(test)]
 use octo_history::JournalKeyInventory;
-use octo_history::{Session, SessionAccess, SessionId, SessionJournal, SessionOrigin};
+use octo_history::{Session, SessionAccess, SessionId, SessionJournal};
 use serde_json::to_vec;
 use sha2::{Digest, Sha256};
 
@@ -24,174 +34,6 @@ use self::{
     actor::ActorToolPolicy, error::SessionError, error::SessionResult, lease::SessionLease,
 };
 use crate::accounts::{AccountGrant, AccountRole};
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct UserId(String);
-
-impl UserId {
-    pub fn parse(value: &str) -> SessionResult<Self> {
-        validate_identifier(value)?;
-        Ok(Self(value.into()))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-    pub(crate) fn for_identity(identity: &ExternalIdentity) -> Self {
-        let mut digest = Sha256::new();
-        digest.update((identity.connector.len() as u64).to_be_bytes());
-        digest.update(identity.connector.as_bytes());
-        digest.update(identity.actor.as_bytes());
-        Self(format!("user/{:x}", digest.finalize()))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExternalIdentity {
-    pub(crate) connector: String,
-    pub(crate) actor: String,
-}
-
-impl ExternalIdentity {
-    pub fn new(connector: &str, actor: &str) -> SessionResult<Self> {
-        validate_identifier(connector)?;
-        validate_identifier(actor)?;
-        Ok(Self {
-            connector: connector.into(),
-            actor: actor.into(),
-        })
-    }
-    pub fn connector(&self) -> &str {
-        &self.connector
-    }
-    pub fn actor(&self) -> &str {
-        &self.actor
-    }
-}
-
-/// A reply always returns to the physical ingress, including after a selector
-/// changes. This is separate from both the user identity and model SQL access.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReplyRoute {
-    connector: String,
-    channel: String,
-    correlation: Option<String>,
-}
-
-impl ReplyRoute {
-    pub fn new(connector: &str, channel: &str, correlation: Option<String>) -> SessionResult<Self> {
-        validate_identifier(connector)?;
-        validate_identifier(channel)?;
-        if correlation
-            .as_ref()
-            .is_some_and(|value| value.len() > 4096 || value.contains('\0'))
-        {
-            return Err(SessionError::InvalidInput("invalid correlation"));
-        }
-        Ok(Self {
-            connector: connector.into(),
-            channel: channel.into(),
-            correlation,
-        })
-    }
-    pub fn connector(&self) -> &str {
-        &self.connector
-    }
-    pub fn channel(&self) -> &str {
-        &self.channel
-    }
-    pub fn origin(&self) -> SessionOrigin {
-        SessionOrigin {
-            connector: self.connector.clone(),
-            channel: self.channel.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AdmissionScope {
-    Private,
-    Group,
-}
-
-#[derive(Clone, Debug)]
-pub struct Admission {
-    pub(crate) account: Option<AccountGrant>,
-    pub(crate) identity: Option<ExternalIdentity>,
-    pub(crate) route: ReplyRoute,
-    pub(crate) scope: AdmissionScope,
-    pub(crate) host: String,
-}
-
-impl Admission {
-    pub fn route(&self) -> &ReplyRoute {
-        &self.route
-    }
-    pub fn scope(&self) -> AdmissionScope {
-        self.scope
-    }
-    /// Called only after the source adapter verifies actor and channel scope.
-    pub fn new(
-        identity: ExternalIdentity,
-        route: ReplyRoute,
-        scope: AdmissionScope,
-        host: &str,
-    ) -> SessionResult<Self> {
-        if identity.connector != route.connector {
-            return Err(SessionError::InvalidInput(
-                "identity and ingress connector differ",
-            ));
-        }
-        require_host(host)?;
-        Ok(Self {
-            account: None,
-            identity: Some(identity),
-            route,
-            scope,
-            host: host.into(),
-        })
-    }
-    pub fn group(
-        identity: Option<ExternalIdentity>,
-        route: ReplyRoute,
-        host: &str,
-    ) -> SessionResult<Self> {
-        if let Some(identity) = identity.as_ref() {
-            if identity.connector != route.connector {
-                return Err(SessionError::InvalidInput(
-                    "identity and ingress connector differ",
-                ));
-            }
-        }
-        require_host(host)?;
-        Ok(Self {
-            account: None,
-            identity,
-            route,
-            scope: AdmissionScope::Group,
-            host: host.into(),
-        })
-    }
-    pub fn with_account(mut self, account: AccountGrant) -> SessionResult<Self> {
-        if let Some(binding) = &account.binding {
-            if self.identity.as_ref().is_none_or(|identity| {
-                identity.connector() != binding.connector || identity.actor() != binding.actor_id
-            }) {
-                return Err(SessionError::Denied);
-            }
-        }
-        self.account = Some(account);
-        Ok(self)
-    }
-    pub(crate) fn actor_policy(&self) -> Option<ActorToolPolicy> {
-        self.account.as_ref().map(|account| {
-            if account.role == AccountRole::Owner {
-                ActorToolPolicy::ExistingHost
-            } else {
-                ActorToolPolicy::ChatOnly
-            }
-        })
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct SessionContext {

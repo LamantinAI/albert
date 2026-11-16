@@ -87,7 +87,9 @@ See [web-panel.md](web-panel.md#frontend-development-and-embedding) for commands
 
 ## House style
 
-- Files stay under ~500 lines (split a module when it grows past it).
+- Handwritten production code stays within 300 lines per file, split by domain
+  and responsibility. Necessary inline tests in the owning Rust `mod.rs` or
+  `lib.rs` may exceed that limit; preserve the meaningful tests.
 - Imports are brace-grouped per crate; the leaf entity is imported so code bodies
   carry no module path (`Duration::from_secs`, not `std::time::Duration::from_secs`).
 - No emoji in code or logs.

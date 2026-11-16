@@ -59,6 +59,18 @@
   color: var(--muted);
   white-space: nowrap;
 }
+.progress-phase {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 2px 0 0 32px;
+  color: var(--ochre);
+  font: 12px/1.6 var(--sans);
+}
+.progress-phase > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .progress-count {
   padding-left: 8px;
   border-left: 1px solid #caa24a40;

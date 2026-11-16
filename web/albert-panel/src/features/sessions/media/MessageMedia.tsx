@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "../../../components/Icon";
 import { AudioMessage } from "./AudioMessage";
 import { ImageLightbox } from "./ImageLightbox";
-import { assetUrl, fileSize } from "./types";
 import type { Attachment } from "./types";
+import { assetUrl, fileSize } from "./types";
 
 export function MessageMedia({
   attachments,
@@ -16,9 +16,23 @@ export function MessageMedia({
 }) {
   const [opened, setOpened] = useState<Attachment | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
+  const media = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const retry = () => {
+      setFailed((previous) => (previous.length ? [] : previous));
+      media.current
+        ?.querySelectorAll<HTMLMediaElement>("video,audio")
+        .forEach((element) => {
+          if (element.error && [2, 4].includes(element.error.code))
+            element.load();
+        });
+    };
+    window.addEventListener("albert:auth-renewed", retry);
+    return () => window.removeEventListener("albert:auth-renewed", retry);
+  }, []);
   if (!attachments?.length) return null;
   return (
-    <div className="message-media">
+    <div className="message-media" ref={media}>
       {attachments.map((asset) => {
         const url = session ? assetUrl(session, asset) : "";
         const unavailable = failed.includes(asset.id);

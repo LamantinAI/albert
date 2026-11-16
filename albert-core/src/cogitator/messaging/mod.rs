@@ -62,10 +62,14 @@ pub(in crate::cogitator) struct MessageTask {
     pub scope: String,
     cancel: Sender<WorkTerminal>,
     task: JoinHandle<()>,
+    pub terminal: Arc<Mutex<Option<&'static str>>>,
     feed: StatusFeed,
     source: TrustedSource,
 }
 impl MessageTask {
+    pub fn outcome(&self) -> Option<&'static str> {
+        *self.terminal.lock().unwrap()
+    }
     pub(in crate::cogitator) fn presentation_feed(&self) -> StatusFeed {
         self.feed.clone()
     }

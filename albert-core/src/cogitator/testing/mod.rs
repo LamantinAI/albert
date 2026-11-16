@@ -26,6 +26,11 @@ pub fn configure(
     host.transport = transport;
     edit(&mut host.config);
 }
+pub fn install_mcp(host: &mut Arc<AlbertCogitator>, registry: Arc<crate::mcp::McpRegistry>) {
+    Arc::get_mut(host)
+        .expect("configure fixture before use")
+        .mcp = Some(registry);
+}
 pub fn authority(host: &AlbertCogitator) -> Authority {
     host.authority.clone()
 }

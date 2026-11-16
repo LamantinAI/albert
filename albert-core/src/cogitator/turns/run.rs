@@ -1,3 +1,4 @@
+use crate::cogitator::outcome::AgentOutcome;
 use std::sync::Arc;
 
 use octo_approval::Ingress;
@@ -149,8 +150,8 @@ impl AlbertCogitator {
         } else {
             None
         };
-        let (answer, restart) = if let Some(error) = hearing_error {
-            (error, None)
+        let (outcome, restart) = if let Some(error) = hearing_error {
+            (AgentOutcome::Failed(error), None)
         } else {
             self.run_agent_scoped(
                 ctx,
@@ -171,6 +172,10 @@ impl AlbertCogitator {
             )
             .await
         };
+
+        let waiting = matches!(&outcome, AgentOutcome::AwaitingConfirmation(_));
+        let failed = matches!(&outcome, AgentOutcome::Failed(_));
+        let answer = outcome.into_text();
 
         // Reply commit and accepting a newer input cannot interleave. If the new
         // input won, this task has been aborted while waiting for the gate.
@@ -212,10 +217,38 @@ impl AlbertCogitator {
             &answer,
             &feed.drain_actions(),
         )));
+        if waiting {
+            match self
+                .append_host_records(&channel, scope, "confirmation-wait", records)
+                .await
+            {
+                Ok(ids) => {
+                    locked.last_outcome = Some("waiting".into());
+                    feed.text_commit(&ids).await;
+                    feed.progress_phase("Awaiting confirmation").await;
+                    self.emit_reply(&incoming, answer, ctx).await;
+                    if let Some(service) = &self.session_service {
+                        service.credentials().finish_origin(scope);
+                        service.confirmations().finish_origin(scope);
+                    }
+                }
+                Err(error) => {
+                    locked.last_outcome = Some("failed".into());
+                    warn!(%error,"could not record confirmation wait");
+                    if let Some(service) = &self.session_service {
+                        service.confirmations().cancel_origin(scope);
+                    }
+                    self.emit_reply(&incoming,"I could not record the confirmation request. It was cancelled; no continuation will run.".into(),ctx).await;
+                }
+            }
+            locked.active = None;
+            return;
+        }
         let report = self
             .commit_native_report(&incoming, scope, records, &answer, ctx)
             .await;
         if let Err(error) = &report {
+            locked.last_outcome = Some("failed".into());
             warn!(%error, "failed to save completed turn");
             self.emit_reply(&incoming, "I couldn't record the completed turn. Check the recorded tool outcomes before retrying actions.".into(), ctx).await;
             locked.active = None;
@@ -234,6 +267,11 @@ impl AlbertCogitator {
             _ => answer,
         };
         self.emit_reply(&incoming, answer, ctx).await;
+        if let Some(service) = &self.session_service {
+            service.credentials().finish_origin(scope);
+            service.confirmations().finish_origin(scope);
+        }
+        locked.last_outcome = Some(if failed { "failed" } else { "completed" }.into());
         locked.active = None;
         drop(locked);
         self.schedule_title(&incoming, ctx);

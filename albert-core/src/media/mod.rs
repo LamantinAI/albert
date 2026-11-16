@@ -7,11 +7,12 @@ mod workspace;
 
 pub(crate) use format::assets as format_assets;
 pub use format::{
-    decode, encode, encode_selected, input_digest, project, MediaRecord, MEDIA_MARKER,
+    decode, encode, encode_prepared, encode_selected, input_digest, project, workspace_note,
+    MediaRecord, WorkspaceFile, MEDIA_MARKER,
 };
 pub use store::{MediaStore, PreparedMedia};
 pub use types::{Asset, MediaError, MediaLimits, MediaResult};
-pub use workspace::{read_workspace_file, save_input_file};
+pub use workspace::{discard_input_file, read_workspace_file, save_input_file};
 
 use octo_core::Blob;
 
@@ -21,6 +22,7 @@ pub struct MediaInput {
     pub text: String,
     pub assets: Vec<Asset>,
     pub blobs: Vec<Blob>,
+    pub workspace_files: Vec<WorkspaceFile>,
 }
 impl MediaInput {
     pub fn digest(&self) -> String {

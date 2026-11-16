@@ -109,7 +109,7 @@ single **cogitator** (the deciding layer) wired in:
   as autonomous supervised tasks, a reflex/cognition split, a control-plane. Albert
   does not reimplement any of this; it is a userland `Cogitator`.
 - **kaeru** is the deliberate memory — a typed, bi-temporal cognitive graph the agent
-  recalls from and writes to **as a tool** (`kaeru_recall`, `kaeru_episode`, …). Not
+  recalls from and writes to **as a tool** (`kaeru_search`, `kaeru_read`, `kaeru_note`, …). Not
   a memory file re-read every turn.
 - **The cogitator** ties them: it perceives `chat.message` and `alarm.fired`, runs a
   rig native tool-loop over its full toolset (memory, scheduler, calendar, files,

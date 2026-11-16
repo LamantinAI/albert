@@ -12,6 +12,7 @@ import { Button, PageHeading } from "../../components/ui";
 import { useLeaveGuard } from "../../app/UnsavedChanges";
 import { SettingsBack } from "../../components/SettingsActions";
 import { DocumentEditor } from "./DocumentEditor";
+import { AgentSettings } from "./AgentSettings";
 import { Secrets } from "./Secrets";
 
 function Prompts() {
@@ -56,12 +57,16 @@ function RawDocument() {
       <PageHeading
         title={id === "models" ? "Advanced models" : "Raw configuration"}
       />
-      <DocumentEditor
-        key={id}
-        id={id ?? "albert"}
-        kind="configuration"
-        preferFields={false}
-      />
+      {id === "albert" ? (
+        <AgentSettings initialMode="raw" />
+      ) : (
+        <DocumentEditor
+          key={id}
+          id={id ?? "albert"}
+          kind="configuration"
+          preferFields={false}
+        />
+      )}
     </>
   );
 }
@@ -88,13 +93,13 @@ export function Settings() {
           : "Agent settings";
   return (
     <div className="workspace-body">
-      {!location.pathname.includes("/documents/") && (
-        <PageHeading title={title} />
-      )}
+      {!location.pathname.includes("/documents/") &&
+        !location.pathname.endsWith("/memory") && <PageHeading title={title} />}
       <Routes>
+        <Route index element={<AgentSettings />} />
         <Route
-          index
-          element={<DocumentEditor id="albert" kind="configuration" />}
+          path="memory"
+          element={<Navigate to="/settings#memory" replace />}
         />
         <Route path="prompts" element={<Prompts />} />
         <Route path="secrets" element={<Secrets />} />

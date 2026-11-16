@@ -2,203 +2,26 @@
 pub mod budget;
 mod dispatch;
 pub mod inspection;
+mod limits;
+mod run;
+mod task;
 mod tool;
 mod workspace;
+pub use self::{limits::Limits, run::Run, task::Task};
 
-use std::{
-    collections::BTreeMap, sync::atomic::AtomicBool, sync::atomic::Ordering, sync::Arc,
-    sync::Mutex, time::Duration,
-};
+use std::{collections::BTreeMap, sync::atomic::AtomicBool, sync::Arc, sync::Mutex};
 
 use futures::future::join_all;
 use rand::random;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::{sync::watch, time::timeout};
+use tokio::sync::watch;
 
-use crate::{scratchpad::StageLink, sessions::SessionContext, status::StatusFeed};
+use crate::{sessions::SessionContext, status::StatusFeed};
 pub use dispatch::ScopedDispatch;
-use inspection::Settings as InspectionSettings;
 pub use tool::{Args, SubagentTool};
 pub use workspace::{WorkspaceRead, WorkspaceWrite};
 
 pub type Conversation = (String, String);
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Limits {
-    pub enabled: bool,
-    pub inspection: InspectionSettings,
-    pub max_concurrent: usize,
-    pub max_retained: usize,
-    pub max_runs_per_turn: usize,
-    pub max_tool_turns: usize,
-    pub default_tool_turns: usize,
-    pub timeout_secs: u64,
-}
-impl Default for Limits {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            inspection: Default::default(),
-            max_concurrent: 4,
-            max_retained: 64,
-            max_runs_per_turn: 8,
-            max_tool_turns: 17,
-            default_tool_turns: 11,
-            timeout_secs: 600,
-        }
-    }
-}
-impl Limits {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.max_concurrent == 0
-            || self.max_retained < self.max_concurrent
-            || self.max_runs_per_turn == 0
-            || self.max_tool_turns == 0
-            || self.default_tool_turns == 0
-            || self.timeout_secs == 0
-            || !self.inspection.validate()
-        {
-            return Err(
-                "subagents: limits must be positive; max_retained >= max_concurrent".into(),
-            );
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Task {
-    pub task: String,
-    #[serde(default)]
-    pub context: String,
-    #[serde(default)]
-    pub models: Vec<String>,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub reasoning_effort: Option<String>,
-    #[serde(default)]
-    pub stage: Option<StageLink>,
-    #[serde(default)]
-    pub connectors: Vec<String>,
-    #[serde(default)]
-    pub tools: Vec<String>,
-    #[serde(default)]
-    pub sql_stores: Vec<String>,
-    #[serde(default)]
-    pub sql_write: bool,
-    #[serde(default)]
-    pub sql_schema: bool,
-    #[serde(default)]
-    pub max_tool_turns: Option<usize>,
-    #[serde(default)]
-    pub timeout_secs: Option<u64>,
-}
-
-pub struct Run {
-    pub id: String,
-    pub parent: String,
-    pub conversation: Conversation,
-    pub owner: bool,
-    pub feed: StatusFeed,
-    pub(crate) session: Option<SessionContext>,
-    observed: AtomicBool,
-    pub cancel: watch::Sender<bool>,
-    pub result: watch::Receiver<Value>,
-    completion: watch::Sender<Value>,
-    disposed: Mutex<bool>,
-}
-impl Run {
-    pub(crate) fn is_live(&self) -> bool {
-        !*self.disposed.lock().unwrap() && self.session.as_ref().is_none_or(SessionContext::is_live)
-    }
-    pub(crate) fn complete(&self, value: Value) {
-        let disposed = self.disposed.lock().unwrap();
-        if !*disposed && self.session.as_ref().is_none_or(SessionContext::is_live) {
-            self.completion.send_replace(value);
-        } else {
-            self.completion
-                .send_replace(json!({"outcome":{"status":"closed"}}));
-        }
-    }
-    fn discard(&self) -> Result<(), &'static str> {
-        let mut poisoned = false;
-        *self.disposed.lock().unwrap_or_else(|error| {
-            poisoned = true;
-            error.into_inner()
-        }) = true;
-        let feed = self.feed.discard();
-        self.completion
-            .send_replace(json!({"outcome":{"status":"closed"}}));
-        if poisoned {
-            Err("child state was poisoned during cleanup")
-        } else {
-            feed
-        }
-    }
-    pub(crate) fn history_key(&self) -> String {
-        if self.conversation.0 == "session" {
-            format!("{}/child/{}", self.conversation.1, self.id)
-        } else {
-            format!("subagent/{}", self.id)
-        }
-    }
-    pub fn acknowledge(&self) {
-        if !self.result.borrow().is_null() {
-            self.observed.store(true, Ordering::Relaxed);
-        }
-    }
-    fn pending(&self) -> bool {
-        !self.observed.load(Ordering::Relaxed)
-    }
-    pub fn status(&self) -> Value {
-        self.result
-            .borrow()
-            .get("outcome")
-            .and_then(|v| v.get("status"))
-            .cloned()
-            .unwrap_or(json!("running"))
-    }
-
-    pub(crate) fn inspection_summary(&self) -> Value {
-        let result = self.result.borrow();
-        let outcome = result.get("outcome");
-        let error = outcome
-            .and_then(|outcome| outcome.get("error"))
-            .and_then(Value::as_str)
-            .map(|text| text.chars().take(96).collect::<String>());
-        json!({"run_id":self.id,"status":self.status(),"tool_calls":self.feed.tool_call_count(),"result_available":!result.is_null(),"journal_saved":result.get("journal_saved"),
-            "result_metadata":{"error":error,"tool_rounds":outcome.and_then(|value|value.get("tool_rounds")),"tool_round_limit":outcome.and_then(|value|value.get("tool_round_limit")),"budget_exhausted":outcome.and_then(|value|value.get("budget_exhausted"))},
-            "result_ref":{"action":"wait","run_id":self.id,"seconds":0}})
-    }
-    pub fn summary(&self) -> Value {
-        let result = self.result.borrow().clone();
-        json!({"run_id":self.id,"parent_run_id":self.parent,"status":self.status(),
-            "tool_calls":self.feed.tool_call_count(),"workspace":result.get("workspace"),
-            "journal_saved":result.get("journal_saved"),"result_available":!result.is_null(),
-            "history_key":self.history_key()})
-    }
-
-    pub fn view(&self) -> Value {
-        json!({"run_id":self.id,"parent_run_id":self.parent,
-            "status":self.status(),"result":self.result.borrow().clone(),"tool_calls":self.feed.tool_call_count()})
-    }
-    pub async fn wait(&self, seconds: u64) -> Value {
-        let mut result = self.result.clone();
-        let _ = timeout(Duration::from_secs(seconds.min(60)), async {
-            while result.borrow().is_null() {
-                if result.changed().await.is_err() {
-                    break;
-                }
-            }
-        })
-        .await;
-        self.view()
-    }
-}
 
 #[derive(Default)]
 pub struct Registry(Mutex<State>);

@@ -119,14 +119,15 @@ impl StatusFeed {
         items: Vec<ProgressItem>,
         replace_kind: Option<&str>,
     ) {
-        let Some(binding) = self.presentation_binding() else {
-            return;
-        };
+        let binding = self.presentation_binding();
         let attempt = self
             .execution_attempt
             .clone()
-            .or(binding.attempt)
-            .or_else(|| binding.feedback.map(|feedback| feedback.id().to_owned()));
+            .or_else(|| binding.as_ref().and_then(|binding| binding.attempt.clone()))
+            .or_else(|| {
+                binding
+                    .and_then(|binding| binding.feedback.map(|feedback| feedback.id().to_owned()))
+            });
         let Some(attempt_id) = attempt else { return };
         let update = ProgressUpdate(ProgressDelta {
             attempt_id,
@@ -134,6 +135,7 @@ impl StatusFeed {
             replace_kind: replace_kind.map(str::to_owned),
             items,
         });
+        self.operator_progress(&update.0).await;
         self.publish_line(
             "albert.progress",
             String::new(),

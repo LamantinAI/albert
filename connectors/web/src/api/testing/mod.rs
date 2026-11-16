@@ -31,6 +31,8 @@ impl Host for Application {
         Ok(RuntimeStatus {
             phase: "setup".into(),
             model_ready: false,
+            model_configured: false,
+            memory_configured: true,
             runtime_epoch: "test-epoch".into(),
             error: None,
         })
@@ -121,7 +123,7 @@ pub(super) async fn fixture_with_origin(origin: &str) -> Fixture {
         router,
     }
 }
-pub(super) async fn request(
+pub(crate) async fn request(
     router: &Router,
     method: Method,
     path: &str,
@@ -166,4 +168,4 @@ pub(super) fn cookie(headers: &HeaderMap) -> String {
         .unwrap()
         .into()
 }
-pub(super) const ORIGIN: &str = "http://localhost:9877";
+pub(crate) const ORIGIN: &str = "http://localhost:9877";

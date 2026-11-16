@@ -1,3 +1,5 @@
+import { McpDirectory } from "../mcp/McpDirectory";
+import { McpSettings } from "../mcp/McpSettings";
 import { useCallback, useEffect, useState } from "react";
 import {
   Link,
@@ -75,6 +77,7 @@ function Directory({ catalog }: { catalog: ConnectorCatalog }) {
       >
         Choose a connector to configure its connection and access.
       </PageHeading>
+      {context?.caps.manage_config && <McpDirectory />}
       {visible.length ? (
         <SettingsList
           label="Configured connectors"
@@ -152,6 +155,17 @@ export function Connections() {
     <div className="workspace-body connections-page">
       {error && <Notice kind="error">{error}</Notice>}
       <Routes>
+        <Route
+          path="mcp/:id"
+          element={
+            context?.caps.manage_config ? (
+              <McpSettings />
+            ) : (
+              <EmptyState title="Only an owner can manage MCP servers." />
+            )
+          }
+        />
+
         <Route index element={<Directory catalog={catalog} />} />
         <Route
           path="new"

@@ -7,6 +7,7 @@ import { SettingsChoices } from "../../components/SettingsActions";
 
 import { OpenAiLogin } from "./OpenAiLogin";
 import { modelChoices } from "./modelChoices";
+import { MemorySettings } from "../memory/MemorySettings";
 
 export function ModelConnectionChoice() {
   const [openai, setOpenai] = useState(false);
@@ -14,6 +15,14 @@ export function ModelConnectionChoice() {
   const navigate = useNavigate();
   const location = useLocation();
   const canConfigure = !!context?.caps.manage_models;
+  if (context?.setup.phase === "memory")
+    return context.caps.manage_config ? (
+      <MemorySettings onboarding />
+    ) : (
+      <Notice>
+        A workspace owner needs to finish memory setup before you can chat.
+      </Notice>
+    );
   if (context?.setup.model_ready)
     return (
       <div className="model-onboarding">

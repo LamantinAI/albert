@@ -2,7 +2,9 @@
 //! routes remain provenance; neither a login credential nor a view is a chat.
 mod catalog;
 mod composer;
+mod credentials;
 mod cursor;
+mod deletion;
 mod delivery;
 mod events;
 #[cfg(test)]
@@ -10,6 +12,7 @@ mod fixture;
 mod lifecycle;
 mod media;
 mod messages;
+mod operator;
 mod progress;
 mod send;
 mod start;
@@ -27,6 +30,7 @@ use octo_history::{Session, SessionId, SessionKind, SessionState as MetadataStat
 use tokio::{sync::Mutex as AsyncMutex, sync::OwnedMutexGuard};
 
 use self::events::EventHub;
+use super::approvals::ApprovalService;
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::host::EventStream, api::host::HostResponse,
     api::host::SessionEventRequest, api::host::SessionOperation, api::models::AccountRole,
@@ -36,15 +40,20 @@ use crate::{
 
 pub(crate) struct SessionHost {
     runtime: Arc<AgentRuntime>,
+    approvals: RwLock<Option<Arc<ApprovalService>>>,
     auth: Arc<AuthService>,
     context: RwLock<Option<ConnectorContext>>,
     hub: Arc<EventHub>,
     gates: Mutex<HashMap<SessionId, Weak<AsyncMutex<()>>>>,
 }
 impl SessionHost {
+    pub(super) fn bind_approvals(&self, service: Arc<ApprovalService>) {
+        *self.approvals.write().unwrap() = Some(service);
+    }
     pub fn new(runtime: Arc<AgentRuntime>, auth: Arc<AuthService>) -> Arc<Self> {
         Arc::new(Self {
             runtime,
+            approvals: RwLock::new(None),
             auth,
             context: RwLock::new(None),
             hub: EventHub::new(),
@@ -127,6 +136,7 @@ impl SessionHost {
                 Ok(HostResponse::Session(view(context.session())))
             }
             SessionOperation::Update { id, input } => self.update(&actor, &id, input).await,
+            SessionOperation::Delete { id, revision } => self.delete(&actor, &id, revision).await,
             SessionOperation::Messages { id, page } => Ok(HostResponse::Messages(
                 self.messages(&actor, &id, page).await?,
             )),
@@ -244,7 +254,7 @@ pub(super) fn session_error(error: SessionError) -> ApiError {
         SessionError::Ended | SessionError::Expired => ApiError::new(
             StatusCode::GONE,
             "session_ended",
-            "This temporary chat has ended or expired.",
+            "This conversation is no longer available.",
         ),
         SessionError::InvalidInput(message) => ApiError::invalid(message),
         _ => {

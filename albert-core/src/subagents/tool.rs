@@ -1,3 +1,4 @@
+use crate::mcp::McpTool;
 use std::{sync::atomic::AtomicUsize, sync::Arc, sync::Weak};
 
 use octo_approval::Ingress;
@@ -26,6 +27,7 @@ pub struct SubagentTool {
     pub ingress: Option<Ingress>,
     pub(crate) session: Option<SessionContext>,
     pub(crate) diagnostics: Option<DiagnosticScope>,
+    pub(crate) mcp: Vec<McpTool>,
 }
 impl SubagentTool {
     pub fn new(
@@ -46,7 +48,12 @@ impl SubagentTool {
             ingress: None,
             session: None,
             diagnostics: None,
+            mcp: Vec::new(),
         }
+    }
+    pub(crate) fn with_mcp(mut self, tools: Vec<McpTool>) -> Self {
+        self.mcp = tools;
+        self
     }
     pub(crate) fn with_diagnostics(mut self, scope: Option<DiagnosticScope>) -> Self {
         self.diagnostics = scope;

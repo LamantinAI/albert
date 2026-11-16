@@ -1,0 +1,127 @@
+.approval-panel {
+  max-height: min(64vh, 500px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.approval-review {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ink-2);
+  font: 12px/1.6 var(--sans);
+}
+.approval-question {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.approval-action,
+.approval-outcome,
+.approval-details p {
+  margin: 0;
+}
+.approval-effects {
+  margin: 0;
+  padding-left: 17px;
+  color: var(--muted);
+}
+.approval-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.approval-details-toggle,
+.approval-reopen {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ochre);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.approval-details-toggle svg {
+  transition: transform 150ms;
+}
+.approval-details-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.approval-details {
+  max-height: 150px;
+  overflow: auto;
+  border-left: 1px solid #b5934c60;
+  padding-left: 12px;
+}
+.approval-details pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.65 var(--mono);
+}
+.approval-outcome {
+  color: var(--muted);
+  font-size: 11px;
+}
+.approval-outcome.is-uncertain {
+  color: var(--ochre);
+}
+.approval-decision-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.approval-decision-actions .button {
+  min-height: 30px;
+  padding: 5px 10px;
+  gap: 5px;
+  font-size: 11px;
+}
+.approval-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.approval-pager .icon-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  color: var(--ochre);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+.approval-pager + button {
+  margin-left: 2px;
+}
+.approval-previous svg {
+  transform: rotate(180deg);
+}
+.approval-reopen {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 7px);
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid #b5934c60;
+  font-size: 11px;
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-details-toggle svg {
+    transition: none;
+  }
+}

@@ -40,16 +40,7 @@ impl ToolDyn for MemoryTool {
     fn call(&self, args: String) -> WasmBoxedFuture<'_, Result<String, ToolError>> {
         Box::pin(async move {
             let mut args: JsonObject = from_str(&args).map_err(ToolError::JsonError)?;
-            if self
-                .definition
-                .input_schema
-                .get("properties")
-                .and_then(Value::as_object)
-                .is_some_and(|props| props.contains_key("initiative"))
-                && args.get("initiative").is_none_or(|v| v.is_null())
-            {
-                args.insert("initiative".into(), Value::String(INITIATIVE.into()));
-            }
+            default_scope(&self.definition, &mut args);
             let result = self
                 .memory
                 .call(&self.definition.name, args)
@@ -59,5 +50,44 @@ impl ToolDyn for MemoryTool {
             // Never drop structuredContent in favour of a possibly empty text list.
             to_string(&result).map_err(ToolError::JsonError)
         })
+    }
+}
+
+fn default_scope(definition: &Tool, args: &mut JsonObject) {
+    let name = definition.name.as_ref();
+    if name == "search" {
+        if args.get("initiatives").is_none_or(Value::is_null) {
+            args.insert(
+                "initiatives".into(),
+                Value::Array(vec![Value::String(INITIATIVE.into())]),
+            );
+        }
+        return;
+    }
+    if (name == "context" && args.get("view").and_then(Value::as_str) == Some("graph"))
+        || (name == "export" && (args.contains_key("initiatives") || args.contains_key("all")))
+    {
+        return;
+    }
+    let schema = &definition.input_schema;
+    let accepts = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|props| props.contains_key("initiative"))
+        || schema
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .is_some_and(|variants| {
+                variants.iter().any(|variant| {
+                    variant.pointer("/properties/initiative").is_some()
+                        && variant
+                            .pointer("/properties/action/const")
+                            .is_none_or(|action| {
+                                args.get("action").is_none_or(|provided| provided == action)
+                            })
+                })
+            });
+    if accepts && args.get("initiative").is_none_or(Value::is_null) {
+        args.insert("initiative".into(), Value::String(INITIATIVE.into()));
     }
 }

@@ -1,27 +1,27 @@
+mod contract;
+mod native;
+mod proposals;
+pub(in crate::cogitator) use self::contract::{MessagingAction, SendProposal};
 pub(in crate::cogitator::messaging) mod authority;
 mod busy;
 mod control;
 mod inspection;
 
-use std::{convert::Infallible, sync::Arc, sync::Weak};
+use std::{sync::Arc, sync::Weak};
 
 use chrono::Utc;
 use octo_core::CogitatorContext;
-use octo_history::{AppendRequest, SessionId, SessionKind};
-use rig::{completion::ToolDefinition, tool::Tool};
-use serde::Deserialize;
+use octo_history::{AppendRequest, SessionKind};
 use serde_json::{json, to_value, Value};
 
 use self::inspection::InspectionRequest;
 use super::{routes::RuntimeRoutes, MessagingRuntime};
 use crate::{
-    cogitator::AlbertCogitator, history::assistant_turn, messaging::contract::ContextAttachment,
-    messaging::contract::DelegationCeiling, messaging::contract::DestinationSpec,
-    messaging::contract::ExecutionLocation, messaging::contract::MessageDraft,
-    messaging::contract::MessageId, messaging::contract::MessageIntent,
+    cogitator::AlbertCogitator, history::assistant_turn, messaging::contract::DestinationSpec,
+    messaging::contract::ExecutionLocation, messaging::contract::MessageIntent,
     messaging::contract::ReportClass, messaging::contract::TrustedSource,
-    messaging::contract::WorkRef, messaging::contract::WorkReportPolicy, messaging::MessagingError,
-    messaging::MessagingResult, sessions::SessionContext,
+    messaging::contract::WorkRef, messaging::MessagingError, messaging::MessagingResult,
+    sessions::SessionContext,
 };
 
 #[derive(Clone)]
@@ -31,61 +31,7 @@ pub(in crate::cogitator) struct SessionMessagingTool {
     runtime: Arc<MessagingRuntime>,
     source: TrustedSource,
 }
-#[derive(Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-pub(in crate::cogitator) enum MessagingAction {
-    Discover {
-        limit: Option<usize>,
-        before_id: Option<i64>,
-        through_id: Option<i64>,
-        route_offset: Option<usize>,
-    },
-    Inspect {
-        session_id: SessionId,
-        limit: Option<usize>,
-        before_id: Option<i64>,
-        through_id: Option<i64>,
-        record_id: Option<i64>,
-        text_offset: Option<usize>,
-    },
-    Send {
-        #[serde(flatten)]
-        message: SendProposal,
-    },
-    Status {
-        message_id: MessageId,
-    },
-    Cancel {
-        message_id: MessageId,
-    },
-    Steer {
-        message_id: MessageId,
-        content: String,
-    },
-    Report {
-        content: String,
-    },
-    Reports {
-        message_id: Option<MessageId>,
-        policy: Option<WorkReportPolicy>,
-    },
-    Execution {
-        location: Option<ExecutionLocation>,
-        expected_revision: Option<i64>,
-    },
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::cogitator) struct SendProposal {
-    destination: DestinationSpec,
-    intent: MessageIntent,
-    content: String,
-    timeout_secs: Option<u64>,
-    ceiling: Option<DelegationCeiling>,
-    policy: Option<WorkReportPolicy>,
-    #[serde(default)]
-    context: Vec<ContextAttachment>,
-}
+
 impl SessionMessagingTool {
     pub fn current(
         host: &Arc<AlbertCogitator>,
@@ -298,109 +244,5 @@ impl SessionMessagingTool {
                 )
             }
         }
-    }
-    async fn admit(
-        &self,
-        host: &AlbertCogitator,
-        proposal: &MessageDraft,
-        policy: Option<&WorkReportPolicy>,
-        guard: &RuntimeRoutes,
-    ) -> MessagingResult<Value> {
-        let service = host
-            .session_service
-            .as_ref()
-            .ok_or(MessagingError::Unavailable)?;
-        service
-            .messaging_preflight(self.source.context(), &proposal.destination)
-            .await?;
-        if let Some(policy) = policy {
-            for target in [&policy.intermediate, &policy.final_result]
-                .into_iter()
-                .flatten()
-            {
-                service
-                    .messaging_preflight(self.source.context(), target)
-                    .await?;
-            }
-        }
-        for context in &proposal.context {
-            let session = service
-                .get(
-                    self.source.context(),
-                    context.reference.journal.session_id(),
-                )
-                .await?;
-            if session.kind == SessionKind::Temporary {
-                return Err(MessagingError::SaveRequired);
-            }
-        }
-        let receipt = self
-            .runtime
-            .store
-            .send_with_policy(
-                &self.source,
-                proposal,
-                policy,
-                guard,
-                Utc::now().timestamp_millis(),
-            )
-            .await?;
-        let observation = self.observe_admitted_recipient(host, proposal).await;
-        Ok(
-            json!({"recipient_observation":observation,"queue_note":if proposal.intent.schedules_work() {"Accepted asynchronously, not in parallel with active recipient work. It waits for an idle Session boundary under scheduler limits. For already available state use passive inspect/status; an explicit request to ask the recipient remains queued."} else {"Passive notice; no model turn is scheduled."},"message_id":proposal.id,"accepted":true,"duplicate":receipt.duplicate,"source_record":receipt.source,"physical_delivery":"pending_dispatch","work":if proposal.intent.schedules_work() {"accepted_for_async_processing"} else {"passive"},"report_policy_bound":policy.is_some()}),
-        )
-    }
-    fn prepare(&self, message: SendProposal) -> MessagingResult<MessageDraft> {
-        if message.intent == MessageIntent::Response {
-            return Err(MessagingError::Invalid(
-                "response identity is supplied by the host",
-            ));
-        }
-        let seconds = message
-            .timeout_secs
-            .unwrap_or(self.runtime.settings.max_work_secs);
-        if seconds == 0 || seconds > self.runtime.settings.max_work_secs {
-            return Err(MessagingError::Invalid("timeout exceeds messaging limit"));
-        }
-        let ceiling = self.clamp(message.intent, message.ceiling)?;
-        Ok(MessageDraft {
-            id: MessageId::new(),
-            destination: message.destination,
-            intent: message.intent,
-            content: message.content,
-            correlation: None,
-            causation: None,
-            deadline_unix_ms: Utc::now().timestamp_millis() + seconds as i64 * 1000,
-            hops_remaining: self.runtime.settings.limits.max_hops,
-            context: message.context,
-            ceiling,
-        })
-    }
-}
-impl Tool for SessionMessagingTool {
-    const NAME: &'static str = "session_messaging";
-    type Error = Infallible;
-    type Args = MessagingAction;
-    type Output = Value;
-    async fn definition(&self, _: String) -> ToolDefinition {
-        ToolDefinition { name: Self::NAME.into(), description: "Discover/inspect your durable private sessions with bounded text excerpts (record_id + text_offset continues an oversized record; media/encoded data are omitted), send addressed notices/questions/explicitly bounded work, inspect asynchronous status, cancel or steer one exact message, configure this work's independent intermediate/final report destinations, and inspect/set host execution defaults. Questions have no tools. Notice/Response are passive. Sending returns an acceptance ID immediately; acceptance is not physical delivery. Never claim delivery from acceptance. No temporary exports: Save first. Actor, source, current work and return address are host supplied. Control targets only one message, never unrelated children.".into(),
-            parameters: json!({"type":"object","required":["action"],"properties":{
-                "action":{"type":"string","enum":["discover","inspect","send","status","cancel","steer","report","reports","execution"]},
-                "limit":{"type":"integer"},"before_id":{"type":"integer"},"through_id":{"type":"integer"},
-                "record_id":{"type":"integer"},"text_offset":{"type":"integer"},"route_offset":{"type":"integer"},"session_id":{"type":"string"},"message_id":{"type":"string"},"content":{"type":"string"},
-                "intent":{"type":"string","enum":["notice","question","work_request"]},"timeout_secs":{"type":"integer"},
-                "destination":{"type":"object","description":"{kind:fixed_session,session:UUID,display?:{connector,channel}} or {kind:channel_active,route:{connector,channel}}"},
-                "ceiling":{"type":"object","description":"WorkRequest only: {grants:[{connector,kinds:[exact concrete event kinds]}],max_tool_calls,max_output_bytes}. Must be within discovered initiating capabilities."},
-                "context":{"type":"array","items":{"type":"object"}},"policy":{"type":"object","description":"On send: revision1 policy atomically binds to new question/work_request. On reports: omit policy to get or set a new revision; optional message_id targets that admitted work, otherwise current native work."},
-                "location":{"type":"object","description":"Omit to get; set {machine:host,connector:ID|null}"},"expected_revision":{"type":"integer"}
-            },"additionalProperties":false}) }
-    }
-    async fn call(&self, action: MessagingAction) -> Result<Value, Infallible> {
-        Ok(match self.invoke(action).await {
-            Ok(value) => value,
-            Err(error) => {
-                json!({"accepted":false,"status":"not_applied","error":error.to_string()})
-            }
-        })
     }
 }

@@ -302,6 +302,8 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
             Arc::new(LocalTransport),
         );
+        // OAuth lifecycle fixtures represent an existing workspace with memory.
+        runtime.initialize_memory_setup(false).await.unwrap();
         (dir, OpenAiLoginService::new(runtime, auth, models), owner)
     }
     fn start() -> OpenAiLoginOperation {

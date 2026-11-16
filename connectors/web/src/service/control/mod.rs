@@ -1,22 +1,28 @@
 //! Validated, revisioned owner configuration. Files remain the interoperable
 //! source of settings; application outcomes are durable and idempotent.
+use crate::service::panel_models::files::ensure_directory_mode;
+use albert_core::mcp::RegistryConfig;
 mod applications;
+mod candidate;
 mod catalog;
 mod connector_fields;
 mod connectors;
+mod documents;
 mod drafts;
 #[cfg(test)]
 mod fixture;
+mod redaction;
 mod telegram;
 
-use std::{collections::BTreeMap, fs::read_to_string, path::PathBuf, sync::Arc};
+use self::redaction::redact;
+
+use std::sync::Arc;
 
 use albert_core::{
-    config::Config, manifests::connector_files, models::PoolConfig, runtime::AgentRuntime,
-    selfconfig::SelfConfig,
+    config::Config, models::PoolConfig, runtime::AgentRuntime, selfconfig::SelfConfig,
 };
 use tokio::sync::Mutex;
-use toml::{from_str, to_string_pretty, Table, Value as TomlValue};
+use toml::{from_str, Table};
 
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::host::ConfigOperation,
@@ -41,76 +47,6 @@ impl ControlService {
             runtime,
             gate,
         }
-    }
-
-    fn documents(&self) -> ApiResult<BTreeMap<String, PathBuf>> {
-        let base = &self.runtime.base;
-        let mut docs = BTreeMap::from([
-            ("albert".into(), self.runtime.path.clone()),
-            ("connectors".into(), base.connectors_manifest.clone()),
-        ]);
-        if let Ok(path) = self.model_path() {
-            docs.insert("models".into(), path);
-        }
-        for path in connector_files(&base.connectors_manifest) {
-            let Ok(text) = read_to_string(&path) else {
-                continue;
-            };
-            let Ok(value) = from_str::<Table>(&text) else {
-                continue;
-            };
-            if let Some(id) = value
-                .get("connector")
-                .and_then(|v| v.get("id"))
-                .and_then(|v| v.as_str())
-            {
-                if id.len() <= 128 {
-                    docs.insert(format!("connector:{id}"), path);
-                }
-            }
-        }
-        Ok(docs)
-    }
-
-    fn model_path(&self) -> ApiResult<PathBuf> {
-        self.models.path()
-    }
-
-    fn document_path(&self, id: &str) -> ApiResult<PathBuf> {
-        if id == "albert" {
-            return Ok(self.runtime.path.clone());
-        }
-        if id == "connectors" {
-            return Ok(self.runtime.base.connectors_manifest.clone());
-        }
-        if id == "models" {
-            return self.model_path();
-        }
-        if id == "soul" {
-            return Ok(self.runtime.base.soul_path.clone());
-        }
-        if id == "system" {
-            return Ok(self.runtime.base.system_path.clone());
-        }
-        if let Some(path) = self.documents()?.remove(id) {
-            return Ok(path);
-        }
-        self.new_connector_path(id)
-    }
-
-    pub(crate) fn document(&self, id: &str) -> ApiResult<ConfigDocument> {
-        let directory = root(&self.runtime.base.deploy_dir)?;
-        let path = self.document_path(id)?;
-        let bytes = read_optional(&directory, &path, 1024 * 1024)?.unwrap_or_default();
-        let text = String::from_utf8(bytes.clone())
-            .map_err(|_| ApiError::invalid("Configuration must be UTF-8."))?;
-        let (content, redacted) = redact(text);
-        Ok(ConfigDocument {
-            path: id.into(),
-            content,
-            revision: hash(&[&bytes]),
-            redacted,
-        })
     }
 
     pub(crate) fn revision(&self) -> ApiResult<String> {
@@ -140,6 +76,15 @@ impl ControlService {
             None
         } else if from_str::<Table>(&input.content).is_err() {
             Some("Invalid TOML. Correct syntax before saving.".into())
+        } else if input.path == "mcp" {
+            from_str::<RegistryConfig>(&input.content)
+                .map_err(|_| "Invalid MCP configuration.".to_owned())
+                .and_then(|config| {
+                    config
+                        .validate(&self.runtime.base.deploy_dir)
+                        .map_err(|_| "Invalid MCP transport or limits.".to_owned())
+                })
+                .err()
         } else if input.path == "models" {
             PoolConfig::parse(&input.content).err()
         } else if input.path.starts_with("connector:") {
@@ -221,6 +166,15 @@ impl ControlService {
         if id.starts_with("connector:") {
             self.ensure_topology()?;
         }
+        if id == "mcp" {
+            ensure_directory_mode(
+                &directory,
+                self.document_path(id)?
+                    .parent()
+                    .ok_or_else(ApiError::internal)?,
+                0o700,
+            )?;
+        }
         if id == "models" {
             self.models.replace_document_in(&input.content)?;
         } else {
@@ -277,55 +231,6 @@ impl ControlService {
                 Ok(HostResponse::Empty(EmptyObject {}))
             }
         }
-    }
-}
-
-fn redact(text: String) -> (String, bool) {
-    let Ok(mut doc) = from_str::<Table>(&text) else {
-        return (text, false);
-    };
-    fn visit(value: &mut TomlValue) -> bool {
-        let mut changed = false;
-        match value {
-            TomlValue::Table(table) => {
-                for (key, value) in table {
-                    let lower = key.to_ascii_lowercase();
-                    if matches!(
-                        lower.as_str(),
-                        "api_key"
-                            | "password"
-                            | "access_token"
-                            | "refresh_token"
-                            | "client_secret"
-                            | "token"
-                            | "authorization"
-                            | "cookie"
-                            | "bearer"
-                    ) && value.is_str()
-                    {
-                        *value = TomlValue::String("[REDACTED]".into());
-                        changed = true;
-                    } else {
-                        changed |= visit(value);
-                    }
-                }
-            }
-            TomlValue::Array(values) => {
-                for value in values {
-                    changed |= visit(value);
-                }
-            }
-            _ => {}
-        }
-        changed
-    }
-    let mut value = TomlValue::Table(doc.clone());
-    let changed = visit(&mut value);
-    if changed {
-        doc = value.try_into().unwrap_or_default();
-        (to_string_pretty(&doc).unwrap_or_default(), true)
-    } else {
-        (text, false)
     }
 }
 

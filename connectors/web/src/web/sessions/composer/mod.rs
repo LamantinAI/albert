@@ -67,6 +67,7 @@ impl SessionHost {
             can_select_skills: owner,
             can_compact: true,
             can_restart: owner,
+            can_manage_credentials: owner,
             can_reload_models: owner
                 && self
                     .runtime

@@ -66,6 +66,8 @@ pub(super) async fn fixture() -> (TempDir, ControlService, Principal) {
         Arc::new(AtomicBool::new(false)),
         Arc::new(LocalTransport),
     );
+    // Control application tests exercise an already provisioned workspace.
+    runtime.initialize_memory_setup(false).await.unwrap();
     (
         dir,
         ControlService::new(runtime, Arc::new(Mutex::new(()))),

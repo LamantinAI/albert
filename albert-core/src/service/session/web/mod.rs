@@ -1,5 +1,6 @@
 //! Explicit browser resource access. No selected channel chat or empty default
 //! is created merely to prove access to a Session.
+mod deletion;
 mod lifecycle;
 mod metadata;
 pub mod start;
@@ -23,7 +24,7 @@ pub struct WebActor {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use octo_history::{
@@ -40,7 +41,7 @@ mod tests {
         sessions::settings::SessionSettings, sessions::UserId,
     };
 
-    async fn fixture() -> (TempDir, SessionService, WebActor, WebActor) {
+    pub(crate) async fn fixture() -> (TempDir, SessionService, WebActor, WebActor) {
         let dir = tempdir().unwrap();
         let history = Arc::new(
             SqliteHistory::open_retained(dir.path().join("history.db"))

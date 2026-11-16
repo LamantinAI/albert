@@ -3,6 +3,12 @@ import { expect, test } from "@playwright/test";
 import { clientContext, readyFixture, session } from "./fixture";
 
 test("login shows the slogan once", async ({ page }) => {
+  await page.route("**/api/v1/auth/refresh", (route) =>
+    route.fulfill({
+      status: 401,
+      json: { error: { code: "unauthorized", message: "Sign in." } },
+    }),
+  );
   await page.route("**/api/v1/context", (route) =>
     route.fulfill({
       json: clientContext({

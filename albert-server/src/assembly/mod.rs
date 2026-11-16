@@ -32,6 +32,10 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
         restart.clone(),
         Arc::new(TelegramTransport),
     );
+    runtime
+        .initialize_memory_setup(settings.web.enabled)
+        .await
+        .map_err(Error::Config)?;
     let mut builder = channels(
         config,
         sessions.clone(),
@@ -54,6 +58,7 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
                 secure_cookie: origin.starts_with("https://"),
                 public_origin: origin,
                 credential_ttl_seconds: settings.web.credential_ttl_seconds,
+                refresh_ttl_seconds: settings.web.refresh_ttl_seconds,
                 login_attempts: settings.web.login_attempts,
                 login_window_seconds: settings.web.login_window_seconds,
                 password_workers: settings.web.password_workers,
@@ -71,6 +76,7 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
             "chat.turn.end",
             "albert.session.closed",
             "albert.progress",
+            "albert.operator.progress",
             "albert.text",
             "albert.session.updated",
         ]
@@ -88,6 +94,7 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
             Filter::by_kind("chat.*")
                 .with_kind("albert.session.closed")
                 .with_kind("albert.progress")
+                .with_kind("albert.operator.progress")
                 .with_kind("albert.text")
                 .with_kind("albert.session.updated"),
         )

@@ -162,7 +162,9 @@ impl OpenAiLoginService {
         let ready = matches!(
             timeout(Duration::from_secs(30), self.runtime.activate()).await,
             Ok(Ok(()))
-        ) && self.runtime.status().model_ready;
+        ) && (self.runtime.status().model_ready
+            || (self.runtime.status().model_configured
+                && !self.runtime.status().memory_configured));
         let mut connection = self.connection.lock().await;
         if connection.generation != generation || !connection.applying() {
             return;

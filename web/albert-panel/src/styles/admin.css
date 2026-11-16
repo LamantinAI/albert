@@ -186,6 +186,12 @@ input[type="file"]::file-selector-button {
 .config-wide-field {
   grid-column: 1 / -1;
 }
+.memory-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .view-switch {
   display: inline-flex;
   border: 1px solid var(--line);
@@ -246,107 +252,4 @@ input[type="file"]::file-selector-button {
 }
 .subscription-model-option input {
   width: auto;
-}
-
-.telegram-page {
-  max-width: 850px;
-}
-.connections-page > details.card {
-  max-width: 850px;
-  margin-top: 20px;
-}
-.telegram-entry {
-  display: block;
-  margin-bottom: 24px;
-}
-.telegram-page .card-heading h2 {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.telegram-page .card-heading svg {
-  color: var(--gold);
-}
-.telegram-page details > summary {
-  color: var(--gold);
-  cursor: pointer;
-  padding: 8px 0;
-}
-.telegram-form {
-  margin-top: 16px;
-}
-.telegram-token {
-  margin-top: 24px;
-}
-.telegram-token > label {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 10px;
-}
-.telegram-command {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.telegram-command input {
-  width: 100%;
-  min-width: 0;
-  font: 12px var(--mono);
-  color: var(--gold);
-}
-.telegram-command .button {
-  flex-shrink: 0;
-}
-.telegram-page .form-actions {
-  margin-top: 16px;
-  flex-wrap: wrap;
-}
-
-.connector-directory-actions {
-  margin: 0 0 28px;
-}
-.connector-detail {
-  max-width: 850px;
-}
-.connector-create {
-  max-width: 600px;
-  display: grid;
-  gap: 24px;
-}
-.connector-section-title {
-  margin: 32px 0 16px;
-  font-size: var(--section-title);
-}
-
-.advanced-connection-controls {
-  margin-bottom: 24px;
-  max-width: 680px;
-}
-.advanced-connection-controls .connector-form {
-  margin-top: 20px;
-}
-.disclosure {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  list-style: none;
-}
-.disclosure::-webkit-details-marker {
-  display: none;
-}
-.disclosure > svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--gold);
-  transition: transform 150ms ease;
-}
-details[open] > .disclosure > svg {
-  transform: rotate(90deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .disclosure > svg {
-    transition: none;
-  }
 }

@@ -1,3 +1,7 @@
+import {
+  useOperator,
+  useSessionActivityRef,
+} from "../operator/OperatorContext";
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Icon } from "../../components/Icon";
@@ -22,8 +26,12 @@ export const SessionItem = memo(function SessionItem({
   onNavigate: () => void;
   onOpen: (session: Session, anchor: HTMLButtonElement) => void;
 }) {
+  const { cards, connected } = useOperator();
+  const activityRef = useSessionActivityRef(session.id);
+  const activity = cards[session.id];
   return (
     <div
+      ref={activityRef}
       className={`chat-item ${selected ? "chat-item-selected" : ""}`}
       data-session-id={session.id}
     >
@@ -33,7 +41,9 @@ export const SessionItem = memo(function SessionItem({
         onClick={onNavigate}
         aria-current={selected ? "page" : undefined}
       >
-        <span className="chat-item-dot" />
+        <span
+          className={`chat-item-dot ${connected && activity?.running ? "session-working" : connected && activity?.outcome === "completed" ? "session-completed" : ""}`}
+        />
         <span className="chat-item-copy">
           <span className="chat-item-title">
             {session.title || "Untitled conversation"}

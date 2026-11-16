@@ -38,16 +38,28 @@ ApplyView: {
 ApprovalDecision: {
             approve: boolean;
         };
+/** @enum {string} */
+        ApprovalKind: "confirmation" | "native";
 ApprovalList: {
             items: components["schemas"]["ApprovalView"][];
+            warnings?: string[];
         };
+/** @enum {string} */
+        ApprovalState: "pending" | "deciding" | "confirmed" | "denied" | "committed" | "rejected" | "cancelled" | "expired" | "rolled_back" | "unknown" | "superseded";
 ApprovalView: {
+            action: string;
+            can_decide: boolean;
             connector: string;
+            details?: unknown;
+            effects: string[];
             /** Format: int64 */
             expires_at?: number | null;
             id: string;
-            state: string;
+            kind: components["schemas"]["ApprovalKind"];
+            session_id?: string | null;
+            state: components["schemas"]["ApprovalState"];
             summary: unknown;
+            title: string;
         };
 AttachmentView: {
             content_type: string;
@@ -60,6 +72,8 @@ AttemptView: {
             session_id: string;
             state: string;
         };
+/** Format: binary */
+        BinaryContent: string;
 CancelRequest: {
             session_id: string;
         };
@@ -74,6 +88,8 @@ Capabilities: {
 ClientContext: {
             account?: null | components["schemas"]["AccountView"];
             caps: components["schemas"]["Capabilities"];
+            /** Format: int64 */
+            credential_expires_at?: number | null;
             csrf?: string | null;
             current_credential_id?: string | null;
             runtime_epoch: string;
@@ -92,6 +108,7 @@ ComposerSkill: {
         };
 ComposerView: {
             can_compact: boolean;
+            can_manage_credentials: boolean;
             can_reload_models: boolean;
             can_restart: boolean;
             can_select_skills: boolean;
@@ -164,6 +181,33 @@ ConnectorView: {
             label: string;
             settings_mode: string;
         };
+CredentialCreate: {
+            client_request_id: string;
+            name?: string;
+            session_id?: string | null;
+        };
+CredentialRequestList: {
+            existing_names: string[];
+            items: components["schemas"]["CredentialRequestView"][];
+        };
+CredentialRequestView: {
+            /** Format: int64 */
+            expires_at: number;
+            id: string;
+            name?: string | null;
+            notification: string;
+            replaced: boolean;
+            replayed?: boolean;
+            session_id?: string | null;
+            source: string;
+            state: string;
+            suggested_name: string;
+        };
+/** @description This write-only input is deliberately not Debug/Serialize and never enters events. */
+        CredentialSubmission: {
+            name: string;
+            value: string;
+        };
 CredentialUpdate: {
             current_password: string;
             new_password: string;
@@ -185,239 +229,5 @@ IdentityView: {
 LoginRequest: {
             password: string;
             username: string;
-        };
-MessageCreate: {
-            attachments?: string[];
-            client_message_id: string;
-            digest?: string | null;
-            skills?: components["schemas"]["SkillSelection"][];
-            text: string;
-        };
-MessageList: {
-            has_more: boolean;
-            items: components["schemas"]["MessageView"][];
-            next_cursor?: string | null;
-            through_id?: string | null;
-        };
-MessageReceipt: {
-            attempt_id?: string | null;
-            client_message_id: string;
-            duplicate: boolean;
-            message_ids: string[];
-        };
-MessageView: {
-            attachments?: components["schemas"]["AttachmentView"][];
-            content: string;
-            created_at: string;
-            id: string;
-            role: string;
-            skills?: components["schemas"]["SelectedSkillView"][];
-        };
-ModelConfig: {
-            api_key_env?: string | null;
-            base_url?: string | null;
-            context_window?: number | null;
-            id: string;
-            model: string;
-            provider: string;
-            reasoning?: unknown;
-            /** Format: int64 */
-            request_timeout_ms?: number | null;
-            tools: boolean;
-            vision: boolean;
-        };
-ModelOrder: {
-            ids: string[];
-            revision: string;
-        };
-ModelPoolView: {
-            models: components["schemas"]["ModelView"][];
-            preferred?: string | null;
-            revision: string;
-            roles: components["schemas"]["ModelRole"][];
-        };
-ModelPreference: {
-            model_id: string;
-        };
-ModelRole: {
-            description: string;
-            id: string;
-            models: string[];
-            reasoning_effort?: string | null;
-        };
-ModelView: {
-            config: components["schemas"]["ModelConfig"];
-            credential_configured: boolean;
-            priority: number;
-        };
-ModelWrite: {
-            api_key?: string | null;
-            config: components["schemas"]["ModelConfig"];
-            revision?: string | null;
-        };
-/** @enum {string} */
-        OpenAiLoginPhase: "awaiting_callback" | "exchanging" | "connected" | "failed" | "cancelled" | "expired";
-OpenAiLoginStart: {
-            replace_existing?: boolean;
-        };
-OpenAiLoginSubmission: {
-            callback: string;
-        };
-OpenAiLoginView: {
-            authorize_url?: string | null;
-            credentials_saved: boolean;
-            expires_at: string;
-            id: string;
-            message?: string | null;
-            phase: components["schemas"]["OpenAiLoginPhase"];
-            redirect_uri: string;
-        };
-PageQuery: {
-            after?: string | null;
-            limit?: number | null;
-            order?: string | null;
-            through_id?: string | null;
-        };
-ProfileView: {
-            canonical_user_id?: string | null;
-            display_name?: string | null;
-        };
-/** @enum {string} */
-        ProgressActivity: "scratchpad" | "memory" | "skill" | "connector" | "search" | "browser" | "files" | "shell" | "sql" | "calendar" | "mail" | "image" | "audio_input" | "audio_output" | "subagent" | "sessions" | "configuration" | "model" | "unknown";
-ProgressDelta: {
-            at: string;
-            attempt_id: string;
-            items: components["schemas"]["ProgressItem"][];
-            replace_kind?: string | null;
-        };
-ProgressItem: {
-            activity?: null | components["schemas"]["ProgressActivity"];
-            /** Format: int64 */
-            elapsed_ms?: number | null;
-            id: string;
-            kind: string;
-            label: string;
-            started_at: string;
-            state: string;
-            updated_at: string;
-        };
-ProgressSnapshot: {
-            attempt_id: string;
-            items: components["schemas"]["ProgressItem"][];
-            started_at: string;
-            truncated: boolean;
-            updated_at: string;
-        };
-RuntimeStatus: {
-            error?: string | null;
-            model_ready: boolean;
-            phase: string;
-            runtime_epoch: string;
-        };
-SecretList: {
-            items: string[];
-        };
-SecretWrite: {
-            value: string;
-        };
-SelectedSkillView: {
-            id: string;
-            name: string;
-            revision: string;
-        };
-SessionCreate: {
-            temporary?: boolean;
-            title?: string | null;
-        };
-SessionEvent: {
-            attempt_id?: string | null;
-            data: unknown;
-            id: string;
-            kind: string;
-            runtime_epoch: string;
-            session_id: string;
-        };
-SessionList: {
-            has_more: boolean;
-            items: components["schemas"]["SessionView"][];
-            next_cursor?: string | null;
-        };
-SessionStart: {
-            attachments?: string[];
-            client_message_id: string;
-            skills?: components["schemas"]["SkillSelection"][];
-            temporary?: boolean;
-            text: string;
-        };
-SessionStartView: {
-            id: string;
-            published: boolean;
-            session_id: string;
-            state: string;
-            temporary: boolean;
-        };
-SessionState: {
-            active_attempt?: null | components["schemas"]["AttemptView"];
-            progress?: null | components["schemas"]["ProgressSnapshot"];
-            runtime_epoch: string;
-            session: components["schemas"]["SessionView"];
-            status: string[];
-            text?: null | components["schemas"]["TextSnapshot"];
-        };
-SessionUpdate: {
-            archived?: boolean | null;
-            kind?: string | null;
-            promotion_key?: string | null;
-            /** Format: int64 */
-            revision: number;
-            state?: string | null;
-            title?: string | null;
-        };
-SessionView: {
-            created_at: string;
-            host: string;
-            id: string;
-            kind: string;
-            /** Format: int64 */
-            revision: number;
-            state: string;
-            title: string;
-        };
-/** @enum {string} */
-        SetupPhase: "credentials" | "profile" | "model" | "ready" | "runtime_error";
-SetupView: {
-            identity_required: boolean;
-            model_ready: boolean;
-            phase: components["schemas"]["SetupPhase"];
-        };
-SkillImport: {
-            data_base64: string;
-            filename: string;
-            replace?: boolean;
-        };
-SkillList: {
-            items: components["schemas"]["SkillView"][];
-        };
-SkillSelection: {
-            id: string;
-            revision: string;
-        };
-SkillUpdate: {
-            enabled: boolean;
-            revision: string;
-        };
-SkillView: {
-            command?: string | null;
-            content?: string | null;
-            description: string;
-            enabled: boolean;
-            id: string;
-            name: string;
-            owner_only: boolean;
-            revision: string;
-        };
-SkillWrite: {
-            content: string;
-            revision?: string | null;
         };
 }

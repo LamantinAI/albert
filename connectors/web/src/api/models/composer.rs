@@ -29,6 +29,7 @@ pub struct ComposerView {
     pub can_select_skills: bool,
     pub can_compact: bool,
     pub can_restart: bool,
+    pub can_manage_credentials: bool,
     pub can_reload_models: bool,
     pub max_file_bytes: usize,
     pub max_attachments: usize,

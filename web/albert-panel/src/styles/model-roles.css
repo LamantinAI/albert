@@ -1,0 +1,44 @@
+.model-roles {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+  margin-top: var(--section-gap);
+}
+.model-roles-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.model-roles-heading > div {
+  min-width: 0;
+  max-width: 640px;
+}
+.model-roles-heading h2 {
+  margin: 0 0 8px;
+  font-size: var(--section-title);
+  line-height: 1.4;
+}
+.model-roles-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.model-roles-heading > .button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.model-role-dialog h2 {
+  overflow-wrap: anywhere;
+}
+.model-role-dialog .dialog-actions {
+  margin-top: 4px;
+}
+@media (max-width: 480px) {
+  .model-roles-heading {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+}

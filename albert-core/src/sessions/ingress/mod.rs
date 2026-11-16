@@ -4,8 +4,10 @@
 use octo_core::{CogitatorContext, Envelope};
 
 use crate::{
-    acl::tag, sessions::error::SessionError, sessions::error::SessionResult, sessions::Admission,
+    acl::tag, confirmations::ConfirmationContinuation, credentials::CredentialContinuation,
+    sessions::error::SessionError, sessions::error::SessionResult, sessions::Admission,
     sessions::AdmissionScope, sessions::ExternalIdentity, sessions::ReplyRoute,
+    sessions::SessionContext,
 };
 
 pub(crate) fn for_message(incoming: &Envelope, ctx: &CogitatorContext) -> SessionResult<Admission> {
@@ -26,7 +28,13 @@ pub(crate) fn for_message(incoming: &Envelope, ctx: &CogitatorContext) -> Sessio
 }
 
 fn from_verified_adapter(incoming: &Envelope) -> SessionResult<Admission> {
-    if incoming.kind.as_str() != "chat.message" {
+    let continuation = (incoming.kind.as_str() == "albert.credential.ready"
+        && incoming.context.get::<CredentialContinuation>().is_some())
+        || (incoming.kind.as_str() == "albert.confirmation.ready"
+            && incoming.context.get::<ConfirmationContinuation>().is_some());
+    if incoming.kind.as_str() != "chat.message"
+        && !(continuation && incoming.context.get::<SessionContext>().is_some())
+    {
         return Err(SessionError::InvalidInput("not a dialog message"));
     }
     let channel = incoming
@@ -100,5 +108,11 @@ mod tests {
         event.kind = EventKind::new("caldav.event");
         assert!(from_verified_adapter(&event).is_err());
         assert!(from_verified_adapter(&message("7", "mail", Some("7"))).is_err());
+    }
+    #[test]
+    fn a_confirmation_message_without_typed_host_context_is_not_an_input() {
+        let mut incoming = message("7", "private", Some("7"));
+        incoming.kind = EventKind::new("albert.confirmation.ready");
+        assert!(from_verified_adapter(&incoming).is_err());
     }
 }

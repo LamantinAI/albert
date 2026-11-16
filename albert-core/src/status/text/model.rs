@@ -8,17 +8,27 @@ use rig::{
     streaming::StreamingCompletionResponse,
 };
 
-use crate::status::StatusFeed;
+use crate::{status::StatusFeed, usage::UsageRecorder};
+use serde_json::to_value;
 
 /// Observe provider text below budget/recovery, retaining the ordinary rig loop.
 #[derive(Clone)]
 pub(crate) struct ObservedModel<M> {
     inner: M,
     feed: Option<StatusFeed>,
+    accounting: Option<UsageRecorder>,
 }
 impl<M> ObservedModel<M> {
+    pub fn with_accounting(mut self, accounting: Option<UsageRecorder>) -> Self {
+        self.accounting = accounting;
+        self
+    }
     pub fn new(inner: M, feed: Option<StatusFeed>) -> Self {
-        Self { inner, feed }
+        Self {
+            inner,
+            feed,
+            accounting: None,
+        }
     }
 }
 impl<M: CompletionModel> CompletionModel for ObservedModel<M> {
@@ -32,8 +42,16 @@ impl<M: CompletionModel> CompletionModel for ObservedModel<M> {
         &self,
         request: CompletionRequest,
     ) -> Result<CompletionResponse<()>, CompletionError> {
+        let invocation = self.accounting.as_ref().map(UsageRecorder::begin);
         let Some(feed) = self.feed.as_ref().filter(|feed| feed.text_enabled()) else {
             let response = self.inner.completion(request).await?;
+            let reported = to_value(&response.raw_response)
+                .ok()
+                .and_then(|raw| raw.get("usage").cloned())
+                .is_some_and(|u| u.is_object());
+            if let Some(invocation) = invocation {
+                invocation.complete(reported.then_some(response.usage));
+            }
             return Ok(CompletionResponse {
                 choice: response.choice,
                 usage: response.usage,
@@ -81,11 +99,14 @@ impl<M: CompletionModel> CompletionModel for ObservedModel<M> {
             {
                 feed.text_reset(&generation).await;
             }
-            let usage = stream
+            let reported = stream
                 .response
                 .as_ref()
-                .and_then(GetTokenUsage::token_usage)
-                .unwrap_or_else(Usage::new);
+                .and_then(GetTokenUsage::token_usage);
+            if let Some(invocation) = invocation {
+                invocation.complete(reported);
+            }
+            let usage = reported.unwrap_or_else(Usage::new);
             Ok(CompletionResponse {
                 choice: stream.choice.clone(),
                 usage,

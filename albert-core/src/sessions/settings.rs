@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{error::SessionResult, ExternalIdentity, UserId};
 use crate::{
-    accounts::TelegramLoginSettings, composer::ComposerSettings, media::MediaLimits,
+    accounts::TelegramLoginSettings, composer::ComposerSettings,
+    confirmations::ConfirmationSettings, credentials::CredentialSettings, media::MediaLimits,
     messaging::settings::MessagingSettings, service::session::titles::TitleSettings,
     sessions::error::SessionError, sessions::picker_settings::PickerSettings,
 };
@@ -15,6 +16,8 @@ pub struct SessionSettings {
     pub limits: SessionLimits,
     pub media: MediaLimits,
     pub composer: ComposerSettings,
+    pub credentials: CredentialSettings,
+    pub confirmations: ConfirmationSettings,
     pub messaging: MessagingSettings,
     pub titles: TitleSettings,
     pub picker: PickerSettings,
@@ -72,6 +75,12 @@ impl SessionSettings {
             return Err(SessionError::InvalidInput(
                 "invalid Telegram login settings",
             ));
+        }
+        if !self.confirmations.valid() {
+            return Err(SessionError::InvalidInput("invalid confirmation settings"));
+        }
+        if !self.credentials.valid() {
+            return Err(SessionError::InvalidInput("invalid credential settings"));
         }
         if !self.composer.valid() {
             return Err(SessionError::InvalidInput("invalid composer settings"));

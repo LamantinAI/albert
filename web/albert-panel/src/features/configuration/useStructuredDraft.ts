@@ -52,6 +52,8 @@ export function useStructuredDraft(
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mounted = useRef(true);
   const [pending, setPending] = useState(false);
+  const [resetVersion, setResetVersion] = useState(0);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export function useStructuredDraft(
       fieldsRef.current = result.fields;
       lastProjection.current = { content: result.content, revision };
       setProjection(result);
+      setResetting(false);
       editsRef.current = {};
       setEdits({});
       if (result.content !== source) current.onChange(result.content);
@@ -153,6 +156,7 @@ export function useStructuredDraft(
     return () => clearTimeout(timer.current);
   }, [
     active,
+    resetVersion,
     content,
     document?.revision,
     document?.redacted,
@@ -181,7 +185,24 @@ export function useStructuredDraft(
       Object.keys(editsRef.current).length ? run() : latest.current.content,
     [run],
   );
+  const reset = useCallback(() => {
+    generation.current++;
+    controller.current?.abort();
+    clearTimeout(timer.current);
+    editsRef.current = {};
+    fieldsRef.current = [];
+    lastProjection.current = null;
+    setResetVersion((version) => version + 1);
+    setEdits({});
+    setResetting(true);
+    setPending(false);
+    setError("");
+  }, []);
+
   return {
+    reset,
+    resetVersion,
+    resetting,
     fields: projection?.fields ?? [],
     edits,
     change,

@@ -23,7 +23,13 @@ export function clientContext(overrides: Partial<Context> = {}): Context {
       manage_skills: true,
       manage_config: true,
     },
-    setup: { phase: "ready", model_ready: true, identity_required: false },
+    setup: {
+      phase: "ready",
+      model_ready: true,
+      model_configured: true,
+      memory_configured: true,
+      identity_required: false,
+    },
     runtime_epoch: "epoch-1",
     csrf: "test-csrf",
     current_credential_id: "credential-1",
@@ -93,11 +99,17 @@ export async function readyFixture(page: Page, context = clientContext()) {
         contentType: "application/json",
         body: JSON.stringify(value),
       });
+    if (path === "/auth/refresh")
+      return route.fulfill({
+        status: 401,
+        json: { error: { code: "unauthorized", message: "Sign in." } },
+      });
     if (path === "/composer")
       return json({
         speech_available: false,
         can_select_skills: context.caps.owner,
         can_compact: true,
+        can_manage_credentials: context.caps.owner,
         can_restart: context.caps.owner,
         can_reload_models: context.caps.owner,
         max_file_bytes: 32 * 1024 * 1024,
@@ -106,7 +118,11 @@ export async function readyFixture(page: Page, context = clientContext()) {
         recording_max_seconds: 300,
         skills: [],
       });
+    if (path === "/credential-requests")
+      return json({ items: [], existing_names: [] });
     if (path === "/context") return json(context);
+    if (path === "/mcp-servers") return json({ items: [], revision: "mcp-r1" });
+    if (path === "/approvals") return json({ items: [], warnings: [] });
     if (path === "/model-pool")
       return json({ revision: "r1", preferred: null, models: [], roles: [] });
     if (path === "/account/telegram/connections") return json({ items: [] });
@@ -151,6 +167,12 @@ export async function readyFixture(page: Page, context = clientContext()) {
         items: published ? [current] : [session],
         has_more: false,
         next_cursor: null,
+      });
+    if (path === "/operator/snapshot")
+      return json({
+        runtime_epoch: context.runtime_epoch,
+        catalog_changed: false,
+        items: [],
       });
     if (path.endsWith("/events"))
       return route.fulfill({

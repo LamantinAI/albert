@@ -10,6 +10,7 @@ embedded-panel = []
 local-e2e = ["albert-core/local-e2e"]
 
 [dependencies]
+octo-mcp.workspace = true
 albert-core = { workspace = true }
 argon2 = { workspace = true }
 async-trait = { workspace = true }
@@ -41,6 +42,7 @@ tower = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]

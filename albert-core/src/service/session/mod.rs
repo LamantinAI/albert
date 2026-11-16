@@ -1,6 +1,7 @@
 //! Session orchestration over the authoritative octo-history catalog. Albert owns
 //! verified users and private selectors, never a second catalog or transcript.
 mod admission;
+mod credentials;
 mod init;
 mod lifecycle;
 mod messaging;
@@ -27,20 +28,24 @@ use octo_history::{
 };
 
 use self::{native_routes::NativeSeen, titles::TitleJobs};
+use crate::usage::UsageLedger;
 use crate::{
-    accounts::AccountAuthority, db::entity::PrivateRouteKey, db::error::DatabaseError,
-    db::Database, history::sessions::SessionHistory, media::MediaStore,
-    messaging::transport::AdapterRegistry, sessions::error::SessionError,
-    sessions::error::SessionResult, sessions::lease::ScopeRegistry, sessions::lease::SessionLease,
-    sessions::presentation::PresentationRegistry, sessions::settings::SessionSettings,
-    sessions::SessionContext,
+    accounts::AccountAuthority, confirmations::ConfirmationGuard, credentials::CredentialGuard,
+    db::entity::PrivateRouteKey, db::error::DatabaseError, db::Database,
+    history::sessions::SessionHistory, media::MediaStore, messaging::transport::AdapterRegistry,
+    sessions::error::SessionError, sessions::error::SessionResult, sessions::lease::ScopeRegistry,
+    sessions::lease::SessionLease, sessions::presentation::PresentationRegistry,
+    sessions::settings::SessionSettings, sessions::SessionContext,
 };
 
 #[derive(Clone)]
 pub struct SessionService {
+    credentials: Arc<CredentialGuard>,
+    confirmations: Arc<ConfirmationGuard>,
     accounts: AccountAuthority,
     history: Arc<SqliteHistory>,
     database: Database,
+    usage: UsageLedger,
     settings: SessionSettings,
     router: Arc<SessionHistory>,
     runtime_epoch: String,
@@ -52,6 +57,16 @@ pub struct SessionService {
 }
 
 impl SessionService {
+    pub fn usage(&self) -> &UsageLedger {
+        &self.usage
+    }
+
+    pub fn confirmations(&self) -> &Arc<ConfirmationGuard> {
+        &self.confirmations
+    }
+    pub fn credentials(&self) -> &Arc<CredentialGuard> {
+        &self.credentials
+    }
     pub fn media(&self) -> &Arc<MediaStore> {
         &self.router.media
     }

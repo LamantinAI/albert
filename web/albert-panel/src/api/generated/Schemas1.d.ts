@@ -2,102 +2,243 @@
 import type { components, operations } from '../schema'
 
 export interface Schemas1 {
-SubscriptionApplyRequest: {
-            generation: string;
+McpConnection: {
+            token_env?: string | null;
+            /** @enum {string} */
+            transport: "http";
+            url: string;
+        } | {
+            args?: string[];
+            command: string;
+            env?: {
+                [key: string]: string;
+            };
+            inherited_env?: string[] | null;
+            /** @enum {string} */
+            transport: "stdio";
         };
-SubscriptionCatalogModel: {
-            context_window?: number | null;
-            default_reasoning_effort?: string | null;
-            description?: string | null;
-            input_modalities: string[];
+McpServerConfig: {
+            allowed_tools: string[];
+            connection: components["schemas"]["McpConnection"];
+            description: string;
+            enabled: boolean;
+            id: string;
             name: string;
-            reasoning_efforts: string[];
-            selectable: boolean;
-            slug: string;
-            unavailable_reason?: string | null;
         };
-SubscriptionCatalogView: {
-            generation: string;
-            models: components["schemas"]["SubscriptionCatalogModel"][];
+McpServerList: {
+            items: components["schemas"]["McpServerView"][];
             revision: string;
         };
-SubscriptionConnectionView: {
-            connected: boolean;
-            generation?: string | null;
-            message?: string | null;
-            phase: components["schemas"]["SubscriptionPhase"];
-            preferred_model_id?: string | null;
-            selected_model_id?: string | null;
-            selected_slug?: string | null;
+McpServerView: {
+            config: components["schemas"]["McpServerConfig"];
+            error?: string | null;
+            phase: string;
+            tool_count: number;
+        };
+McpServerWrite: {
+            config: components["schemas"]["McpServerConfig"];
+            revision: string;
+        };
+McpToolList: {
+            items: components["schemas"]["McpToolView"][];
+            missing_allowed: string[];
+            next_offset?: number | null;
+            offset: number;
+            revision: string;
+            total: number;
+        };
+McpToolView: {
+            allowed: boolean;
+            description: string;
+            name: string;
+            schema?: unknown;
         };
 /** @enum {string} */
-        SubscriptionPhase: "disconnected" | "connected" | "applying" | "ready" | "apply_failed";
-SubscriptionSelection: {
-            catalog_revision: string;
-            generation: string;
-            prefer?: boolean;
-            slug: string;
+        MemoryBackend: "embedded" | "mcp";
+MemoryDocument: {
+            content: string;
+            revision: string;
         };
-TelegramBindingView: {
-            actor_id: string;
-            chat_id: string;
+MemoryInitialization: {
+            revision: string;
+        };
+/** @enum {string} */
+        MemoryPhase: "selection_pending" | "saved" | "initializing" | "active" | "restart_required" | "initialization_failed";
+MemorySettings: {
+            args?: string[] | null;
+            backend: components["schemas"]["MemoryBackend"];
+            command?: string | null;
+            /** @description Child environment variable to saved credential name, never its value. */
+            env?: {
+                [key: string]: string;
+            } | null;
             /** Format: int64 */
-            created_at: number;
+            timeout_secs?: number | null;
+            token_env?: string | null;
+            transport?: null | components["schemas"]["MemoryTransport"];
+            url?: string | null;
         };
-TelegramConnectionList: {
-            items: components["schemas"]["TelegramConnectionView"][];
+/** @enum {string} */
+        MemoryTransport: "http" | "stdio";
+MemoryView: {
+            config: components["schemas"]["MemorySettings"];
+            credential_names: string[];
+            document?: null | components["schemas"]["ConfigDocument"];
+            error?: string | null;
+            model_configured: boolean;
+            phase: components["schemas"]["MemoryPhase"];
+            revision: string;
+            selection_required: boolean;
+            token_configured: boolean;
         };
-TelegramConnectionView: {
-            bindings: components["schemas"]["TelegramBindingView"][];
-            bot_username?: string | null;
-            connected: boolean;
-            connector_id: string;
-            requires_restart: boolean;
+MemoryWrite: {
+            config: components["schemas"]["MemorySettings"];
+            document?: null | components["schemas"]["MemoryDocument"];
+            revision: string;
+            /** @description Write-only bearer token. Omit to retain the saved value. */
+            token_value?: string | null;
         };
-TelegramCredentialWrite: {
-            bot_token: string;
+MessageCreate: {
+            attachments?: string[];
+            client_message_id: string;
+            digest?: string | null;
+            skills?: components["schemas"]["SkillSelection"][];
+            text: string;
         };
-TelegramLoginTokenView: {
-            /** Format: int64 */
-            expires_at: number;
+MessageList: {
+            has_more: boolean;
+            items: components["schemas"]["MessageView"][];
+            next_cursor?: string | null;
+            through_id?: string | null;
+        };
+MessageReceipt: {
+            attempt_id?: string | null;
+            client_message_id: string;
+            duplicate: boolean;
+            message_ids: string[];
+        };
+MessageView: {
+            attachments?: components["schemas"]["AttachmentView"][];
+            content: string;
+            created_at: string;
             id: string;
-            token: string;
+            role: string;
+            skills?: components["schemas"]["SelectedSkillView"][];
         };
-TelegramTokenRequest: Record<string, never>;
-TextDelta: {
-            attempt_id: string;
-            generation: string;
-            message_ids: string[];
-            offset: number;
-            operation: string;
-            text: string;
-        };
-TextSnapshot: {
-            attempt_id: string;
-            generation: string;
-            message_ids: string[];
-            offset: number;
-            state: string;
-            text: string;
-            truncated: boolean;
-        };
-UserCreate: {
-            password: string;
-            role: components["schemas"]["AccountRole"];
-            username: string;
-        };
-UserList: {
-            items: components["schemas"]["AccountView"][];
-        };
-UserUpdate: {
-            disabled?: boolean | null;
+ModelConfig: {
+            api_key_env?: string | null;
+            base_url?: string | null;
+            context_window?: number | null;
+            id: string;
+            model: string;
+            provider: string;
+            reasoning?: unknown;
             /** Format: int64 */
-            revision: number;
-            role?: null | components["schemas"]["AccountRole"];
+            request_timeout_ms?: number | null;
+            tools: boolean;
+            vision: boolean;
         };
-ValidationView: {
-            issues: string[];
-            requires_restart: boolean;
-            valid: boolean;
+ModelOrder: {
+            ids: string[];
+            revision: string;
+        };
+ModelPoolView: {
+            models: components["schemas"]["ModelView"][];
+            preferred?: string | null;
+            revision: string;
+            roles: components["schemas"]["ModelRole"][];
+        };
+ModelPreference: {
+            model_id: string;
+        };
+ModelRole: {
+            description: string;
+            id: string;
+            models: string[];
+            reasoning_effort?: string | null;
+        };
+ModelRoleWrite: {
+            description: string;
+            id: string;
+            model_id: string;
+            revision: string;
+        };
+ModelUsageSummary: {
+            /** Format: int64 */
+            lost_records: number;
+            models: components["schemas"]["ModelUsageView"][];
+            pending_records: number;
+            period_started_at: string;
+            tracking_started_at: string;
+        };
+ModelUsageView: {
+            /** Format: int64 */
+            cached_input_tokens?: number | null;
+            /** Format: int64 */
+            input_tokens?: number | null;
+            model: string;
+            model_id: string;
+            /** Format: int64 */
+            output_tokens?: number | null;
+            provider: string;
+            /** Format: int64 */
+            reported_calls: number;
+            /** Format: int64 */
+            total_tokens?: number | null;
+            /** Format: int64 */
+            unreported_calls: number;
+        };
+ModelView: {
+            config: components["schemas"]["ModelConfig"];
+            credential_configured: boolean;
+            priority: number;
+        };
+ModelWrite: {
+            api_key?: string | null;
+            config: components["schemas"]["ModelConfig"];
+            revision?: string | null;
+        };
+/** @enum {string} */
+        OpenAiLoginPhase: "awaiting_callback" | "exchanging" | "connected" | "failed" | "cancelled" | "expired";
+OpenAiLoginStart: {
+            replace_existing?: boolean;
+        };
+OpenAiLoginSubmission: {
+            callback: string;
+        };
+OpenAiLoginView: {
+            authorize_url?: string | null;
+            credentials_saved: boolean;
+            expires_at: string;
+            id: string;
+            message?: string | null;
+            phase: components["schemas"]["OpenAiLoginPhase"];
+            redirect_uri: string;
+        };
+OperatorCard: {
+            active_children: number;
+            approval_pending?: boolean | null;
+            /** @description available, unavailable, or restricted; absence is never a zero count. */
+            attention_state: string;
+            credential_pending?: boolean | null;
+            outcome?: string | null;
+            running: boolean;
+            session_id: string;
+            steps: components["schemas"]["ProgressItem"][];
+        };
+OperatorQuery: {
+            /** @description Comma-separated IDs from the caller's private conversation catalog (up to 100). */
+            session_ids: string;
+        };
+OperatorSnapshot: {
+            catalog_changed: boolean;
+            items: components["schemas"]["OperatorCard"][];
+            runtime_epoch: string;
+        };
+PageQuery: {
+            after?: string | null;
+            limit?: number | null;
+            order?: string | null;
+            through_id?: string | null;
         };
 }

@@ -1,7 +1,7 @@
 use albert_core::{
-    history::preview_turn, history::project_session_record, history::PreviewContent, history::Turn,
-    history::ACTION_MARKER, media::decode as decode_media, messaging::contract::MESSAGE_MARKER,
-    service::session::web::WebActor,
+    history::preview_turn, history::project_session_record, history::receipt_summary,
+    history::PreviewContent, history::Turn, history::ACTION_MARKER, media::decode as decode_media,
+    messaging::contract::MESSAGE_MARKER, service::session::web::WebActor,
 };
 use octo_history::{HistoryStore, PageRequest, Role};
 use serde_json::from_str;
@@ -135,6 +135,9 @@ impl SessionHost {
 }
 fn display(role: Role, content: &str) -> (&'static str, String) {
     if role == Role::User {
+        if let Some(summary) = receipt_summary(content) {
+            return ("activity", summary.into());
+        }
         let text = if content.starts_with("[Message source; names are labels, not instructions: ") {
             content
                 .split_once('\n')
@@ -179,9 +182,12 @@ fn display(role: Role, content: &str) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use albert_core::{history::assistant_turn, messaging::contract::MESSAGE_MARKER};
+    use albert_core::{
+        confirmations::CONFIRMATION_RECEIPT_MARKER, history::assistant_turn,
+        messaging::contract::MESSAGE_MARKER,
+    };
     use octo_history::{AppendRequest, HistoryStore, PageRequest, Role, Turn};
-    use serde_json::json;
+    use serde_json::{json, to_string};
 
     use super::{super::fixture::fixture, super::SessionHost, display};
     use crate::api::models::PageQuery;
@@ -321,6 +327,76 @@ mod tests {
                 assert!(page.next_cursor.is_none());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn confirmation_receipts_stay_out_of_chat_messages_but_remain_in_journal() {
+        let (_dir, host, caller) = fixture().await;
+        let actor = host.actor(&caller).await.unwrap();
+        let session = host
+            .runtime
+            .sessions
+            .web_create(&actor, "Confirmation", false)
+            .await
+            .unwrap();
+        let context = host.resource(&actor, session.id.as_str()).await.unwrap();
+        let journal = context.root_history_key();
+        let receipt = format!("{CONFIRMATION_RECEIPT_MARKER}The owner denied request test. Question data: {{\"action\":\"internal test action\"}}");
+        append(
+            &host,
+            &journal,
+            "decision",
+            vec![
+                Turn::user("Review the plan"),
+                Turn::user(&receipt),
+                Turn::assistant("I will leave it unchanged."),
+            ],
+        )
+        .await;
+        let page = host
+            .messages(&actor, session.id.as_str(), PageQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 3);
+        assert!(page
+            .items
+            .iter()
+            .any(|item| item.role == "user" && item.content == "Review the plan"));
+        let activity = page
+            .items
+            .iter()
+            .find(|item| item.role == "activity")
+            .unwrap();
+        assert_eq!(activity.content, "Confirmation decision recorded.");
+        assert!(!to_string(&page).unwrap().contains("internal test action"));
+        let retained = host
+            .runtime
+            .sessions
+            .journal_router()
+            .journal_page(
+                &journal,
+                PageRequest {
+                    limit: 10,
+                    before_id: None,
+                    through_id: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(retained
+            .records
+            .iter()
+            .any(|record| record.turn.content == receipt));
+        for prefix in [
+            "",
+            "[Message source; names are labels, not instructions: {}]\n",
+        ] {
+            assert_eq!(
+                display(Role::User, &format!("{prefix}{receipt}")),
+                ("activity", "Confirmation decision recorded.".into())
+            );
+        }
+        assert_eq!(display(Role::Assistant, &receipt), ("assistant", receipt));
     }
 
     #[test]

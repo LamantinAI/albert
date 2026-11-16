@@ -1,12 +1,15 @@
+mod budget;
+use self::budget::budget;
 use std::{
     collections::HashSet, fs::create_dir_all, future::pending, panic::AssertUnwindSafe,
-    path::PathBuf, sync::atomic::Ordering, sync::Arc, time::Duration,
+    sync::atomic::Ordering, sync::Arc, time::Duration,
 };
 
 use futures::FutureExt;
 use octo_core::{ChannelId, ConnectorId};
 use octo_rig::{carry_out_cancel, OctoDispatchTool};
 use rand::random;
+use rig::tool::ToolDyn;
 use serde_json::{json, Value};
 use tokio::{select, spawn, time::sleep};
 use tracing::{info, warn};
@@ -24,38 +27,8 @@ impl AlbertCogitator {
         tool: &SubagentTool,
         mut task: Task,
     ) -> Result<Value, String> {
-        if tool.ctx.shutdown.is_cancelled() {
-            return Err("Runtime is shutting down.".into());
-        }
-        if tool
-            .session
-            .as_ref()
-            .is_some_and(|session| !session.is_live())
-        {
-            return Err("Session ended; child was not started.".into());
-        }
-        if tool
-            .session
-            .as_ref()
-            .is_some_and(|session| session.chat_only())
-        {
-            return Err("This account cannot delegate work.".into());
-        }
         let limits = &self.config.subagents;
-        if task.task.trim().is_empty() {
-            return Err("Subagent task is empty.".into());
-        }
-        let max_turns = task
-            .max_tool_turns
-            .unwrap_or(limits.default_tool_turns.min(limits.max_tool_turns));
-        let seconds = task.timeout_secs.unwrap_or(limits.timeout_secs);
-        if max_turns == 0
-            || max_turns > limits.max_tool_turns
-            || seconds == 0
-            || seconds > limits.timeout_secs
-        {
-            return Err("Requested child budget exceeds configured limits.".into());
-        }
+        let (max_turns, seconds) = budget(tool, &task, limits)?;
         let (snapshot, assignment) = self.resolve_child_task(tool, &mut task)?;
         if tool.ingress.is_none()
             && (!task.sql_stores.is_empty() || task.sql_write || task.sql_schema)
@@ -82,12 +55,7 @@ impl AlbertCogitator {
         if connectors.len() != allowed.len() {
             return Err("Unknown or unadvertised connector grant.".into());
         }
-        let available = self.child_tools_for(PathBuf::new(), tool.session.as_ref());
-        for name in &task.tools {
-            if !available.iter().any(|t| t.name() == *name) {
-                return Err(format!("Native tool cannot be delegated: {name}"));
-            }
-        }
+        self.validate_child_tools(tool, &task.tools)?;
         let workspace = self
             .config
             .code_workspace
@@ -188,6 +156,13 @@ impl AlbertCogitator {
             .into_iter()
             .filter(|t| task.tools.contains(&t.name()))
             .collect();
+        tools.extend(
+            tool.mcp
+                .iter()
+                .filter(|mcp| task.tools.contains(&mcp.name()))
+                .cloned()
+                .map(|mcp| Box::new(mcp) as Box<dyn ToolDyn>),
+        );
         run.feed.register_connectors(&connectors);
         if !connectors.is_empty() {
             let mut dispatch = OctoDispatchTool::new(tool.ctx.bus(), source.clone(), catalog)

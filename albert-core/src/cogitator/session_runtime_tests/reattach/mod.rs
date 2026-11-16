@@ -6,7 +6,9 @@ use octo_core::{
 use serde_json::{json, to_string};
 use tokio::time::timeout;
 
+use super::super::testing::sessions::reply;
 use super::{message, Fixture};
+use crate::status::progress::ProgressUpdate;
 use crate::{
     cogitator::compaction::CompactOptions, history::to_messages, history::Turn,
     sessions::presentation::PresentationOpened, sessions::transport::TurnFeedback,
@@ -500,4 +502,95 @@ async fn native_completion_finishes_fresh_binding_but_retains_original_execution
         .any(|turn| turn.content.contains("| Main | preserved |")));
     opened(&fixture, &back).await;
     assert!(!token(&current).is_open());
+}
+
+#[tokio::test]
+async fn operator_keeps_safe_progress_after_native_presentation_is_detached() {
+    let mut fixture = Fixture::with_model("never-reattach").await;
+    Arc::get_mut(&mut fixture.host)
+        .unwrap()
+        .config
+        .stream_status = true;
+    let a = fixture.context("telegram", "7", "7").await;
+    fixture
+        .host
+        .clone()
+        .handle(
+            message("telegram", "7", "7", "keep working", false, true),
+            &fixture.ctx,
+        )
+        .await;
+    fixture.request_count(1).await;
+    let feed = feed(&fixture, &a).await;
+    let b = fixture.service.create_private(&a, "B").await.unwrap();
+    let detached = fixture.service.presentations().event_for(&a, &b).unwrap();
+    fixture
+        .host
+        .detach_presentation(&detached, &fixture.ctx)
+        .await;
+    let mut events = fixture
+        .ctx
+        .bus()
+        .subscribe(
+            Filter::by_kind("albert.operator.progress"),
+            SubscribeOptions::default(),
+        )
+        .await
+        .unwrap();
+    feed.progress("private runtime detail").await;
+    let event = next(&mut events, "albert.operator.progress").await;
+    let update = event.context.get::<ProgressUpdate>().unwrap();
+    assert_eq!(update.0.items[0].label, "Thinking");
+    assert_eq!(
+        event.context.get::<SessionContext>().unwrap().session_id(),
+        a.session_id()
+    );
+    assert!(fixture.host.panel_activity(a.session_id(), true).await.0);
+    assert!(!to_string(&update.0)
+        .unwrap()
+        .contains("private runtime detail"));
+}
+
+#[tokio::test]
+async fn operator_completion_and_cancellation_are_explicit_not_inferred_from_idle() {
+    let fixture = Fixture::with_model("healthy").await;
+    let a = fixture.context("telegram", "7", "7").await;
+    assert_eq!(
+        fixture.host.panel_activity(a.session_id(), true).await,
+        (false, None, 0)
+    );
+    let mut replies = fixture.replies().await;
+    fixture
+        .host
+        .clone()
+        .handle(
+            message("telegram", "7", "7", "short task", false, true),
+            &fixture.ctx,
+        )
+        .await;
+    reply(&mut replies).await;
+    let state = fixture.host.panel_activity(a.session_id(), true).await;
+    assert_eq!(state, (false, Some("completed".into()), 0));
+    let pending = Fixture::with_model("never-reattach").await;
+    let b = pending.context("telegram", "7", "7").await;
+    pending
+        .host
+        .clone()
+        .handle(
+            message("telegram", "7", "7", "pending task", false, true),
+            &pending.ctx,
+        )
+        .await;
+    pending.request_count(1).await;
+    let active = pending.host.panel_active(b.session_id()).await.unwrap();
+    assert!(
+        pending
+            .host
+            .panel_cancel_exact(b.session_id(), &active, &pending.ctx)
+            .await
+    );
+    assert_eq!(
+        pending.host.panel_activity(b.session_id(), true).await,
+        (false, Some("cancelled".into()), 0)
+    );
 }

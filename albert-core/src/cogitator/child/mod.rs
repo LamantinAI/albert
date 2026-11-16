@@ -8,6 +8,7 @@ mod runner;
 use std::{path::PathBuf, sync::Arc};
 
 use rig::completion::Message;
+use rig::tool::ToolDyn;
 use serde_json::{from_str, json, Value};
 
 use super::AlbertCogitator;
@@ -31,7 +32,7 @@ impl AlbertCogitator {
                 let grants = json!({
                 "connectors":tool.ctx.connectors().iter().filter(|c| c.capabilities.description.is_some())
                     .map(|c| c.id.as_str()).collect::<Vec<_>>(),
-                "tools":self.child_tools_for(PathBuf::new(), tool.session.as_ref()).iter().map(|t| t.name()).collect::<Vec<_>>(),
+                "tools":self.child_tools_for(PathBuf::new(), tool.session.as_ref()).iter().map(|t| t.name()).chain(tool.mcp.iter().map(|t|t.name())).collect::<Vec<_>>(),
                 "max_concurrent":self.config.subagents.max_concurrent,
                 "max_tool_turns":self.config.subagents.max_tool_turns,
                 "default_tool_turns":self.config.subagents.default_tool_turns.min(self.config.subagents.max_tool_turns),

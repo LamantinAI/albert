@@ -4,7 +4,7 @@ use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 
 use crate::{db::error::DatabaseError, db::error::DatabaseResult};
 
-pub(super) const SCHEMA_VERSION: i64 = 10;
+pub(super) const SCHEMA_VERSION: i64 = 14;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -40,6 +40,19 @@ const MIGRATIONS: &[(i64, &str)] = &[
         10,
         include_str!("../../../migrations/0010_session_media.sql"),
     ),
+    (
+        11,
+        include_str!("../../../migrations/0011_browser_refresh.sql"),
+    ),
+    (
+        12,
+        include_str!("../../../migrations/0012_session_erasure.sql"),
+    ),
+    (
+        13,
+        include_str!("../../../migrations/0013_memory_setup.sql"),
+    ),
+    (14, include_str!("../../../migrations/0014_model_usage.sql")),
 ];
 fn checksum(sql: &str) -> String {
     format!("{:x}", Sha256::digest(sql.as_bytes()))
@@ -108,6 +121,18 @@ pub(super) async fn migrate(pool: &SqlitePool) -> DatabaseResult<()> {
             Some(_) => {}
             None => {
                 raw_sql(sql).execute(&mut *tx).await?;
+                if version == 13 {
+                    query(
+                        "INSERT INTO albert_memory_setup(singleton,state,revision) VALUES(1,?,1)",
+                    )
+                    .bind(if rows.is_empty() {
+                        "uninitialized"
+                    } else {
+                        "adopted"
+                    })
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 query("INSERT INTO albert_schema_migrations(version,checksum) VALUES (?,?)")
                     .bind(version)
                     .bind(digest)
@@ -256,6 +281,27 @@ mod tests {
             Database::from_pool(f.pool.clone()).await.unwrap();
             assert_complete(&f).await;
         }
+    }
+    #[tokio::test]
+    async fn refresh_upgrade_preserves_existing_accounts_credentials_and_journal() {
+        let f = fixture().await;
+        seed(&f.pool, &MIGRATIONS[..10]).await;
+        account_rows(&f.pool).await;
+        let account: String = query_scalar("SELECT id FROM albert_login_accounts LIMIT 1")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+        query("INSERT INTO albert_browser_credentials(id,account_id,token_version,issued_at,expires_at) VALUES ('legacy-device',?,1,10,100)").bind(&account).execute(&f.pool).await.unwrap();
+        Database::from_pool(f.pool.clone()).await.unwrap();
+        assert_complete(&f).await;
+        let credential: (String,i64,i64) = query_as("SELECT account_id,issued_at,expires_at FROM albert_browser_credentials WHERE id='legacy-device'").fetch_one(&f.pool).await.unwrap();
+        assert_eq!(credential, (account, 10, 100));
+        let count: i64 = query_scalar("SELECT count(*) FROM albert_browser_refresh")
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        Database::from_pool(f.pool.clone()).await.unwrap();
     }
     #[tokio::test]
     async fn deployed_runtime_delivery_and_interrupted_work_survive_admin_upgrade() {

@@ -1,3 +1,4 @@
+use crate::usage::UsageLedger;
 use std::sync::Arc;
 
 use octo_history::{MemoryLimits, SessionId, SqliteHistory};
@@ -5,11 +6,11 @@ use rand::random;
 
 use super::{native_routes::NativeSeen, SessionService};
 use crate::{
-    accounts::AccountAuthority, db::entity::MarkerState, db::error::DatabaseError,
-    db::repo::excursion::discard_expired_in, db::repo::marker::all,
-    db::repo::marker::expire_previous_runtime, db::Database, history::sessions::SessionHistory,
-    sessions::error::SessionResult, sessions::lease::ScopeRegistry,
-    sessions::settings::SessionSettings,
+    accounts::AccountAuthority, confirmations::ConfirmationGuard, credentials::CredentialGuard,
+    db::entity::MarkerState, db::error::DatabaseError, db::repo::excursion::discard_expired_in,
+    db::repo::marker::all, db::repo::marker::expire_previous_runtime, db::Database,
+    history::sessions::SessionHistory, sessions::error::SessionResult,
+    sessions::lease::ScopeRegistry, sessions::settings::SessionSettings,
 };
 
 impl SessionService {
@@ -44,9 +45,13 @@ impl SessionService {
                 marker.state == MarkerState::Saved && marker.owner_user_id.is_some(),
             )?;
         }
+        let credentials = CredentialGuard::new(settings.credentials.clone());
         let service = Self {
+            credentials,
+            confirmations: ConfirmationGuard::new(settings.confirmations.clone()),
             accounts: AccountAuthority::new(history.clone(), settings.telegram_login.clone()),
             history,
+            usage: UsageLedger::new(&database),
             database,
             settings,
             router,

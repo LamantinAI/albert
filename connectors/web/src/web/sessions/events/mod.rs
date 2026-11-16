@@ -1,28 +1,27 @@
+mod operator;
+mod stream;
 use std::{collections::HashMap, collections::VecDeque, sync::Arc, sync::Mutex};
 
 use albert_core::{
     sessions::transport::OutputScope, sessions::transport::TurnFeedback, sessions::SessionContext,
     status::progress::ProgressUpdate, status::text::TextUpdate,
 };
-use futures::stream::unfold;
 use octo_core::Envelope;
 use octo_history::{SessionAccess, SessionId};
 use serde_json::{from_value, json, to_value, Value};
-use tokio::{select, sync::broadcast, sync::broadcast::error::RecvError};
+use tokio::sync::broadcast;
 
 use super::{progress::Progress, text::TextPreview, SessionHost};
 use crate::{
-    api::errors::ApiError, api::errors::ApiResult, api::host::EventStream,
-    api::host::SessionEventRequest, api::models::ProgressDelta, api::models::ProgressSnapshot,
-    api::models::SessionEvent, api::models::TextDelta, api::models::TextSnapshot,
-    api::principal::Principal,
+    api::models::ProgressDelta, api::models::ProgressSnapshot, api::models::SessionEvent,
+    api::models::TextDelta, api::models::TextSnapshot,
 };
 
 #[derive(Clone)]
-struct Entry {
-    owner: String,
+pub(super) struct Entry {
+    pub(super) owner: String,
     sequence: u64,
-    event: SessionEvent,
+    pub(super) event: SessionEvent,
 }
 
 #[derive(Default)]
@@ -31,6 +30,7 @@ struct Resource {
     attempt: Option<String>,
     status: Vec<String>,
     progress: Progress,
+    operator: Progress,
     text: TextPreview,
 }
 #[derive(Default)]
@@ -86,6 +86,11 @@ impl EventHub {
             event,
         };
         let resource = state.resources.get_mut(id).expect("inserted resource");
+        if kind == "operator_progress" {
+            if let Ok(delta) = from_value::<ProgressDelta>(data.clone()) {
+                resource.operator.apply(&delta);
+            }
+        }
         if kind == "text" {
             let Ok(delta) = from_value::<TextDelta>(data.clone()) else {
                 return entry;
@@ -178,6 +183,21 @@ impl EventHub {
         if !context.is_private() || !context.is_live() {
             return;
         }
+        if envelope.kind.as_str() == "albert.operator.progress" {
+            if let Some(update) = envelope.context.get::<ProgressUpdate>() {
+                if let Ok(data) = to_value(ProgressDelta::from(update.0.clone())) {
+                    self.record(
+                        context.session_id(),
+                        owner,
+                        epoch,
+                        "operator_progress",
+                        Some(update.0.attempt_id.clone()),
+                        data,
+                    );
+                }
+            }
+            return;
+        }
         if envelope.kind.as_str() == "albert.text" {
             if let Some(update) = envelope.context.get::<TextUpdate>() {
                 if let Ok(data) = to_value(TextDelta::from(update.0.clone())) {
@@ -263,94 +283,7 @@ impl EventHub {
         )
     }
 }
-impl SessionHost {
-    pub(super) async fn event_stream(
-        &self,
-        caller: Principal,
-        request: SessionEventRequest,
-    ) -> ApiResult<EventStream> {
-        let actor = self.actor(&caller).await?;
-        let context = self.resource(&actor, &request.session_id).await?;
-        let receiver = self.hub.sender.subscribe();
-        let epoch = self.runtime.status().runtime_epoch;
-        let id = context.session_id().clone();
-        let owner = actor.user_id.as_str().to_owned();
-        let mut queue = VecDeque::new();
-        let mut resync = request
-            .runtime_epoch
-            .as_ref()
-            .is_some_and(|requested| requested != &epoch);
-        if let Some(after) = request.after {
-            let parts: Vec<_> = after.split('/').collect();
-            if parts.len() != 3 || parts[1] != request.session_id {
-                return Err(ApiError::invalid("Event cursor belongs to another chat."));
-            }
-            if parts[0] != epoch {
-                resync = true;
-            } else {
-                let sequence = parts[2]
-                    .parse::<u64>()
-                    .map_err(|_| ApiError::invalid("Invalid event cursor."))?;
-                match self.hub.replay(&id, &owner, sequence) {
-                    Some(events) => queue = events,
-                    None => resync = true,
-                }
-            }
-        }
-        let snapshot = self.state(&actor, &request.session_id).await?;
-        let initial = self.hub.record(
-            &id,
-            &owner,
-            &epoch,
-            if resync { "resync" } else { "snapshot" },
-            None,
-            json!({"state":to_value(snapshot).map_err(|_|ApiError::internal())?,"resync":resync}),
-        );
-        queue.push_back(initial);
-        let shutdown = self
-            .context
-            .read()
-            .unwrap()
-            .as_ref()
-            .map(|context| context.shutdown.clone())
-            .unwrap_or_default();
-        let hub = self.hub.clone();
-        let stream = unfold(
-            (
-                queue, receiver, context, shutdown, hub, id, owner, epoch, 0u64,
-            ),
-            |(mut queue, mut receiver, context, shutdown, hub, id, owner, epoch, mut last)| async move {
-                loop {
-                    if !context.is_live() {
-                        return None;
-                    }
-                    if let Some(entry) = queue.pop_front() {
-                        if entry.sequence <= last {
-                            continue;
-                        }
-                        last = entry.sequence;
-                        return Some((
-                            Ok(entry.event),
-                            (
-                                queue, receiver, context, shutdown, hub, id, owner, epoch, last,
-                            ),
-                        ));
-                    }
-                    select! {
-                        _=shutdown.cancelled()=>return None,
-                        event=receiver.recv()=>match event {
-                            Ok(entry) if entry.owner==owner && entry.event.session_id==id.as_str()=>queue.push_back(entry),
-                            Ok(_)=>{},
-                            Err(RecvError::Lagged(_))=>queue.push_back(hub.record(&id,&owner,&epoch,"resync",None,json!({"reason":"resync"}))),
-                            Err(RecvError::Closed)=>return None,
-                        }
-                    }
-                }
-            },
-        );
-        Ok(Box::pin(stream))
-    }
-}
+impl SessionHost {}
 
 #[cfg(test)]
 mod tests {

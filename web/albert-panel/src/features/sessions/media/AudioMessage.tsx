@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { decodeWaveform } from "./waveform";
 import type { Attachment } from "./types";
+import { decodeWaveform } from "./waveform";
 
 function time(value: number) {
   if (!Number.isFinite(value)) return "0:00";
@@ -53,6 +53,7 @@ export function AudioMessage({
         src={url}
         preload="metadata"
         onLoadedMetadata={(event) => {
+          setError(false);
           const node = event.currentTarget;
           setDuration(node.duration);
           // Recorded WebM may omit its duration. Let the media element seek to

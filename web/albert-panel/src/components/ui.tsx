@@ -1,10 +1,12 @@
-import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
-  Ref,
   ReactNode,
+  Ref,
 } from "react";
+import { useId } from "react";
+
+import { SecretInput } from "./SecretInput";
 
 export function Button({
   variant = "secondary",
@@ -33,6 +35,7 @@ export function Field({
   hint,
   error,
   id,
+  type,
   fieldClassName = "",
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
@@ -46,12 +49,22 @@ export function Field({
   return (
     <div className={`field ${fieldClassName}`}>
       <label htmlFor={fieldId}>{label}</label>
-      <input
-        id={fieldId}
-        aria-invalid={!!error}
-        aria-describedby={error || hint ? `${fieldId}-help` : undefined}
-        {...props}
-      />
+      {type === "password" ? (
+        <SecretInput
+          id={fieldId}
+          aria-invalid={!!error}
+          aria-describedby={error || hint ? `${fieldId}-help` : undefined}
+          {...props}
+        />
+      ) : (
+        <input
+          id={fieldId}
+          type={type}
+          aria-invalid={!!error}
+          aria-describedby={error || hint ? `${fieldId}-help` : undefined}
+          {...props}
+        />
+      )}
       {(error || hint) && (
         <small id={`${fieldId}-help`} className={error ? "field-error" : ""}>
           {error || hint}

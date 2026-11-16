@@ -1,23 +1,21 @@
+mod admission;
+mod journal;
+
 use std::{collections::HashMap, sync::Arc, sync::Mutex, sync::Weak};
 
 use octo_core::{CogitatorContext, Envelope};
-use octo_history::{AppendReceipt, AppendRequest, SessionId};
+use octo_history::SessionId;
 use rig::completion::Message;
-use serde_json::to_vec;
-use sha2::{Digest, Sha256};
 use tokio::{sync::Mutex as AsyncMutex, sync::OwnedMutexGuard, sync::OwnedRwLockReadGuard};
 use tracing::warn;
 
 use super::{
-    channel_of, context::UserInput, messaging::LogicalWork, native_requests::NativeDecision,
-    native_requests::NativeRequest, turns::turn_key, turns::ChannelState, AlbertCogitator,
+    channel_of, context::UserInput, messaging::LogicalWork, turns::turn_key, turns::ChannelState,
+    AlbertCogitator,
 };
 use crate::{
-    composer::InputDigest, context::window_messages, context::DiagnosticScope,
-    history::assistant_turn, history::sessions::Backend, history::to_messages, history::Turn,
-    media::MediaInput, messaging::contract::WorkRef, sessions::acceptance::AcceptedStart,
-    sessions::acceptance::SourceReceipt, sessions::error::SessionError,
-    sessions::error::SessionResult, sessions::ingress::for_message,
+    context::window_messages, context::DiagnosticScope, history::assistant_turn,
+    history::sessions::Backend, history::to_messages, history::Turn, messaging::contract::WorkRef,
     sessions::transport::TurnFeedback, sessions::SessionContext, status::StatusFeed,
 };
 
@@ -100,234 +98,6 @@ impl AlbertCogitator {
             Some(history) => feed.with_backend(history.handle(session.session_id()).await),
             None => feed,
         }
-    }
-    pub(super) async fn admit_message(
-        &self,
-        incoming: Arc<Envelope>,
-        ctx: &CogitatorContext,
-    ) -> SessionResult<Arc<Envelope>> {
-        let incoming = self.transport.ingress(incoming);
-        let Some(service) = &self.session_service else {
-            return Ok(incoming);
-        };
-        let stamped = incoming.context.get::<SessionContext>().cloned();
-        if incoming.source.as_str() == "web"
-            && stamped
-                .as_ref()
-                .is_none_or(|context| context.actor_tools.is_none())
-        {
-            return Err(SessionError::Denied);
-        }
-        if let Some(session) = &stamped {
-            if session.reply_route().connector() != incoming.source.as_str()
-                || incoming.channel.as_ref().map(|channel| channel.as_str())
-                    != Some(session.reply_route().channel())
-            {
-                return Err(SessionError::Denied);
-            }
-            service.validate_context(session).await?;
-        }
-        let native = NativeRequest::from_envelope(&incoming)?;
-        let keys = native.lookup_keys();
-        let mut ordered = keys.clone();
-        ordered.sort();
-        ordered.dedup();
-        let mut permits = Vec::with_capacity(ordered.len());
-        for key in ordered {
-            let gate = {
-                let mut gates = self.request_gates.lock().unwrap();
-                gates.retain(|_, gate| gate.strong_count() > 0);
-                match gates.get(&key).and_then(Weak::upgrade) {
-                    Some(gate) => gate,
-                    None => {
-                        let gate = Arc::new(AsyncMutex::new(()));
-                        gates.insert(key, Arc::downgrade(&gate));
-                        gate
-                    }
-                }
-            };
-            permits.push(gate.lock_owned().await);
-        }
-        let admission = for_message(&incoming, ctx)?;
-        let (binding, lifecycle) = match &self.session_history {
-            Some(history) => {
-                let (bindings, lease) = history.find_requests_leased(&keys).await?;
-                (native.reconcile(bindings)?, Some(lease))
-            }
-            None => (None, None),
-        };
-        let decision = NativeDecision {
-            request: native,
-            replay: binding.clone(),
-        };
-        let session = match (stamped, binding) {
-            (Some(stamped), Some(binding))
-                if stamped.session_id() != binding.journal.session_id() =>
-            {
-                return Err(SessionError::Denied)
-            }
-            (Some(stamped), _) => stamped,
-            (None, Some(binding)) => {
-                service
-                    .context_for_message(admission, binding.journal.session_id())
-                    .await?
-            }
-            (None, None) => service.admit(admission).await?,
-        };
-        service.refresh_presentation(&session).await?;
-        let mut admitted = (*incoming).clone();
-        admitted.context.insert(session);
-        admitted.context.insert(decision);
-        admitted.context.insert(RequestPermit {
-            request: Mutex::new(Some(permits)),
-            lifecycle: Mutex::new(lifecycle),
-        });
-        Ok(Arc::new(admitted))
-    }
-
-    pub(super) async fn append_native(
-        &self,
-        incoming: &Envelope,
-        input: &UserInput,
-    ) -> Result<AppendReceipt, String> {
-        let decision = incoming.context.get::<NativeDecision>().cloned();
-        let native = match &decision {
-            Some(decision) => decision.request.clone(),
-            None => NativeRequest::from_envelope(incoming).map_err(|error| error.to_string())?,
-        };
-        let mut result = if incoming
-            .context
-            .get::<SessionContext>()
-            .is_some_and(|session| !session.is_live())
-        {
-            Err("Session ended.".into())
-        } else if let Some(binding) = decision
-            .as_ref()
-            .filter(|decision| !decision.request.aliases.is_empty())
-            .and_then(|decision| decision.replay.as_ref())
-        {
-            Ok(binding.receipt.clone())
-        } else {
-            let mut digest = Sha256::new();
-            digest.update(input.text.as_bytes());
-            for image in &input.images {
-                digest.update((image.bytes().len() as u64).to_be_bytes());
-                digest.update(image.bytes());
-            }
-            let digest = incoming
-                .context
-                .get::<InputDigest>()
-                .map(|value| value.0.clone())
-                .or_else(|| incoming.context.get::<MediaInput>().map(MediaInput::digest))
-                .unwrap_or_else(|| format!("{:x}", digest.finalize()));
-            let request = native.append_request(
-                digest,
-                vec![Turn::user(self.media_transcript(incoming, input).await?)],
-            );
-            if native.aliases.is_empty() {
-                self.history
-                    .append_journal(&channel_of(incoming), &request)
-                    .await
-                    .map_err(|error| error.to_string())
-            } else if let Some(history) = &self.session_history {
-                history
-                    .append_aliased(&channel_of(incoming), &request, &native.aliases)
-                    .await
-                    .map_err(|error| error.to_string())
-            } else {
-                Err("Native aliases require a session journal.".into())
-            }
-        };
-        if let (Ok(receipt), Some(proof), Some(session), Some(service)) = (
-            &mut result,
-            incoming.context.get::<AcceptedStart>(),
-            incoming.context.get::<SessionContext>(),
-            self.session_service.as_ref(),
-        ) {
-            let digest = incoming
-                .context
-                .get::<InputDigest>()
-                .map(|value| value.0.clone())
-                .or_else(|| incoming.context.get::<MediaInput>().map(MediaInput::digest))
-                .unwrap_or_else(|| format!("{:x}", Sha256::digest(input.text.as_bytes())));
-            if receipt.duplicate
-                && proof.consume(session.session_id().as_str(), &native.key, &digest)
-            {
-                match service
-                    .web_run_start(session.session_id(), &native.key)
-                    .await
-                {
-                    Ok(true) => receipt.duplicate = false,
-                    Ok(false) => {}
-                    Err(error) => return Err(error.to_string()),
-                }
-            }
-        }
-        if let Some(receipt) = incoming.context.get::<SourceReceipt>() {
-            receipt.complete(result.clone());
-        }
-        if let Some(permit) = incoming.context.get::<RequestPermit>() {
-            permit.lifecycle.lock().unwrap().take();
-            permit.request.lock().unwrap().take();
-        }
-        result
-    }
-
-    pub(super) async fn append_host(
-        &self,
-        key: &str,
-        scope: &str,
-        phase: &str,
-        turns: Vec<Turn>,
-    ) -> Result<(), String> {
-        self.append_host_records(key, scope, phase, turns)
-            .await
-            .map(|_| ())
-    }
-    pub(super) async fn append_host_records(
-        &self,
-        key: &str,
-        scope: &str,
-        phase: &str,
-        turns: Vec<Turn>,
-    ) -> Result<Vec<i64>, String> {
-        if turns.is_empty() {
-            return Ok(vec![]);
-        }
-        if self.session_history.is_none() {
-            return self
-                .history
-                .append(key, &turns)
-                .await
-                .map(|_| vec![])
-                .map_err(|error| error.to_string());
-        }
-        let bytes = to_vec(&turns).map_err(|error| error.to_string())?;
-        let receipt = self
-            .history
-            .append_journal(
-                key,
-                &AppendRequest {
-                    namespace: "albert/host".into(),
-                    idempotency_key: format!("{scope}/{phase}"),
-                    digest: format!("{:x}", Sha256::digest(bytes)),
-                    turns,
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        if matches!(phase, "final" | "reflex-result") {
-            if let (Some(service), Some(raw)) =
-                (&self.session_service, key.strip_prefix("session/"))
-            {
-                if let Ok(id) = SessionId::parse(raw) {
-                    if let Err(error) = service.web_finish_start(&id).await {
-                        warn!(%error,"first-run publication will reconcile on read");
-                    }
-                }
-            }
-        }
-        Ok(receipt.record_ids)
     }
 
     pub(super) async fn strict_history(&self, key: &str) -> Result<Vec<Turn>, String> {

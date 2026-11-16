@@ -2,6 +2,7 @@
 pub(crate) mod files;
 mod mutations;
 mod onboarding;
+mod roles;
 mod views;
 
 use std::{path::PathBuf, sync::Arc};
@@ -35,6 +36,7 @@ impl ModelService {
         Ok(self.source()?.path)
     }
 
+    #[cfg(test)]
     pub async fn list(&self) -> ApiResult<ModelPoolView> {
         let service = self.clone();
         serialized(Arc::clone(&self.write_gate), move || {
@@ -508,5 +510,186 @@ mod tests {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
         assert_eq!(second.1, first.1);
         assert_eq!(service.list().await.unwrap().models[1].config.model, slug);
+    }
+    #[tokio::test]
+    async fn role_edits_preserve_fallbacks_and_effort_and_require_current_revision() {
+        use crate::api::{host::ModelRoleOperation, models::ModelRoleWrite};
+        let (_dir, service) = fixture();
+        service
+            .operation(
+                &permit(),
+                ModelOperation::Create(model("first", None, None)),
+            )
+            .await
+            .unwrap();
+        let second = service
+            .operation(
+                &permit(),
+                ModelOperation::Create(model(
+                    "second",
+                    Some(service.list().await.unwrap().revision),
+                    None,
+                )),
+            )
+            .await
+            .unwrap();
+        let created = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Create(ModelRoleWrite {
+                    id: "researcher".into(),
+                    model_id: "first".into(),
+                    description: "Gather evidence".into(),
+                    revision: second.revision,
+                })),
+            )
+            .await
+            .unwrap();
+        let path = service.path().unwrap();
+        let mut saved = PoolConfig::read(&path).unwrap();
+        saved.roles[0].models.push("second".into());
+        for model in &mut saved.models {
+            model.reasoning = Some(albert_core::models::reasoning::ReasoningSupport {
+                wire: albert_core::models::reasoning::ReasoningWire::ReasoningEffort,
+                supported_efforts: vec!["high".into()],
+            });
+        }
+        saved.roles[0].reasoning_effort = Some("high".into());
+
+        write(&path, to_string_pretty(&saved).unwrap()).unwrap();
+        let before = service.list().await.unwrap();
+        let updated = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Update {
+                    id: "researcher".into(),
+                    input: ModelRoleWrite {
+                        id: "researcher".into(),
+                        model_id: "first".into(),
+                        description: "Verify sources".into(),
+                        revision: before.revision,
+                    },
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.roles[0].models, ["first", "second"]);
+        assert_eq!(updated.roles[0].description, "Verify sources");
+        assert_eq!(
+            PoolConfig::read(&path).unwrap().roles[0].reasoning_effort,
+            saved.roles[0].reasoning_effort
+        );
+        let stale = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Delete {
+                    id: "researcher".into(),
+                    revision: Some(created.revision),
+                }),
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(stale.status, StatusCode::PRECONDITION_FAILED);
+        assert_eq!(service.list().await.unwrap().roles.len(), 1);
+        let removed = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Delete {
+                    id: "researcher".into(),
+                    revision: Some(updated.revision),
+                }),
+            )
+            .await
+            .unwrap();
+        assert!(removed.roles.is_empty());
+        assert_eq!(removed.preferred.as_deref(), Some("first"));
+    }
+    #[tokio::test]
+    async fn role_reassignment_is_explicit_and_invalid_target_is_atomic() {
+        use crate::api::{host::ModelRoleOperation, models::ModelRoleWrite};
+        let (_dir, service) = fixture();
+        service
+            .operation(
+                &permit(),
+                ModelOperation::Create(model("first", None, None)),
+            )
+            .await
+            .unwrap();
+        service
+            .operation(
+                &permit(),
+                ModelOperation::Create(model(
+                    "second",
+                    Some(service.list().await.unwrap().revision),
+                    None,
+                )),
+            )
+            .await
+            .unwrap();
+        let created = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Create(ModelRoleWrite {
+                    id: "review".into(),
+                    model_id: "first".into(),
+                    description: "Review".into(),
+                    revision: service.list().await.unwrap().revision,
+                })),
+            )
+            .await
+            .unwrap();
+        assert!(service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Update {
+                    id: "review".into(),
+                    input: ModelRoleWrite {
+                        id: "review".into(),
+                        model_id: "missing".into(),
+                        description: "Review".into(),
+                        revision: created.revision.clone()
+                    }
+                })
+            )
+            .await
+            .is_err());
+        assert_eq!(service.list().await.unwrap().revision, created.revision);
+        assert!(service
+            .operation(
+                &permit(),
+                ModelOperation::Delete {
+                    id: "first".into(),
+                    revision: Some(created.revision.clone())
+                }
+            )
+            .await
+            .is_err());
+        let reassigned = service
+            .operation(
+                &permit(),
+                ModelOperation::Role(ModelRoleOperation::Update {
+                    id: "review".into(),
+                    input: ModelRoleWrite {
+                        id: "review".into(),
+                        model_id: "second".into(),
+                        description: "Review".into(),
+                        revision: created.revision,
+                    },
+                }),
+            )
+            .await
+            .unwrap();
+        let removed = service
+            .operation(
+                &permit(),
+                ModelOperation::Delete {
+                    id: "first".into(),
+                    revision: Some(reassigned.revision),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed.roles[0].models, ["second"]);
     }
 }

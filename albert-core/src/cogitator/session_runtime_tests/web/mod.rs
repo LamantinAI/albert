@@ -1,6 +1,8 @@
 //! Authenticated direct-resource inputs retain receipts and restricted tools
 //! through the same runtime used by selector-bound adapters.
 mod composer;
+mod confirmations;
+mod credentials;
 mod start;
 use std::{sync::Arc, time::Duration};
 

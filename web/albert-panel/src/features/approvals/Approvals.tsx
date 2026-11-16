@@ -1,242 +1,93 @@
-import { useEffect, useState } from "react";
-
-import { SettingsList, SettingsRow } from "../../components/SettingsList";
+import { useState } from "react";
+import { Dialog } from "../../components/Dialog";
 import { Icon } from "../../components/Icon";
-import { api, errorMessage } from "../../api/client";
-import type { components } from "../../api/schema";
+import { ResourceLoading } from "../../components/ResourceLoading";
+import { SettingsList, SettingsRow } from "../../components/SettingsList";
 import { Button, EmptyState, Notice, PageHeading } from "../../components/ui";
-import { useDialogs } from "../../components/useDialogs";
-
-type Approval = components["schemas"]["ApprovalView"];
-const actions: Record<string, string> = {
-  delete_store: "Delete resource",
-  delete_records: "Delete records",
-  update_records: "Update records",
-  drop_objects: "Remove objects",
-  drop_columns: "Remove fields",
-  replace_records: "Replace records",
-  change_data: "Change data",
-};
-function presentation(summary: unknown) {
-  const value =
-    typeof summary === "object" && summary !== null
-      ? (summary as Record<string, unknown>)
-      : {};
-  return {
-    resource:
-      typeof value.resource === "string" && value.resource
-        ? value.resource
-        : "Connected resource",
-    action:
-      typeof value.action === "string"
-        ? (actions[value.action] ?? "Change resource")
-        : "Change resource",
-    objects: Array.isArray(value.objects)
-      ? value.objects.filter(
-          (object): object is string => typeof object === "string",
-        )
-      : [],
-  };
-}
-function outcome(state: string) {
-  switch (state) {
-    case "committed":
-      return {
-        text: "Approved. The change completed.",
-        kind: "success" as const,
-      };
-    case "rejected":
-      return {
-        text: "Declined. The change was not authorized.",
-        kind: "success" as const,
-      };
-    case "expired":
-      return {
-        text: "This request expired. Ask Albert to prepare it again.",
-        kind: "info" as const,
-      };
-    case "rolled_back":
-      return {
-        text: "The change could not be completed and was rolled back. Refresh before deciding again.",
-        kind: "error" as const,
-      };
-    case "pending":
-      return {
-        text: "The request is still pending. Refresh before deciding again.",
-        kind: "info" as const,
-      };
-    default:
-      return {
-        text: "The outcome is not confirmed. Refresh the queue before trying again.",
-        kind: "error" as const,
-      };
-  }
-}
+import { ApprovalReview } from "./ApprovalReview";
+import type { Approval } from "./status";
+import { approvalStatus, terminal } from "./status";
+import { useApprovals } from "./useApprovals";
 
 export function Approvals() {
-  const { confirm, dialog } = useDialogs();
-  const [items, setItems] = useState<Approval[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refresh, setRefresh] = useState(0);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [decisionError, setDecisionError] = useState("");
-  const [notice, setNotice] = useState<ReturnType<typeof outcome> | null>(null);
-  useEffect(() => {
-    let stopped = false;
-    let poll: number | undefined;
-    let deadline: number | undefined;
-    let controller: AbortController | undefined;
-    async function load() {
-      if (document.visibilityState === "hidden") {
-        poll = window.setTimeout(load, 8000);
-        return;
-      }
-      controller = new AbortController();
-      deadline = window.setTimeout(() => controller?.abort(), 12_000);
-      try {
-        const result = await api("/approvals", "get", {
-          signal: controller.signal,
-        });
-        if (!stopped) {
-          setItems(result.items);
-          setError("");
-        }
-      } catch (error) {
-        if (!stopped)
-          setError(
-            controller.signal.aborted
-              ? "The approval queue did not respond. Refresh to try again."
-              : errorMessage(error),
-          );
-      } finally {
-        window.clearTimeout(deadline);
-        if (!stopped) {
-          setLoading(false);
-          poll = window.setTimeout(load, 8000);
-        }
-      }
-    }
-    void load();
-    return () => {
-      stopped = true;
-      controller?.abort();
-      window.clearTimeout(deadline);
-      window.clearTimeout(poll);
-    };
-  }, [refresh]);
-
-  async function decide(item: Approval, approve: boolean) {
-    const shown = presentation(item.summary);
-    if (
-      approve &&
-      !(await confirm({
-        title: "Approve change?",
-        description: `Approve “${shown.action}” for ${shown.resource}? This change may be irreversible. Review the affected objects before continuing.`,
-        confirmLabel: "Approve change",
-        danger: true,
-      }))
-    )
-      return;
-    setBusy(item.id);
-    setError("");
-    setNotice(null);
-    setDecisionError("");
-    try {
-      const result = await api("/approvals/{id}/decisions", "post", {
-        path: { id: item.id },
-        body: { approve },
-      });
-      setNotice(outcome(result.state));
-      setRefresh((value) => value + 1);
-    } catch (error) {
-      setDecisionError(
-        `${errorMessage(error)} Refresh the queue before trying again.`,
-      );
-      setRefresh((value) => value + 1);
-    } finally {
-      setBusy(null);
-    }
-  }
-
+  const queue = useApprovals();
+  const [selected, setSelected] = useState<Approval | null>(null);
+  const active =
+    queue.items.find((item) => item.id === selected?.id) ?? selected;
+  const pending = queue.items.filter((item) => !terminal(item.state));
   return (
     <div className="workspace-body">
-      {dialog}
       <PageHeading
         title="Approvals"
         actions={
-          <Button
-            disabled={!!busy}
-            onClick={() => setRefresh((value) => value + 1)}
-          >
+          <Button disabled={!!queue.busy} onClick={() => void queue.refresh()}>
             Refresh queue
           </Button>
         }
       >
-        Review the resource and affected objects before approving. Some changes
-        cannot be undone. Only requests you are authorized to decide appear
-        here.
+        Review questions and protected actions for your account. Each decision
+        applies only to the action shown.
       </PageHeading>
-      {(decisionError || error) && (
-        <Notice kind="error">{decisionError || error}</Notice>
-      )}
-      {notice && <Notice kind={notice.kind}>{notice.text}</Notice>}
-      {loading ? (
-        <EmptyState title="Checking for approval requests…" />
-      ) : items.length === 0 ? (
-        <EmptyState title="No changes are waiting for your decision.">
-          <p>New requests appear here while this page is open.</p>
+      {queue.error && <Notice kind="error">{queue.error}</Notice>}
+      {queue.warnings.map((warning, index) => (
+        <Notice key={index}>{warning}</Notice>
+      ))}
+      {queue.loading ? (
+        <ResourceLoading label="Loading approvals…" />
+      ) : !pending.length ? (
+        <EmptyState title="No decisions are waiting.">
+          <p>
+            Albert’s requests appear here and in their original conversation.
+          </p>
         </EmptyState>
       ) : (
         <SettingsList label="Pending approvals">
-          {items.map((item) => {
-            const shown = presentation(item.summary);
-            const expired =
-              item.expires_at != null && item.expires_at <= Date.now() / 1000;
-            return (
-              <SettingsRow
-                key={item.id}
-                className="data-row"
-                headingLevel="h2"
-                leading={<Icon name="shield" />}
-                title={shown.action}
-                description={
-                  <>
-                    <span>{shown.resource}</span>
-                    {shown.objects.length > 0 && (
-                      <span>Affected objects: {shown.objects.join(", ")}</span>
-                    )}
-                  </>
-                }
-                metadata={
-                  <>
-                    {item.connector}
-                    {item.expires_at != null
-                      ? ` · ${expired ? "Expired" : "Expires"} ${new Date(item.expires_at * 1000).toLocaleString()}`
-                      : ""}
-                  </>
-                }
-                actions={
-                  <>
-                    <Button
-                      variant="danger"
-                      disabled={!!busy || expired || item.state !== "pending"}
-                      onClick={() => void decide(item, true)}
-                    >
-                      {busy === item.id ? "Recording…" : "Approve"}
-                    </Button>
-                    <Button
-                      disabled={!!busy || expired || item.state !== "pending"}
-                      onClick={() => void decide(item, false)}
-                    >
-                      Decline
-                    </Button>
-                  </>
-                }
-              />
-            );
-          })}
+          {pending.map((item) => (
+            <SettingsRow
+              key={item.id}
+              leading={<Icon name="shield" />}
+              title={item.title}
+              description={item.action}
+              metadata={
+                <span>
+                  {item.kind === "confirmation"
+                    ? "Human decision"
+                    : item.connector}{" "}
+                  · {approvalStatus(item)}
+                </span>
+              }
+              actions={
+                <Button onClick={() => setSelected(item)}>Review</Button>
+              }
+            />
+          ))}
         </SettingsList>
+      )}
+      {active && (
+        <Dialog
+          open
+          title={
+            active.kind === "confirmation" ? "Confirmation" : "Protected action"
+          }
+          onClose={() => setSelected(null)}
+        >
+          <ApprovalReview
+            key={active.id}
+            request={active}
+            busy={queue.busy === active.id}
+            error={queue.error}
+            onDecision={(approve) =>
+              void queue.decide(active, approve).then((receipt) => {
+                if (receipt) setSelected(receipt);
+              })
+            }
+            onDetails={() => queue.details(active.id)}
+            onRefresh={() => void queue.refresh()}
+          />
+          <footer className="dialog-actions">
+            <Button onClick={() => setSelected(null)}>Close</Button>
+          </footer>
+        </Dialog>
       )}
     </div>
   );

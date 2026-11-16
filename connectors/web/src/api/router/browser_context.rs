@@ -40,6 +40,14 @@ pub(super) async fn context(state: &ApiState, headers: &HeaderMap) -> ApiResult<
         SetupPhase::Credentials
     } else if identity_required {
         SetupPhase::Profile
+    } else if runtime.model_configured
+        && (!runtime.memory_configured
+            || matches!(
+                runtime.phase.as_str(),
+                "memory_setup" | "memory_initializing" | "memory_error"
+            ))
+    {
+        SetupPhase::Memory
     } else if runtime.error.is_some() {
         SetupPhase::RuntimeError
     } else if !runtime.model_ready {
@@ -60,11 +68,14 @@ pub(super) async fn context(state: &ApiState, headers: &HeaderMap) -> ApiResult<
         setup: SetupView {
             phase,
             model_ready: runtime.model_ready,
+            model_configured: runtime.model_configured,
+            memory_configured: runtime.memory_configured,
             identity_required,
         },
         runtime_epoch: runtime.runtime_epoch,
         csrf: caller.as_ref().map(|p| p.csrf().to_owned()),
         current_credential_id: caller.as_ref().map(|p| p.credential_id().to_owned()),
+        credential_expires_at: caller.as_ref().and_then(|p| p.expires_at()),
     })
     .into_response())
 }
@@ -76,11 +87,21 @@ pub(super) fn set_cookie(
     ttl: u64,
     request_secure: bool,
 ) -> ApiResult<()> {
+    set_named_cookie(state, response, COOKIE_NAME, token, ttl, request_secure)
+}
+pub(super) fn set_named_cookie(
+    state: &ApiState,
+    response: &mut Response,
+    name: &str,
+    token: &str,
+    ttl: u64,
+    request_secure: bool,
+) -> ApiResult<()> {
     let secure = request_secure
         || state.auth.settings().secure_cookie
         || state.auth.settings().public_origin.starts_with("https://");
     let cookie = format!(
-        "{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}{}",
+        "{name}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}{}",
         if secure { "; Secure" } else { "" }
     );
     response.headers_mut().append(

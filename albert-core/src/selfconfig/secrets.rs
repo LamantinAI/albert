@@ -3,12 +3,14 @@
 use std::{
     fs::read_to_string, fs::remove_file, fs::rename, fs::set_permissions, fs::File,
     fs::OpenOptions, fs::Permissions, io::ErrorKind, io::Write, os::unix::fs::OpenOptionsExt,
-    os::unix::fs::PermissionsExt, path::Path,
+    os::unix::fs::PermissionsExt, path::Path, sync::Mutex,
 };
 
 use rand::random;
 
 use super::SelfConfig;
+
+static SECRET_WRITES: Mutex<()> = Mutex::new(());
 
 impl SelfConfig {
     /// Add or replace `NAME=value` in `.env`. Reads the file internally to update in
@@ -19,6 +21,9 @@ impl SelfConfig {
         if value.contains('\n') || value.contains('\r') || value.contains('\0') {
             return Err("value must not contain a newline".into());
         }
+        let _guard = SECRET_WRITES
+            .lock()
+            .map_err(|_| "The secret store is unavailable.".to_owned())?;
         let path = self.env_path.as_path();
         let existing = match read_to_string(path) {
             Ok(text) => text,
@@ -71,8 +76,9 @@ impl SelfConfig {
                 if l.starts_with('#') {
                     return None;
                 }
+                let l = l.strip_prefix("export ").unwrap_or(l).trim_start();
                 let name = l.split_once('=')?.0.trim().to_string();
-                (!name.is_empty()).then_some(name)
+                validate_env_name(&name).is_ok().then_some(name)
             })
             .collect();
         out.sort();
@@ -100,22 +106,28 @@ fn validate_env_name(name: &str) -> Result<(), String> {
 fn write_secret_file(path: &Path, content: &str) -> Result<(), String> {
     let dir = path.parent().ok_or("bad .env path")?;
     let tmp = dir.join(format!(".env.tmp.{:032x}", random::<u128>()));
-    {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| e.to_string())?;
-        f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
-        f.sync_all().map_err(|e| e.to_string())?;
-    }
-    let _ = set_permissions(&tmp, Permissions::from_mode(0o600));
-    rename(&tmp, path).map_err(|e| {
+    let result = (|| {
+        {
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&tmp)
+                .map_err(|e| e.to_string())?;
+            f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+            f.sync_all().map_err(|e| e.to_string())?;
+        }
+        let _ = set_permissions(&tmp, Permissions::from_mode(0o600));
+        rename(&tmp, path).map_err(|e| {
+            let _ = remove_file(&tmp);
+            e.to_string()
+        })?;
+        File::open(dir)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
         let _ = remove_file(&tmp);
-        e.to_string()
-    })?;
-    File::open(dir)
-        .and_then(|file| file.sync_all())
-        .map_err(|e| e.to_string())
+    }
+    result
 }

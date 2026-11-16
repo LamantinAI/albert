@@ -2,12 +2,12 @@
 
 use std::{collections::HashMap, path::Path};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::MemoryError;
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(try_from = "RawMemoryConfig")]
 pub enum MemoryConfig {
     #[default]
@@ -18,7 +18,7 @@ pub enum MemoryConfig {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub enum McpTransport {
     Http {
         url: String,

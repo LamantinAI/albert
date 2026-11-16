@@ -26,7 +26,7 @@ type Stored = (
 );
 
 impl ControlService {
-    async fn control_owner(&self, permit: &OwnerPermit) -> ApiResult<()> {
+    pub(in crate::service) async fn control_owner(&self, permit: &OwnerPermit) -> ApiResult<()> {
         let live:i64=query_scalar("SELECT EXISTS(SELECT 1 FROM albert_login_accounts WHERE id=? AND role='owner' AND disabled=0 AND must_change_password=0)")
             .bind(permit.principal().account_id()).fetch_one(self.runtime.sessions.database().pool()).await.map_err(|_|ApiError::internal())?;
         if live == 1 {

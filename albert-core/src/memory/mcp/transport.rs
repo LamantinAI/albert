@@ -1,6 +1,6 @@
 //! Connection setup for the dedicated memory session.
 
-use std::{env::var, time::Duration};
+use std::{collections::HashMap, env::var, time::Duration};
 
 use mcp_http::{redirect::Policy, Client};
 use rmcp::{
@@ -21,6 +21,7 @@ pub(super) fn client_info() -> ClientInfo {
 pub(super) async fn connect(
     transport: &McpTransport,
     duration: Duration,
+    credentials: Option<&HashMap<String, String>>,
 ) -> Result<Session, MemoryError> {
     timeout(duration, async {
         match transport {
@@ -28,7 +29,7 @@ pub(super) async fn connect(
                 let mut config = StreamableHttpClientTransportConfig::with_uri(url.clone())
                     .reinit_on_expired_session(false);
                 if let Some(env) = token_env {
-                    config = config.auth_header(secret(env)?);
+                    config = config.auth_header(secret(env, credentials)?);
                 }
                 let client = Client::builder()
                     .redirect(Policy::none())
@@ -57,7 +58,7 @@ pub(super) async fn connect(
                     }
                 }
                 for (name, source) in env {
-                    child.env(name, secret(source)?);
+                    child.env(name, secret(source, credentials)?);
                 }
                 let transport = TokioChildProcess::new(child)
                     .map_err(|e| MemoryError::Connection(e.to_string()))?;
@@ -72,9 +73,15 @@ pub(super) async fn connect(
     .map_err(|_| MemoryError::Timeout)?
 }
 
-fn secret(name: &str) -> Result<String, MemoryError> {
-    var(name)
-        .ok()
+fn secret(
+    name: &str,
+    credentials: Option<&HashMap<String, String>>,
+) -> Result<String, MemoryError> {
+    let value = match credentials {
+        Some(values) => values.get(name).cloned(),
+        None => var(name).ok(),
+    };
+    value
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| MemoryError::Config(format!("missing or empty environment variable {name}")))
+        .ok_or_else(|| MemoryError::Config(format!("missing or empty credential reference {name}")))
 }

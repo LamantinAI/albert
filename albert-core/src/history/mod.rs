@@ -18,7 +18,7 @@ mod preview;
 pub(crate) mod sessions;
 pub(crate) use journal::journal_messages;
 pub use messaging::project_session_record;
-pub use preview::{preview_turn, PreviewContent};
+pub use preview::{preview_turn, receipt_summary, PreviewContent};
 
 use crate::{
     media::decode as decode_media, media::project as project_media, media::MEDIA_MARKER,

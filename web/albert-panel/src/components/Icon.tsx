@@ -1,4 +1,7 @@
 export type IconName =
+  | "dashboard"
+  | "list"
+  | "host"
   | "globe"
   | "folder"
   | "database"
@@ -22,6 +25,8 @@ export type IconName =
   | "users"
   | "user"
   | "key"
+  | "eye"
+  | "eye-off"
   | "book"
   | "brain"
   | "notebook"
@@ -45,6 +50,9 @@ export type IconName =
   | "shield";
 
 const paths: Record<IconName, string> = {
+  dashboard: "M3 3h7v9H3V3Zm11 0h7v5h-7V3Zm0 9h7v9h-7v-9ZM3 16h7v5H3v-5Z",
+  list: "M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01",
+  host: "M3 4h18v12H3V4ZM12 16v4M8 20h8",
   telegram: "m3 10 18-7-7 18-3-7-8-4Zm8 4L21 3",
   globe:
     "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18Z",
@@ -72,6 +80,9 @@ const paths: Record<IconName, string> = {
     "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M17 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-4M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
   user: "M20 21v-2a8 8 0 0 0-16 0v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z",
   key: "M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM10.2 10.2 21 21M17 17l3-3M14 14l3-3",
+  eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Zm13 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
+  "eye-off":
+    "m3 3 18 18M10.6 5.1 12 5c6.5 0 10 7 10 7a19 19 0 0 1-3.1 4M6.1 6.1A21 21 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.9-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2",
   book: "M12 5C9 3 5 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v15M5 8h4M5 11h4M15 8h4M15 11h4",
   notebook:
     "M7 3h13v18H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3ZM7 3v18M2 8h4M2 16h4M11 8h5M11 12h5M11 16h3",

@@ -1,3 +1,8 @@
+mod accepted;
+#[cfg(test)]
+mod admission;
+mod files;
+
 use albert_core::{
     media::Asset, media::MediaError, media::MediaInput, service::session::web::WebActor,
 };
@@ -44,9 +49,14 @@ impl SessionHost {
         session: Option<&str>,
         text: &str,
         ids: &[String],
+        first_temporary: bool,
     ) -> ApiResult<MediaInput> {
-        let _lease = if let Some(id) = session {
-            let context = self.resource(actor, id).await?;
+        let context = if let Some(id) = session {
+            Some(self.resource(actor, id).await?)
+        } else {
+            None
+        };
+        let preparation = if let Some(context) = &context {
             Some(
                 self.runtime
                     .sessions
@@ -59,6 +69,17 @@ impl SessionHost {
         } else {
             None
         };
+        let temporary = if let Some(context) = &context {
+            self.runtime
+                .sessions
+                .get(context, context.session_id())
+                .await
+                .map_err(super::session_error)?
+                .kind
+                == SessionKind::Temporary
+        } else {
+            first_temporary
+        };
         let prepared = self
             .runtime
             .sessions
@@ -66,11 +87,16 @@ impl SessionHost {
             .prepare(&actor.account_id, session, ids)
             .await
             .map_err(error)?;
-        Ok(MediaInput {
+        let mut input = MediaInput {
             text: text.into(),
             assets: prepared.assets(),
             blobs: prepared.blobs(),
-        })
+            workspace_files: Vec::new(),
+        };
+        input.workspace_files = self
+            .prepare_workspace_files(actor, &input, temporary, context.as_ref(), preparation)
+            .await?;
+        Ok(input)
     }
     pub async fn media(
         &self,
@@ -227,152 +253,174 @@ mod boundary_tests {
 
     #[tokio::test]
     async fn binary_upload_range_head_revocation_and_temporary_end_use_real_auth() {
-        let (_dir, host, caller) = fixture().await;
-        let login = host
-            .auth
-            .login(LoginRequest {
-                username: "owner".into(),
-                password: "web-host-test-password".into(),
-            })
-            .await
-            .unwrap();
-        let principal = host.auth.authenticate(&login.token).await.unwrap();
-        let cookie = format!("albert_auth={}", login.token);
-        let router = router_with_media_limit(
-            ApiState::new(
-                host.auth.clone(),
-                Panel::new(host.runtime.clone(), host.auth.clone()),
-            ),
-            1024,
-            4096,
-        );
-        let bytes = b"\x89PNG\r\n\x1a\nsynthetic-original";
-        let request = Request::post("/api/v1/attachments")
-            .header("origin", "http://localhost:9877")
-            .header("host", "localhost:9877")
-            .header("cookie", &cookie)
-            .header("x-albert-csrf", principal.csrf())
-            .header("content-type", "image/png")
-            .header("x-filename", "\"image.png\"")
-            .body(Body::from(bytes.as_slice()))
-            .unwrap();
-        let response = router.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let uploaded: Value =
-            from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-        let id = uploaded["id"].as_str().unwrap().to_owned();
-        let actor = host.actor(&caller).await.unwrap();
-        let session = host
-            .runtime
-            .sessions
-            .web_create(&actor, "Media", true)
-            .await
-            .unwrap();
-        let context = host.resource(&actor, session.id.as_str()).await.unwrap();
-        let prepared = host
-            .runtime
-            .sessions
-            .media()
-            .prepare(&actor.account_id, None, &[id.clone()])
-            .await
-            .unwrap();
-        host.runtime
-            .sessions
-            .journal_router()
-            .append_journal(
-                &context.root_history_key(),
-                &AppendRequest {
-                    namespace: "http-media".into(),
-                    idempotency_key: "image".into(),
-                    digest: "same".into(),
-                    turns: vec![Turn::user(encode(String::new(), prepared.assets()))],
-                },
-            )
-            .await
-            .unwrap();
-        let path = format!("/api/v1/sessions/{}/attachments/{id}", session.id);
-        for (method, range, expected, length) in [
-            ("GET", None, StatusCode::OK, bytes.len()),
-            ("HEAD", None, StatusCode::OK, 0),
-            ("GET", Some("bytes=2-6"), StatusCode::PARTIAL_CONTENT, 5),
-            ("GET", Some("bytes=-4"), StatusCode::PARTIAL_CONTENT, 4),
+        for (bytes, mime, filename) in [
             (
-                "GET",
-                Some("bytes=999-"),
-                StatusCode::RANGE_NOT_SATISFIABLE,
-                0,
+                b"\x89PNG\r\n\x1a\nsynthetic-original".as_slice(),
+                "image/png",
+                "\"image.png\"",
+            ),
+            (
+                b"<!doctype html><script>not-inline()</script>".as_slice(),
+                "text/html",
+                "\"report.html\"",
             ),
         ] {
-            let mut request = Request::builder()
-                .method(method)
-                .uri(&path)
-                .header("cookie", &cookie);
-            if let Some(range) = range {
-                request = request.header("range", range);
-            }
-            let response = router
-                .clone()
-                .oneshot(request.body(Body::empty()).unwrap())
+            let (_dir, host, caller) = fixture().await;
+            let login = host
+                .auth
+                .login(LoginRequest {
+                    username: "owner".into(),
+                    password: "web-host-test-password".into(),
+                })
                 .await
                 .unwrap();
-            assert_eq!(response.status(), expected, "{method} {range:?}");
-            assert_eq!(response.headers()["x-content-type-options"], "nosniff");
-            let body = to_bytes(response.into_body(), 4096).await.unwrap();
-            assert_eq!(body.len(), length);
-            if range == Some("bytes=2-6") {
-                assert_eq!(body.as_ref(), &bytes[2..7]);
+            let principal = host.auth.authenticate(&login.token).await.unwrap();
+            let cookie = format!("albert_auth={}", login.token);
+            let router = router_with_media_limit(
+                ApiState::new(
+                    host.auth.clone(),
+                    Panel::new(host.runtime.clone(), host.auth.clone()),
+                ),
+                1024,
+                4096,
+            );
+            let request = Request::post("/api/v1/attachments")
+                .header("origin", "http://localhost:9877")
+                .header("host", "localhost:9877")
+                .header("cookie", &cookie)
+                .header("x-albert-csrf", principal.csrf())
+                .header("content-type", mime)
+                .header("x-filename", filename)
+                .body(Body::from(bytes))
+                .unwrap();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let uploaded: Value =
+                from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+            let id = uploaded["id"].as_str().unwrap().to_owned();
+            let actor = host.actor(&caller).await.unwrap();
+            let session = host
+                .runtime
+                .sessions
+                .web_create(&actor, "Media", true)
+                .await
+                .unwrap();
+            let context = host.resource(&actor, session.id.as_str()).await.unwrap();
+            let prepared = host
+                .runtime
+                .sessions
+                .media()
+                .prepare(&actor.account_id, None, &[id.clone()])
+                .await
+                .unwrap();
+            host.runtime
+                .sessions
+                .journal_router()
+                .append_journal(
+                    &context.root_history_key(),
+                    &AppendRequest {
+                        namespace: "http-media".into(),
+                        idempotency_key: "image".into(),
+                        digest: "same".into(),
+                        turns: vec![Turn::user(encode(String::new(), prepared.assets()))],
+                    },
+                )
+                .await
+                .unwrap();
+            let path = format!("/api/v1/sessions/{}/attachments/{id}", session.id);
+            for (method, range, expected, length) in [
+                ("GET", None, StatusCode::OK, bytes.len()),
+                ("HEAD", None, StatusCode::OK, 0),
+                ("GET", Some("bytes=2-6"), StatusCode::PARTIAL_CONTENT, 5),
+                ("GET", Some("bytes=-4"), StatusCode::PARTIAL_CONTENT, 4),
+                (
+                    "GET",
+                    Some("bytes=999-"),
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    0,
+                ),
+            ] {
+                let mut request = Request::builder()
+                    .method(method)
+                    .uri(&path)
+                    .header("cookie", &cookie);
+                if let Some(range) = range {
+                    request = request.header("range", range);
+                }
+                let response = router
+                    .clone()
+                    .oneshot(request.body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), expected, "{method} {range:?}");
+                assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+                if mime == "text/html" && expected.is_success() {
+                    assert_eq!(
+                        response.headers()["content-type"],
+                        "application/octet-stream"
+                    );
+                    assert!(response.headers()["content-disposition"]
+                        .to_str()
+                        .unwrap()
+                        .starts_with("attachment;"));
+                }
+                let body = to_bytes(response.into_body(), 4096).await.unwrap();
+                assert_eq!(body.len(), length);
+                if range == Some("bytes=2-6") {
+                    assert_eq!(body.as_ref(), &bytes[2..7]);
+                }
+                if method == "GET" && range.is_none() {
+                    assert_eq!(body.as_ref(), bytes);
+                }
             }
-            if method == "GET" && range.is_none() {
-                assert_eq!(body.as_ref(), bytes);
-            }
+            let other = host
+                .runtime
+                .sessions
+                .web_create(&actor, "Other", false)
+                .await
+                .unwrap();
+            let wrong = format!("/api/v1/sessions/{}/attachments/{id}", other.id);
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::get(wrong)
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            host.runtime
+                .sessions
+                .web_end(&actor, &session.id, session.revision)
+                .await
+                .unwrap();
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::get(&path)
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::GONE);
+            host.auth
+                .revoke_credential(&principal, principal.credential_id())
+                .await
+                .unwrap();
+            let response = router
+                .oneshot(
+                    Request::get(path)
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
-        let other = host
-            .runtime
-            .sessions
-            .web_create(&actor, "Other", false)
-            .await
-            .unwrap();
-        let wrong = format!("/api/v1/sessions/{}/attachments/{id}", other.id);
-        let response = router
-            .clone()
-            .oneshot(
-                Request::get(wrong)
-                    .header("cookie", &cookie)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        host.runtime
-            .sessions
-            .web_end(&actor, &session.id, session.revision)
-            .await
-            .unwrap();
-        let response = router
-            .clone()
-            .oneshot(
-                Request::get(&path)
-                    .header("cookie", &cookie)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::GONE);
-        host.auth
-            .revoke_credential(&principal, principal.credential_id())
-            .await
-            .unwrap();
-        let response = router
-            .oneshot(
-                Request::get(path)
-                    .header("cookie", &cookie)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }

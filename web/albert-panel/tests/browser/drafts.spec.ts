@@ -67,9 +67,7 @@ test("New opens a resource-free draft; retention preserves text and repeated New
   expect(
     f.requests.filter((r) => r.path === "/sessions" && r.method === "POST"),
   ).toHaveLength(0);
-  await page
-    .getByRole("button", { name: "New temporary chat", exact: true })
-    .click();
+  await page.goto("/ui/chats?new=temporary");
   await expect(
     page.getByRole("button", { name: "Temporary chat", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");

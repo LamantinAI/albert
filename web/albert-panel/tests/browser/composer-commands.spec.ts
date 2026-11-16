@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import type { components } from "../../src/api/schema";
 import { account, clientContext, readyFixture } from "./fixture";
 
@@ -25,6 +25,8 @@ async function setup(page: Page, owner = true, ready = true, withSkill = true) {
     setup: {
       phase: ready ? "ready" : "model",
       model_ready: ready,
+      model_configured: ready,
+      memory_configured: true,
       identity_required: false,
     },
   });
@@ -32,6 +34,7 @@ async function setup(page: Page, owner = true, ready = true, withSkill = true) {
   const policy: components["schemas"]["ComposerView"] = {
     speech_available: false,
     can_compact: true,
+    can_manage_credentials: owner,
     can_select_skills: owner,
     can_restart: owner,
     can_reload_models: owner && ready,

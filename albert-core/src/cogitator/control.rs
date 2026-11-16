@@ -46,6 +46,8 @@ impl AlbertCogitator {
         if self.messaging.is_some() {
             self.messaging_tick(ctx).await;
         }
+        self.credential_tick(ctx).await;
+        self.confirmation_tick(ctx).await;
     }
     pub async fn panel_stop(&self, ctx: &CogitatorContext) {
         self.stop_turns(ctx).await;

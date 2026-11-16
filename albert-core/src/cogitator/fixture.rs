@@ -26,6 +26,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         subagents: Default::default(),
         scratchpad: Default::default(),
         model_pool: None,
+        mcp_registry: path.join("mcp.toml"),
         models: None,
         memory: Default::default(),
         model: "unused".into(),

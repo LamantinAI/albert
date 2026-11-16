@@ -1,5 +1,5 @@
-import { Icon } from "../../../components/Icon";
 import type { IconName } from "../../../components/Icon";
+import { Icon } from "../../../components/Icon";
 import type { ComposerCommand, ComposerPolicy } from "./types";
 
 type Row = {
@@ -24,6 +24,13 @@ export function ComposerCommands({
   onChoose: (command: ComposerCommand) => void;
 }) {
   const rows: Row[] = [
+    {
+      id: "credentials",
+      icon: "key",
+      label: "Credentials",
+      description: "Add or update a server credential",
+      available: !!policy?.can_manage_credentials,
+    },
     {
       id: "compact",
       icon: "notebook",

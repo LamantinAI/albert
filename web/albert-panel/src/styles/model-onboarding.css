@@ -1,0 +1,147 @@
+.model-onboarding {
+  width: min(100%, 814px);
+  margin: auto;
+  padding: 32px 30px;
+}
+.memory-settings {
+  max-width: 760px;
+}
+.memory-onboarding {
+  max-width: 700px;
+  margin-block: 28px;
+}
+.memory-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--gold);
+  font-size: 13px;
+  margin: 18px 0 24px;
+}
+.memory-credential-names {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.memory-credential-names summary {
+  cursor: pointer;
+}
+.model-onboarding h1 {
+  font-size: 34px;
+  margin-bottom: 14px;
+}
+.model-onboarding-lead {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 28px;
+}
+.model-connection-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.model-connection-option {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.model-connection-option > svg {
+  color: var(--gold);
+  margin-bottom: 22px;
+}
+.model-connection-option h2 {
+  font-size: 22px;
+  margin-bottom: 0;
+}
+.model-connection-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.model-connection-option p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 14px 0 24px;
+}
+.model-connection-option .button {
+  margin-top: auto;
+}
+@media (max-width: 650px) {
+  .model-onboarding {
+    padding: 24px 22px;
+  }
+  .model-onboarding h1 {
+    font-size: 28px;
+  }
+  .model-connection-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .model-connection-option {
+    padding: 20px;
+  }
+  .model-connection-option > svg {
+    margin-bottom: 14px;
+  }
+}
+
+.welcome-conversation .conversation-start,
+.welcome-conversation .identity {
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+}
+.welcome-conversation[data-leaving] .conversation-start,
+.welcome-conversation[data-leaving] .identity {
+  opacity: 0;
+  transform: translateY(-14px);
+}
+.starting-conversation .message,
+.starting-conversation .task-progress {
+  animation: first-message 0.22s ease-out both;
+}
+@keyframes first-message {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-conversation .conversation-start,
+  .welcome-conversation .identity {
+    transition: none;
+  }
+  .starting-conversation .message,
+  .starting-conversation .task-progress {
+    animation: none;
+  }
+}
+
+.chat-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-stage[data-entered] {
+  animation: first-message 0.22s ease-out both;
+}
+.starting-conversation .message,
+.starting-conversation .task-progress {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-stage[data-entered] {
+    animation: none;
+  }
+}

@@ -1,0 +1,87 @@
+.composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 12px;
+}
+.composer-file {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  padding: 7px 9px;
+  color: var(--ochre);
+  background: color-mix(in srgb, var(--ochre) 6%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 12px;
+}
+.composer-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.composer-file button {
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.composer-attach {
+  align-self: center;
+  margin-right: auto;
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ochre);
+  cursor: pointer;
+}
+.composer-upload-error {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+@media (max-width: 600px) {
+  .wave-bars {
+    gap: 2px;
+  }
+}
+
+.composer-attach:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ochre) 8%, transparent);
+}
+.composer-attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.markdown-image {
+  display: inline-block;
+  max-width: 100%;
+  margin: 8px 0;
+  vertical-align: top;
+}
+.composer-upload-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.composer-upload-error > .icon-button {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}

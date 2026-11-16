@@ -1,6 +1,11 @@
-import type { paths } from "./schema";
-import { requestId } from "./requestId";
+import { authChanged, authenticatedFetch, getCsrf } from "./authSession";
+import { ApiError } from "./errors";
 import { apiPath } from "./paths";
+import { requestId } from "./requestId";
+import type { paths } from "./schema";
+
+export { setCsrf } from "./authSession";
+export { ApiError, errorMessage } from "./errors";
 
 export { requestId };
 
@@ -38,28 +43,6 @@ export type ApiBody<P extends keyof paths, M extends Method> = RequestBody<
   Operation<P, M>
 >;
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public param?: string | null,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
-
-let csrf: string | null = null;
-export function setCsrf(value: string | null | undefined) {
-  csrf = value ?? null;
-}
-export function errorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : "The request could not be completed.";
-}
-
 export async function api<P extends PathFor<M>, M extends Method>(
   path: P,
   method: M,
@@ -80,6 +63,8 @@ export async function api<P extends PathFor<M>, M extends Method>(
   for (const [key, value] of Object.entries(options.query ?? {}))
     if (value !== undefined) url.searchParams.set(key, String(value));
   const mutation = method !== "get";
+  if (path === "/auth/credentials" && method === "post") authChanged();
+  const csrf = getCsrf();
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (mutation && csrf) headers["x-albert-csrf"] = csrf;
@@ -87,23 +72,25 @@ export async function api<P extends PathFor<M>, M extends Method>(
     headers["Idempotency-Key"] = options.idempotencyKey ?? requestId();
   if (options.revision !== undefined)
     headers["If-Match"] = String(options.revision);
-  const response = await fetch(url, {
-    method: method.toUpperCase(),
-    credentials: "same-origin",
-    cache: "no-store",
-    headers,
-    signal: options.signal,
-    ...(options.body === undefined
-      ? {}
-      : { body: JSON.stringify(options.body) }),
-  });
+  const response = await authenticatedFetch(
+    url,
+    {
+      method: method.toUpperCase(),
+      credentials: "same-origin",
+      cache: "no-store",
+      headers,
+      signal: options.signal,
+      ...(options.body === undefined
+        ? {}
+        : { body: JSON.stringify(options.body) }),
+    },
+    path !== "/auth/credentials" && path !== "/auth/refresh",
+  );
   const body =
     response.status === 204
       ? undefined
       : await response.json().catch(() => undefined);
   if (!response.ok) {
-    if (response.status === 401)
-      window.dispatchEvent(new Event("albert:auth-expired"));
     throw new ApiError(
       response.status,
       body?.error?.code ?? "request_failed",
@@ -111,15 +98,22 @@ export async function api<P extends PathFor<M>, M extends Method>(
       body?.error?.param,
     );
   }
+  if (
+    (path === "/auth/credentials" && method === "post") ||
+    (path === "/account/credentials" && method === "put") ||
+    (path === "/auth/credentials/{id}" && method === "delete")
+  )
+    authChanged();
   return body as ApiResponse<P, M>;
 }
 
 export async function uploadAttachment(file: File) {
+  const csrf = getCsrf();
   const name = JSON.stringify(file.name).replace(
     /[^\x20-\x7e]/g,
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
-  const response = await fetch(apiPath("/attachments"), {
+  const response = await authenticatedFetch(apiPath("/attachments"), {
     method: "POST",
     credentials: "same-origin",
     cache: "no-store",
@@ -132,8 +126,6 @@ export async function uploadAttachment(file: File) {
   });
   const body = await response.json().catch(() => undefined);
   if (!response.ok) {
-    if (response.status === 401)
-      window.dispatchEvent(new Event("albert:auth-expired"));
     throw new ApiError(
       response.status,
       body?.error?.code ?? "upload_failed",

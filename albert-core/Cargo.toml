@@ -9,6 +9,7 @@ test-support = ["dep:axum", "dep:tempfile"]
 local-e2e = ["octo-openai-auth/local-e2e"]
 
 [dependencies]
+octo-mcp.workspace = true
 axum = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 async-trait = { workspace = true }

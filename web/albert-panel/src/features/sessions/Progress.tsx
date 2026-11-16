@@ -3,8 +3,8 @@ import { memo, useEffect, useId, useRef, useState } from "react";
 import { Paw } from "../../components/Brand";
 import { Icon } from "../../components/Icon";
 import { Button } from "../../components/ui";
-import type { ProgressItem, ProgressSnapshot } from "./progress";
 import { activityAppearance } from "./activityAppearance";
+import type { ProgressItem, ProgressSnapshot } from "./progress";
 
 const activeStates = ["in_progress", "running", "waiting"];
 const states: Record<string, string> = {
@@ -79,6 +79,8 @@ export const Progress = memo(function Progress({
       ? current?.label || "Thinking"
       : "Activity";
   const started = Date.parse(current?.started_at ?? snapshot?.started_at ?? "");
+  const visiblePhase =
+    active && current?.kind === "phase" && label !== "Thinking";
   return (
     <section
       className="activity task-progress"
@@ -109,10 +111,12 @@ export const Progress = memo(function Progress({
         >
           <Paw className="activity-paw" thinking={active && !stopping} />
           <strong className="progress-brand">ALBERT</strong>
-          <span className="sr-only" role="status">
-            {label}
-          </span>
-          {active && Number.isFinite(started) && (
+          {!visiblePhase && (
+            <span className="sr-only" role="status">
+              {label}
+            </span>
+          )}
+          {active && !visiblePhase && Number.isFinite(started) && (
             <span className="progress-elapsed sr-only">
               {duration(now - started)}
             </span>
@@ -129,6 +133,14 @@ export const Progress = memo(function Progress({
           </time>
         )}
       </div>
+      {visiblePhase && (
+        <div className="progress-phase">
+          <span role="status">{label}</span>
+          {Number.isFinite(started) && (
+            <span className="progress-elapsed">{duration(now - started)}</span>
+          )}
+        </div>
+      )}
       {meaningful.length > 0 && (
         <ol className="progress-tree" id={id} hidden={!expanded}>
           {meaningful.map((item: ProgressItem) => (

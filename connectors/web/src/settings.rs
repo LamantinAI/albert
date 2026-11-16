@@ -20,6 +20,7 @@ pub struct WebSettings {
     pub bind: SocketAddr,
     pub public_origin: Option<String>,
     pub credential_ttl_seconds: u64,
+    pub refresh_ttl_seconds: u64,
     pub login_attempts: usize,
     pub login_window_seconds: u64,
     pub password_workers: usize,
@@ -33,6 +34,7 @@ impl Default for WebSettings {
             bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9877),
             public_origin: None,
             credential_ttl_seconds: 3600,
+            refresh_ttl_seconds: 30 * 86400,
             login_attempts: 10,
             login_window_seconds: 60,
             password_workers: 2,
@@ -51,6 +53,8 @@ impl WebSettings {
             .map_err(|_| Error::Config("Invalid web settings.".into()))?
             .unwrap_or_default();
         if !(60..=86400).contains(&settings.credential_ttl_seconds)
+            || !(settings.credential_ttl_seconds..=90 * 86400)
+                .contains(&settings.refresh_ttl_seconds)
             || !(1..=64).contains(&settings.password_workers)
             || settings.login_attempts == 0
             || settings.login_window_seconds == 0

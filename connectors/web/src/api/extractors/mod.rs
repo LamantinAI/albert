@@ -10,13 +10,16 @@ pub const COOKIE_NAME: &str = "albert_auth";
 pub const CSRF_HEADER: &str = "x-albert-csrf";
 
 pub fn cookie_token(headers: &HeaderMap) -> Option<String> {
+    named_cookie(headers, COOKIE_NAME)
+}
+pub fn named_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     let mut matches = headers
         .get_all(COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|v| v.trim().split_once('='))
-        .filter(|(key, _)| *key == COOKIE_NAME);
+        .filter(|(key, _)| *key == name);
     let token = matches.next()?.1;
     if matches.next().is_some() {
         return None;

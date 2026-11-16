@@ -134,8 +134,9 @@ impl AlbertCogitator {
                 let base = self.prompt.base();
                 let preamble = format!(
                     "{base}\n\nPERIODIC MEMORY REFLECTION — internal maintenance, NO user \
-                     message. Call kaeru_reflect for the maintenance work-list, then act on it: link \
-                     orphans, resolve open reviews, synthesise what has settled, prune noise. Keep it \
+                     message. Call kaeru_reflect for the maintenance work-list, then use kaeru_relate, \
+                     kaeru_review and kaeru_synthesise for the proposed changes. Preserve source \
+                     evidence and request explicit destructive approval before pruning data. Keep it \
                      brief and work silently.\n\nCurrent time: {}",
                     now_rfc3339(&self.config.timezone),
                 );

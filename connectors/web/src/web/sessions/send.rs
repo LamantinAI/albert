@@ -136,7 +136,7 @@ impl SessionHost {
         }
         let skills = self.prepare_skills(actor, &selections)?;
         let media = self
-            .prepare_media(actor, Some(id), &input.text, &input.attachments)
+            .prepare_media(actor, Some(id), &input.text, &input.attachments, false)
             .await?;
         let receipt = self
             .dispatch_input(

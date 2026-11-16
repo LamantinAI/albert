@@ -2,12 +2,13 @@
 
 pub mod config;
 mod delegation;
+mod initialization;
 mod mcp;
 mod migration;
 
 mod tool;
 
-use std::{collections::HashMap, env::var, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use kaeru_core::{KaeruConfig, Store};
 use kaeru_rig::{CloudClient, CloudRegistry, KaeruMemory};
@@ -15,6 +16,8 @@ use rig::tool::ToolDyn;
 use thiserror::Error;
 use tokio::{task::spawn_blocking, task::JoinError};
 use tracing::{info, warn};
+
+use self::initialization::Initialization;
 
 use self::{config::MemoryConfig, delegation::embedded_tools, mcp::McpMemory, migration::embedded};
 use crate::config::Config;
@@ -54,24 +57,37 @@ impl Memory {
         config: &Config,
         vault: Option<PathBuf>,
     ) -> Result<Self, MemoryError> {
+        Self::initialize(config, vault)
+            .await
+            .map(|(memory, _)| memory)
+    }
+    pub(crate) fn settings_fingerprint(config: &Config) -> String {
+        Initialization::capture(config, None).fingerprint
+    }
+    pub(crate) async fn initialize(
+        config: &Config,
+        vault: Option<PathBuf>,
+    ) -> Result<(Self, String), MemoryError> {
+        let input = Initialization::capture(config, vault);
         if let MemoryConfig::Mcp {
             timeout_secs,
             transport,
-        } = &config.memory
+        } = &input.memory
         {
-            let memory = McpMemory::open(transport.clone(), *timeout_secs).await?;
+            let memory =
+                McpMemory::open_resolved(transport.clone(), *timeout_secs, Some(input.credentials))
+                    .await?;
             info!(
                 initiative = INITIATIVE,
                 "memory: MCP connected and migrated"
             );
-            return Ok(Self::Mcp(memory));
+            return Ok((Self::Mcp(memory), input.fingerprint));
         }
+        let vault = input.vault;
         let store = spawn_blocking(move || {
             let mut config =
                 KaeruConfig::from_env().map_err(|e| MemoryError::Embedded(e.to_string()))?;
-            if let Some(path) = vault {
-                config.vault_path = path;
-            }
+            config.vault_path = vault;
             let store = Store::open_with_config(config)
                 .map_err(|e| MemoryError::Embedded(e.to_string()))?;
             Ok::<_, MemoryError>(Arc::new(store))
@@ -83,7 +99,11 @@ impl Memory {
                 .clouds
                 .iter()
                 .map(|(name, endpoint)| {
-                    let token = var(&endpoint.token_env).unwrap_or_default();
+                    let token = input
+                        .credentials
+                        .get(&endpoint.token_env)
+                        .cloned()
+                        .unwrap_or_default();
                     if token.is_empty() {
                         warn!(cloud = %name, env = %endpoint.token_env, "cloud token env is unset");
                     }
@@ -103,7 +123,7 @@ impl Memory {
         };
         embedded(&memory).await?;
         info!(initiative = INITIATIVE, clouds, "memory: embedded kaeru");
-        Ok(Self::Embedded { memory, clouds })
+        Ok((Self::Embedded { memory, clouds }, input.fingerprint))
     }
 
     /// Individually grantable native verbs. No bulk installation in children.
@@ -122,6 +142,7 @@ mod tests {
     use kaeru_core::{cite, list_initiatives, read_node_full, recall_id_by_name, Store};
     use kaeru_rig::KaeruMemory;
     use rmcp::{model::CallToolResult, model::Content};
+    use serde_json::json;
     use toml::from_str;
 
     use super::{
@@ -196,19 +217,25 @@ mod tests {
 
     #[test]
     fn migration_fails_closed_on_unexpected_or_incomplete_responses() {
-        let result = |text| CallToolResult::success(vec![Content::text(text)]);
-        assert!(
-            has_initiative(&result("initiatives (2):\n  - albert-archive\n  - kaeru"))
-                .is_ok_and(|v| !v)
-        );
-        assert!(has_initiative(&result("initiatives (2):\n  - albert\n  - kaeru")).unwrap());
-        for text in [
-            "database offline",
-            "initiatives (2):\n  - kaeru",
-            "initiatives (1):\n  albert",
-        ] {
-            assert!(has_initiative(&result(text)).is_err());
+        let result = |names: Vec<&str>| {
+            CallToolResult::structured(json!({
+                "api_version":1,"operation":"initiatives","state":"ok","request_id":null,"replayed":false,
+                "data":{"initiatives":names},"issues":[],"coverage":{"initiatives":[],"complete":true,"rules_complete":true,"omitted":[]}
+            }))
+        };
+        assert!(!has_initiative(&result(vec!["albert-archive", "other"])).unwrap());
+        assert!(has_initiative(&result(vec!["albert", "other"])).unwrap());
+        for text in ["database offline", "initiatives (1):\n  - albert", "{}"] {
+            assert!(has_initiative(&CallToolResult::success(vec![Content::text(text)])).is_err());
         }
+        for state in ["rejected", "partial"] {
+            let mut value = result(vec![]).structured_content.unwrap();
+            value["state"] = json!(state);
+            assert!(has_initiative(&CallToolResult::structured(value)).is_err());
+        }
+        let mut incomplete = result(vec![]).structured_content.unwrap();
+        incomplete["coverage"]["complete"] = json!(false);
+        assert!(has_initiative(&CallToolResult::structured(incomplete)).is_err());
         assert!(has_initiative(&CallToolResult::error(vec![Content::text("offline")])).is_err());
     }
     #[tokio::test]

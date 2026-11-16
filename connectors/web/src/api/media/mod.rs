@@ -1,13 +1,10 @@
-use serde_json::{from_str, json};
-use std::collections::HashMap;
+use serde_json::json;
 
-use axum::{
-    body::Body, http::HeaderMap, http::StatusCode, response::IntoResponse, response::Response, Json,
-};
+use axum::{body::Body, http::StatusCode, response::IntoResponse, response::Response, Json};
 
 use super::{
     errors::ApiError, errors::ApiResult, models::AttachmentView, principal::Principal,
-    router::resource_id, state::ApiState,
+    state::ApiState,
 };
 
 pub enum MediaOperation {
@@ -38,43 +35,11 @@ pub enum MediaResponse {
         size: usize,
     },
 }
-pub(crate) async fn request(
+pub(crate) async fn execute(
     state: &ApiState,
     caller: &Principal,
-    method: &str,
-    path: &str,
-    params: &HashMap<String, String>,
-    headers: &HeaderMap,
-    bytes: &[u8],
-) -> ApiResult<Option<Response>> {
-    let header = |name| {
-        headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned()
-    };
-    let operation = match (method, path) {
-        ("POST", "/attachments") => MediaOperation::Upload {
-            bytes: bytes.to_vec(),
-            mime: header("content-type"),
-            filename: headers
-                .get("x-filename")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| from_str::<String>(v).ok())
-                .unwrap_or_else(|| "attachment".into()),
-        },
-        ("DELETE", "/attachments/{id}") => MediaOperation::Delete {
-            id: resource_id(params, "id")?,
-        },
-        ("GET" | "HEAD", "/sessions/{id}/attachments/{asset_id}") => MediaOperation::Read {
-            session: resource_id(params, "id")?,
-            id: resource_id(params, "asset_id")?,
-            range: headers.get("range").map(|_| header("range")),
-            head: method == "HEAD",
-        },
-        _ => return Ok(None),
-    };
+    operation: MediaOperation,
+) -> ApiResult<Response> {
     let response = match state.host.media(caller, operation).await? {
         MediaResponse::Uploaded(asset) => Json(asset).into_response(),
         MediaResponse::Deleted => Json(json!({})).into_response(),
@@ -155,5 +120,5 @@ pub(crate) async fn request(
             response
         }
     };
-    Ok(Some(response))
+    Ok(response)
 }

@@ -134,7 +134,7 @@ for (const exit of ["Done", "Escape", "apply_failed"] as const) {
         exact: true,
       });
       await expect(
-        done.getByText(/existing preferred model is unchanged/),
+        done.getByText(/existing operator is unchanged/),
       ).toBeVisible();
       if (exit === "Done")
         await done.getByRole("button", { name: "Done", exact: true }).click();
@@ -143,7 +143,7 @@ for (const exit of ["Done", "Escape", "apply_failed"] as const) {
     await expect(page).toHaveURL(/\/models$/);
     await expect(page.locator(".model-profile")).toHaveCount(2);
     await expect(page.locator(".model-profile").first()).toContainText(
-      "Preferred",
+      "Operator",
     );
     expect(starts).toBe(0);
     await page.screenshot({

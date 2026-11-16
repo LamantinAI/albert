@@ -79,10 +79,10 @@ Deployment (build here, ship the binary; the target is small): see
 
 ## Module Organisation
 
-Keep code **modular, grouped by purpose**, one concern per file. **Cap each file at
-~500 lines (hard limit 600).** Split a module when:
+Keep code **modular, grouped by purpose**, one concern per file. **Keep handwritten production code within
+300 lines per file.** Split a module when:
 
-- it passes ~500 lines, or
+- its production code approaches 300 lines, or
 - more than a few cohesive concerns accumulate in one file.
 
 `albert-core/src/cogitator/` was split this way — ACL policy lives separately, routine seeding
@@ -95,7 +95,8 @@ to `routines.rs`. When a module grows past a flat file, prefer a
 - Unit tests belong in inline `#[cfg(test)] mod tests` blocks in the owning `mod.rs`
   or crate `lib.rs`. Do not add standalone `src/**/tests.rs` files.
 - Keep implementation helpers in cohesive sibling files when a module grows; keep
-  the facade and its tests together and respect the 600-line hard limit.
+  the facade and its tests together and keep production code within 300 lines. Necessary inline tests in the owning
+  `mod.rs` or `lib.rs` may exceed that limit; preserve all meaningful tests.
 - Tests exercising only the public API across components belong in the crate's
   `tests/` directory. Shared integration fixtures may live in `tests/common/mod.rs`.
 - Async integration scenarios must have a bounded wait. A connector's local shutdown
@@ -174,3 +175,12 @@ staging or publishing, review direct and indirect disclosure. Use neutral
 placeholders, repository-relative paths and reserved example addresses. Preserve
 required licenses and public attribution; existing history does not authorize
 copying private details. Never reintroduce unsanitized history during a merge.
+
+## Production module size
+
+Keep handwritten production code within **300 lines per file**, organized by domain
+and responsibility. An owning Rust `mod.rs` or `lib.rs` may exceed that size because
+of necessary inline tests; its production portion must still meet the limit.
+Preserve meaningful tests. Do not hide oversized services in arbitrary `impl`
+fragments or move oversized test blocks into unrelated files. Generated lockfiles
+are exempt; control generated declaration sizes through their generator.
