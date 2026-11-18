@@ -25,7 +25,7 @@ multi-step work.
 
 ## Quick start
 
-With Docker, the Compose plugin and OpenSSL installed, create a deployment directory
+With Docker, and Compose plugin installed, create a deployment directory
 and download the Compose file:
 
 ```sh
