@@ -1,0 +1,100 @@
+x-development-image: &development-image
+  image: albert:dev
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: development
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    args:
+      HTTP_PROXY: ${ALBERT_DEV_BUILD_PROXY:-}
+      HTTPS_PROXY: ${ALBERT_DEV_BUILD_PROXY:-}
+
+services:
+  albert:
+    <<: *development-image
+    env_file:
+      - path: ${ALBERT_DEV_ENV_FILE:-.env}
+        required: false
+    environment:
+      ALBERT_CONFIG: /opt/albert/albert.toml
+      KAERU_VAULT_PATH: /data/kaeru
+      OCTO_CODE_WORKSPACE: /data/workspace
+      OCTO_SKILLS_DIR: /opt/albert/skills
+      HOME: /data
+      RUST_LOG: ${RUST_LOG:-albert=debug,octo_core=warn}
+    cap_add: [SETUID, SETGID]
+    ports:
+      - "127.0.0.1:${ALBERT_DEV_PORT:-9877}:9877"
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: ${ALBERT_DEV_BINARY:-./target/debug/albert}
+        target: /usr/local/bin/albert
+        read_only: true
+        bind:
+          create_host_path: false
+      - dev-deployment:/opt/albert
+      - dev-data:/data
+
+  albert-e2e:
+    <<: *development-image
+    profiles: [e2e]
+    entrypoint: [python3, /fixture/start.py]
+    working_dir: /data
+    environment:
+      ALBERT_CONFIG: /data/albert.toml
+      KAERU_VAULT_PATH: /data/kaeru
+      ALBERT_E2E_AUTH_PUBLIC_ORIGIN: http://127.0.0.1:${ALBERT_E2E_AUTH_PORT:-19876}
+      ALBERT_E2E_AUTH_INTERNAL_ORIGIN: http://mock-provider:8000
+      ALBERT_E2E_MODEL_ORIGIN: http://mock-provider:8000/backend-api/codex
+      RUST_LOG: albert=info,octo_core=warn
+    volumes:
+      - type: bind
+        source: ${ALBERT_E2E_BINARY:-./target/debug/albert}
+        target: /usr/local/bin/albert
+        read_only: true
+        bind:
+          create_host_path: false
+      - ./docker/local-e2e/start.py:/fixture/start.py:ro
+      - state:/data
+    depends_on:
+      mock-provider:
+        condition: service_healthy
+    networks: [isolated]
+
+  mock-provider:
+    image: python:3.12-slim
+    profiles: [e2e]
+    command: [python3, -B, /fixture/mock_provider.py]
+    volumes:
+      - ./docker/local-e2e/mock_provider.py:/fixture/mock_provider.py:ro
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [isolated]
+
+  gateway:
+    image: nginx:stable-alpine
+    profiles: [e2e]
+    volumes:
+      - ./docker/local-e2e/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:${ALBERT_E2E_PORT:-19877}:9877"
+      - "127.0.0.1:${ALBERT_E2E_AUTH_PORT:-19876}:8000"
+    depends_on:
+      - albert-e2e
+      - mock-provider
+    networks: [browser, isolated]
+
+volumes:
+  dev-deployment:
+  dev-data:
+  state:
+
+networks:
+  browser: {}
+  isolated:
+    internal: true

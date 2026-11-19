@@ -96,7 +96,7 @@ impl AlbertCogitator {
         };
         let messages = window_messages(&window);
         let before = settings.messages_tokens(&messages);
-        let max_tokens = settings.compact_output_tokens.min(
+        let max_tokens = settings.output_limit(settings.compact_output_tokens).min(
             settings
                 .compact_budget()
                 .saturating_sub(settings.message_tokens(&compact_message("")) + 16),

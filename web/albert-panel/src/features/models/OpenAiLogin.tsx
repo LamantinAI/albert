@@ -1,11 +1,7 @@
 import { errorMessage } from "../../api/client";
 import { Dialog } from "../../components/Dialog";
-import { SettingsBack } from "../../components/SettingsActions";
 import { Button, Notice } from "../../components/ui";
-import {
-  SubscriptionAuthorize,
-  SubscriptionReturn,
-} from "./SubscriptionAuthScreen";
+import { SubscriptionDeviceCode } from "./SubscriptionAuthScreen";
 import { SubscriptionPicker } from "./SubscriptionPicker";
 import type { OpenAiLoginProps } from "./useOpenAiLogin";
 import { useOpenAiLogin } from "./useOpenAiLogin";
@@ -14,10 +10,7 @@ import { useClientContext } from "../../app/context";
 export function OpenAiLogin(props: OpenAiLoginProps) {
   const { context } = useClientContext();
   const {
-    onClose,
     intent,
-    authScreen,
-    setAuthScreen,
     formId,
     dialog,
     attempt,
@@ -25,8 +18,6 @@ export function OpenAiLogin(props: OpenAiLoginProps) {
     catalog,
     selected,
     setSelected,
-    callback,
-    setCallback,
     busy,
     error,
     setError,
@@ -35,7 +26,7 @@ export function OpenAiLogin(props: OpenAiLoginProps) {
     loadCatalog,
     resumeConnection,
     begin,
-    submit,
+    replacing,
     choose,
     apply,
     close,
@@ -59,44 +50,36 @@ export function OpenAiLogin(props: OpenAiLoginProps) {
           className={`subscription-dialog-body${selecting ? " subscription-dialog-body--catalog" : ""}`}
         >
           {error && <Notice kind="error">{error}</Notice>}
-          {!attempt && !connection?.connected && busy && (
+          {((!attempt && !connection?.connected && busy) ||
+            attempt?.phase === "preparing") && (
             <p role="status" className="subscription-secondary">
               Preparing OpenAI sign-in…
             </p>
           )}
-          {!attempt && !connection?.connected && !busy && (
-            <div className="subscription-picker-toolbar">
-              <Button
-                onClick={() =>
-                  void resumeConnection().catch((error) =>
-                    setError(errorMessage(error)),
-                  )
-                }
-              >
-                Retry connection
-              </Button>
-              <Button variant="ghost" onClick={() => void begin(true)}>
-                Reconnect OpenAI subscription
-              </Button>
-            </div>
-          )}
-          {awaiting && attempt && authScreen === "authorize" && (
-            <SubscriptionAuthorize url={attempt.authorize_url ?? null} />
-          )}
-          {awaiting && attempt && authScreen === "return" && (
-            <SubscriptionReturn
-              formId={formId}
-              callback={callback}
-              redirect={attempt.redirect_uri}
+          {(!attempt || attempt.phase === "connected") &&
+            !connection?.connected &&
+            !busy && (
+              <div className="subscription-picker-toolbar">
+                <Button
+                  onClick={() =>
+                    void resumeConnection().catch((error) =>
+                      setError(errorMessage(error)),
+                    )
+                  }
+                >
+                  Retry connection
+                </Button>
+                <Button variant="ghost" onClick={() => void begin(true)}>
+                  Reconnect OpenAI subscription
+                </Button>
+              </div>
+            )}
+          {awaiting && attempt?.verification_url && attempt.user_code && (
+            <SubscriptionDeviceCode
+              url={attempt.verification_url}
+              code={attempt.user_code}
               expiresAt={attempt.expires_at}
-              onChange={setCallback}
-              onSubmit={(event) => void submit(event)}
             />
-          )}
-          {attempt?.phase === "exchanging" && (
-            <p role="status">
-              Checking authorization and saving subscription credentials…
-            </p>
           )}
           {terminal && attempt && <Notice>{attempt.message}</Notice>}
           {selecting && connection && (
@@ -125,40 +108,7 @@ export function OpenAiLogin(props: OpenAiLoginProps) {
           )}
         </div>
         <footer className="subscription-flow-footer">
-          {awaiting && attempt && authScreen === "authorize" ? (
-            <>
-              <Button disabled={busy} onClick={() => void close()}>
-                Cancel sign-in
-              </Button>
-              <Button
-                disabled={busy}
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  setAuthScreen("return");
-                }}
-              >
-                I've signed in
-              </Button>
-            </>
-          ) : awaiting ? (
-            <>
-              <SettingsBack
-                disabled={busy}
-                onClick={() => setAuthScreen("authorize")}
-              >
-                Back
-              </SettingsBack>
-              <Button
-                form={formId}
-                type="submit"
-                variant="primary"
-                disabled={busy || !callback.trim()}
-              >
-                Connect subscription
-              </Button>
-            </>
-          ) : selecting ? (
+          {selecting ? (
             <div className="subscription-catalog-footer">
               <p
                 className="subscription-footer-note"
@@ -195,7 +145,7 @@ export function OpenAiLogin(props: OpenAiLoginProps) {
                 <Button
                   variant="primary"
                   disabled={busy}
-                  onClick={() => void begin(false)}
+                  onClick={() => void begin(replacing)}
                 >
                   Start a new sign-in
                 </Button>

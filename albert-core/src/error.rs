@@ -38,8 +38,7 @@ pub enum Error {
     #[error("history: {0}")]
     History(#[from] HistoryError),
 
-    /// OpenAI ChatGPT-subscription auth (the login flow's own failures): binding the
-    /// callback port, a bad callback URL, no code in the paste, …
+    /// OpenAI ChatGPT subscription authorization failures.
     #[error("subscription auth: {0}")]
     Auth(String),
 

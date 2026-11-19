@@ -43,9 +43,9 @@ server and do not need file watchers.
 
 ## Contracts and verification
 
-Rust Utoipa is the schema authority. `npm run generate` invokes the workspace's
-schema-only `xtask` without requiring browser assets, then splits TypeScript
-declarations into bounded files. Run it after an API change; do not edit generated
+Rust Utoipa is the schema authority. `npm run generate` invokes `export-openapi`
+in the web connector and splits the TypeScript declarations into bounded files.
+The exporter builds without browser assets. Run it after an API change; do not edit generated
 types or maintain a second DTO schema. No OpenAPI JSON snapshot is committed.
 
 ```sh

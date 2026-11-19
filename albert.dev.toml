@@ -38,7 +38,7 @@ openai_key_env = "ALBERT_OPENAI_KEY"
 # of "today" and any reminder times it computes — is rendered in this zone rather
 # than UTC. Defaults to UTC if omitted. Set the calendar connector's own
 # `timezone` (config/connectors/calendar) to match, so listed events read local.
-timezone = "UTC"
+timezone = "Europe/Moscow"
 
 [prompt]
 # Persona and operating instructions — hot-reloaded (edit and save; no restart).
@@ -114,13 +114,27 @@ page  = 10
 # future storage/telegram workspace bridge should point at the SAME directory.
 workspace = "state/workspace"
 
-# --- Memory backend: the Kaeru service in the production Compose stack.
+# --- Memory backend: embedded kaeru (default), or a dedicated kaeru MCP server.
 [memory]
-backend = "mcp"
-transport = "http"
-url = "http://kaeru:9876/mcp"
-token_env = "ALBERT_MEMORY_TOKEN"
-timeout_secs = 30
+backend = "embedded"
+# To use external memory, replace the section above with:
+# [memory]
+# backend = "mcp"
+# transport = "http"
+# url = "http://127.0.0.1:9876/mcp"
+# timeout_secs = 30
+# token_env = "ALBERT_MEMORY_TOKEN"   # optional bearer token, value in .env
+#
+# Or launch a local MCP stdio process:
+# [memory]
+# backend = "mcp"
+# transport = "stdio"
+# command = "kaeru-mcp"
+# args = ["--stdio"]
+# env = { KAERU_MCP_AUTH_TOKEN = "ALBERT_MEMORY_TOKEN" } # child var -> parent var NAME
+#
+# At startup, an absent albert initiative is created by migration v1. Existing
+# initiatives are untouched. Switching backends does not copy existing memories.
 
 # --- Cloud memory (option) — kaeru-cloud endpoints Albert can share to / pull from.
 # Absent = local-only (the default): the share/pull/cloud_recall tools are not even
@@ -161,7 +175,8 @@ read_chars = 8192
 [context]
 enabled = true
 window_tokens = 1000000
-reserve_tokens = 32768
+# Automatic reserve: up to 65,536 tokens, capped at half the effective model window.
+# Set reserve_tokens explicitly to use a fixed reserve instead.
 response_tokens = 4096
 new_messages_percent = 70
 compact_output_tokens = 16384

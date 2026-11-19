@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { compose, environment, login, request } from "./openai-login-fixture";
+import {
+  compose,
+  environment,
+  fixtureService,
+  login,
+  request,
+} from "./openai-login-fixture";
 
 export function registerSubscriptionRefresh() {
   test("the runtime refreshes a rejected subscription and retains it across its own restart", async ({
@@ -19,10 +25,9 @@ export function registerSubscriptionRefresh() {
       .getByRole("textbox", { name: "Message Albert", exact: true })
       .fill("Exercise local token renewal.");
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(page.locator(".message-assistant")).toContainText(
-      "offline Docker fixture",
-      { timeout: 30_000 },
-    );
+    await expect(
+      page.locator(".message-assistant[data-message-id]").last(),
+    ).toContainText("offline Docker fixture", { timeout: 30_000 });
     await expect
       .poll(
         async () =>
@@ -41,23 +46,22 @@ export function registerSubscriptionRefresh() {
       {},
     );
     expect(oldCatalog.status).toBe(200);
-    compose("restart", "albert");
+    compose("restart", fixtureService);
     await expect
       .poll(
         async () => {
           try {
-            return (
-              await client.get(
-                environment("ALBERT_E2E_URL") + "/api/v1/context",
-              )
-            ).status();
+            const response = await client.get(
+              environment("ALBERT_E2E_URL") + "/api/v1/context",
+            );
+            return response.ok() && (await response.json()).setup.model_ready;
           } catch {
-            return 0;
+            return false;
           }
         },
         { timeout: 30_000 },
       )
-      .toBe(200);
+      .toBe(true);
     await page.reload();
     const setup = await request(page, "/context");
     expect(setup.body.setup.model_ready).toBe(true);
@@ -91,8 +95,8 @@ export function registerSubscriptionRefresh() {
         (model: { slug: string }) => model.slug === "fixture-chat",
       ),
     ).toBe(true);
-    await expect(page.locator(".message-assistant")).toContainText(
-      "offline Docker fixture",
-    );
+    await expect(
+      page.locator(".message-assistant[data-message-id]").last(),
+    ).toContainText("offline Docker fixture");
   });
 }

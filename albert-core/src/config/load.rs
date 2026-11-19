@@ -19,7 +19,7 @@ impl Config {
     }
 
     pub fn parse_text(text: &str, path: &Path) -> Result<Self> {
-        let mut raw: Raw = from_str(text)?;
+        let raw: Raw = from_str(text)?;
         let dir = path.parent().unwrap_or_else(|| Path::new("."));
 
         let key_var = raw.openai_key_env.as_deref().unwrap_or("ALBERT_OPENAI_KEY");
@@ -78,7 +78,9 @@ impl Config {
             }
         }
 
-        raw.memory.validate(dir, !clouds.is_empty())?;
+        let memory_explicit = raw.memory.is_some();
+        let mut memory = raw.memory.unwrap_or_default();
+        memory.validate(dir, !clouds.is_empty())?;
         let model_pool = raw.model_pool.as_ref().map(|p| resolve_path(dir, p));
         let models = model_pool
             .as_deref()
@@ -102,7 +104,8 @@ impl Config {
                 raw.mcp_registry.as_deref().unwrap_or("config/mcp.toml"),
             ),
             models,
-            memory: raw.memory,
+            memory,
+            memory_explicit,
             multimodal,
             stream_status: raw.stream_status.unwrap_or(true),
             model: raw.model,

@@ -10,8 +10,10 @@ pub struct ExchangeError {
     oauth_code: Option<&'static str>,
 }
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Category {
-    InvalidCode,
+pub(in crate::openai_login) enum Category {
+    InvalidChallenge,
+    DeviceUnavailable,
+    DeviceExpired,
     ClientSetup,
     Timeout,
     Connect,
@@ -24,7 +26,7 @@ pub(super) enum Category {
     MissingAccount,
 }
 impl ExchangeError {
-    pub(super) fn new(category: Category, status: Option<u16>) -> Self {
+    pub(in crate::openai_login) fn new(category: Category, status: Option<u16>) -> Self {
         Self {
             category,
             status,
@@ -55,7 +57,9 @@ impl ExchangeError {
     }
     pub fn category(&self) -> &'static str {
         match self.category {
-            Category::InvalidCode => "invalid_code",
+            Category::InvalidChallenge => "invalid_challenge",
+            Category::DeviceUnavailable => "device_auth_unavailable",
+            Category::DeviceExpired => "device_auth_expired",
             Category::ClientSetup => "client_setup",
             Category::Timeout => "transport_timeout",
             Category::Connect => "transport_connect",
@@ -74,13 +78,18 @@ impl ExchangeError {
     pub fn oauth_code(&self) -> Option<&'static str> {
         self.oauth_code
     }
+    pub fn expired(&self) -> bool {
+        matches!(self.category, Category::DeviceExpired)
+    }
     pub fn public_message(&self) -> &'static str {
         match self.category {
-            Category::InvalidCode => "The authorization code is malformed. Start a new sign-in attempt.",
+            Category::InvalidChallenge => "OpenAI returned an invalid device authorization. Start a new sign-in attempt.",
+            Category::DeviceUnavailable => "OpenAI device-code sign-in is unavailable. Enable it in ChatGPT security settings or ask your workspace admin to enable it, then try again.",
+            Category::DeviceExpired => "The one-time code expired. Start a new sign-in attempt.",
             Category::ClientSetup => "Authorization could not initialize. Ask the workspace owner to review the server setup.",
-            Category::Timeout => "The token exchange timed out. Check the server connection, then start a new sign-in attempt.",
-            Category::Connect => "The server could not connect to OpenAI for the token exchange. Check server connectivity or proxy settings, then start a new sign-in attempt.",
-            Category::Transport => "The token exchange connection failed. Check server connectivity or proxy settings, then start a new sign-in attempt.",
+            Category::Timeout => "The authorization request timed out. Check the server connection, then start a new sign-in attempt.",
+            Category::Connect => "The server could not connect to OpenAI. Check server connectivity or proxy settings, then start a new sign-in attempt.",
+            Category::Transport => "The authorization connection failed. Check server connectivity or proxy settings, then start a new sign-in attempt.",
             Category::Rejected => match self.oauth_code {
                 Some("unsupported_country_region_territory") => "OpenAI blocked the token exchange because the server connection is from an unsupported country or region. The workspace owner needs to review the server network or proxy settings before you start a new sign-in attempt.",
                 Some("invalid_grant" | "token_expired") => "OpenAI rejected the authorization code. It may be expired, already used, or belong to another attempt. Start a new sign-in attempt.",

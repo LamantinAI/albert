@@ -90,7 +90,14 @@ export function OperatorCard({ session }: { session: Session }) {
             key={item.id}
             className={`operator-step ${fresh && activity.running && item.state === "in_progress" ? "current" : ""}`}
           >
-            <Icon name={activityAppearance(item).icon} size={13} />
+            <Icon
+              name={
+                item.kind === "phase" && item.label === "Thinking"
+                  ? "brain"
+                  : activityAppearance(item).icon
+              }
+              size={13}
+            />
             <span>{item.label}</span>
           </div>
         ))}

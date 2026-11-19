@@ -1,4 +1,4 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Paths3 {
@@ -122,23 +122,6 @@ export interface Paths3 {
         patch?: never;
         trace?: never;
     };
-"/openai-login-attempts/{id}/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create openai login attempts submissions */
-        post: operations["subscription_post_openai_login_attempts_id_submissions"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 "/openai-subscription": {
         parameters: {
             query?: never;
@@ -231,6 +214,22 @@ export interface Paths3 {
             cookie?: never;
         };
         get: operations["operator_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/operator/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["operator_snapshot"];
         put?: never;
         post?: never;
         delete?: never;

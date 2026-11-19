@@ -29,6 +29,7 @@ export const MessageBubble = memo(function MessageBubble({
   const activity =
     message.role === "assistant" &&
     (active || progress?.items.some((item) => item.kind !== "phase"));
+  const sourceLabel = message.source === "telegram" ? "Telegram" : null;
   return (
     <article
       className={`message message-${message.role}`}
@@ -52,6 +53,14 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {!["user", "assistant"].includes(message.role) && (
             <strong>{message.role.toUpperCase()}</strong>
+          )}
+          {sourceLabel && (
+            <span
+              className="message-source"
+              aria-label={`Source: ${sourceLabel}`}
+            >
+              {sourceLabel}
+            </span>
           )}
           <time dateTime={message.created_at}>
             {new Date(message.created_at).toLocaleTimeString([], {

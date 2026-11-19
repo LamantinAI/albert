@@ -1,18 +1,25 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations32 {
-sessions_get_session_starts_id: {
+sessions_post_session_starts_id_cancellations: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
             path: {
                 /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmptyObject"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -106,24 +113,19 @@ sessions_get_session_starts_id: {
             };
         };
     };
-sessions_post_session_starts_id_cancellations: {
+sessions_get_sessions: {
         parameters: {
-            query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
+            query?: {
+                after?: string;
+                limit?: number;
+                order?: string;
+                through_id?: string;
             };
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EmptyObject"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -131,7 +133,7 @@ sessions_post_session_starts_id_cancellations: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionStartView"];
+                    "application/json": components["schemas"]["SessionList"];
                 };
             };
             /** @description Invalid request */

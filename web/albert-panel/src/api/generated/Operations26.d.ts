@@ -1,25 +1,15 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations26 {
-subscription_post_openai_login_attempts_id_submissions: {
+subscription_get_openai_subscription: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
-            };
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OpenAiLoginSubmission"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -27,7 +17,7 @@ subscription_post_openai_login_attempts_id_submissions: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenAiLoginView"];
+                    "application/json": components["schemas"]["SubscriptionConnectionView"];
                 };
             };
             /** @description Invalid request */
@@ -113,14 +103,21 @@ subscription_post_openai_login_attempts_id_submissions: {
             };
         };
     };
-subscription_get_openai_subscription: {
+subscription_post_openai_subscription_applications: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionApplyRequest"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {

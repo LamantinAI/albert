@@ -21,11 +21,11 @@ use super::{
     models::ConfigWrite, models::EmptyObject, models::IdentityList, models::MessageCreate,
     models::MessageList, models::MessageReceipt, models::ModelOrder, models::ModelPoolView,
     models::ModelPreference, models::ModelRoleWrite, models::ModelWrite, models::OpenAiLoginStart,
-    models::OpenAiLoginSubmission, models::OpenAiLoginView, models::PageQuery, models::ProfileView,
-    models::RuntimeStatus, models::SecretList, models::SecretWrite, models::SessionCreate,
-    models::SessionList, models::SessionStart, models::SessionStartView, models::SessionState,
-    models::SessionUpdate, models::SessionView, models::SkillImport, models::SkillList,
-    models::SkillUpdate, models::SkillView, models::SkillWrite, models::SubscriptionApplyRequest,
+    models::OpenAiLoginView, models::PageQuery, models::ProfileView, models::RuntimeStatus,
+    models::SecretList, models::SecretWrite, models::SessionCreate, models::SessionList,
+    models::SessionStart, models::SessionStartView, models::SessionState, models::SessionUpdate,
+    models::SessionView, models::SkillImport, models::SkillList, models::SkillUpdate,
+    models::SkillView, models::SkillWrite, models::SubscriptionApplyRequest,
     models::SubscriptionCatalogView, models::SubscriptionConnectionView,
     models::SubscriptionSelection, models::ValidationView, principal::Principal,
 };
@@ -100,16 +100,8 @@ pub enum CredentialOperation {
 
 pub enum OpenAiLoginOperation {
     Start(OpenAiLoginStart),
-    Get {
-        id: String,
-    },
-    Submit {
-        id: String,
-        input: OpenAiLoginSubmission,
-    },
-    Cancel {
-        id: String,
-    },
+    Get { id: String },
+    Cancel { id: String },
 }
 pub enum SubscriptionOperation {
     Connection,

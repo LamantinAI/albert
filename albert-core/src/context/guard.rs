@@ -5,10 +5,19 @@ use rig::{
     completion::CompletionResponse, completion::Message, streaming::StreamingCompletionResponse,
 };
 use serde_json::{json, to_string, Value};
+use thiserror::Error;
 use tracing::{info, Instrument};
 
 use super::{diagnostics::Diagnostics, recovery::Recovery, DiagnosticScope, Settings};
 use crate::{status::StatusFeed, subagents::budget::Budget};
+
+#[derive(Debug, Error)]
+pub(crate) enum ReserveError {
+    #[error("Instructions, tools and response need about {required} tokens, but the context reserve is {reserved}. Increase context.reserve_tokens or reduce instructions and tools.")]
+    Insufficient { required: usize, reserved: usize },
+    #[error("The context reserve of {reserved} tokens does not leave enough room for a request in the model's {window}-token window. Adjust the reserve or use a model with a larger window.")]
+    NoDialogue { reserved: usize, window: usize },
+}
 
 /// Every model round is checked, including tool continuations and fallback.
 #[derive(Clone)]
@@ -90,23 +99,33 @@ impl<M> BudgetedModel<M> {
         if let Some(documents) = request.normalized_documents() {
             dialogue += settings.message_tokens(&documents);
         }
-        let output = request
-            .max_tokens
-            .unwrap_or(settings.response_tokens as u64)
-            .min(settings.response_tokens as u64);
+        let reserved = settings.effective_reserve();
+        let output_limit = settings.output_limit(settings.response_tokens) as u64;
+        let output = request.max_tokens.unwrap_or(output_limit).min(output_limit);
         request.max_tokens = Some(output);
         info!(
             instructions,
             dialogue,
             output,
-            reserve = settings.reserve_tokens,
+            reserve = reserved,
             window = settings.window_tokens,
             "estimated context budget"
         );
-        if instructions.saturating_add(output as usize) > settings.reserve_tokens {
-            return Err(CompletionError::ProviderError("ALBERT_CONTEXT_RESERVE: instructions, tools and response exceed the configured fixed reserve".into()));
+        if output_limit == 0 || settings.dialogue() == 0 {
+            return Err(CompletionError::RequestError(Box::new(
+                ReserveError::NoDialogue {
+                    reserved,
+                    window: settings.window_tokens,
+                },
+            )));
         }
-        if settings.dialogue() == 0 || dialogue > settings.dialogue() {
+        let required = instructions.saturating_add(output as usize);
+        if required > reserved {
+            return Err(CompletionError::RequestError(Box::new(
+                ReserveError::Insufficient { required, reserved },
+            )));
+        }
+        if dialogue > settings.dialogue() {
             return Err(CompletionError::ProviderError("ALBERT_CONTEXT_WINDOW: dialogue exceeds its configured partition; compact or reduce the oversized input/tool result".into()));
         }
         self.output_cap(request);

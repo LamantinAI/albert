@@ -29,6 +29,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         mcp_registry: path.join("mcp.toml"),
         models: None,
         memory: Default::default(),
+        memory_explicit: false,
         model: "unused".into(),
         auth: AuthMode::ApiKey,
         base_url: String::new(),

@@ -8025,15 +8025,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xtask"
-version = "0.3.0"
-dependencies = [
- "albert-connector-web",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "yaml-rust2"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

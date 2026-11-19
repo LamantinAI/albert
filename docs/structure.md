@@ -16,7 +16,6 @@ albert-server/             server binary, CLI and runtime assembly
 web/
   albert-panel/            React + TypeScript browser project
   ui-dist/                 generated embedded bundle (ignored)
-xtask/                     schema export tooling
 config/                    connector manifests and examples
 skills/                    bundled skill packages
 docs/                      public architecture and configuration guides
@@ -31,7 +30,6 @@ docs/                      public architecture and configuration guides
 | `albert-connector-telegram` | Trusted native ingress mapping, Telegram host policy, session navigation, feedback and delivery adaptation. The transport itself remains in Octo. |
 | `albert-connector-web` | HTTP DTOs/router, JWT/CSRF, accounts and owner configuration services, OAuth panel flow, private-session bridge, SSE, assets and plain Swagger. |
 | `albert-server` (binary `albert`) | Process environment, interactive CLI login, composed settings, bootstrap, connector factories, SQL protected paths and runtime assembly. |
-| `xtask` | Export the same Utoipa schema used by the running API without requiring browser assets. |
 
 The application depends on core and the connectors; each connector depends on
 core. Core has no dependency on Albert's application or connector crates. HTTP
@@ -42,8 +40,8 @@ core; domain tests use neutral fixtures.
 
 Generic SQL, scheduler, browser, mail, storage and other connectors are consumed
 from Octo. They are assembled by the application, not copied into local crates.
-Noninteractive OAuth/PKCE belongs to core; terminal input, browser launching and
-the loopback callback belong to the application.
+Core owns the noninteractive device authorization protocol. The application owns
+the terminal flow and the web connector owns browser attempt state.
 
 ## Persistence and build outputs
 
@@ -53,7 +51,8 @@ catalogs and canonical journals remain in octo-history; application SQL stores
 remain isolated from internal history. Moving code does not change schema versions,
 migration checksums, configuration discovery or deployed data paths.
 
-Utoipa defines the API schema. `xtask` exports it for TypeScript generation; no
+Utoipa defines the API schema. The web connector’s optional `export-openapi`
+binary exports it for TypeScript generation without browser assets. No
 OpenAPI JSON snapshot is committed. Generated TypeScript declarations may be
 versioned and are checked for freshness. The browser build produces disposable
 assets, and the web crate verifies their fingerprints and copies them to Cargo's

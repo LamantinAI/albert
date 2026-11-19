@@ -32,6 +32,8 @@ mod tests {
     use tokio::{join, sync::Mutex};
 
     use super::MemoryService;
+    use albert_core::db::repo::memory_setup::StartupPolicy;
+
     use crate::{api::memory::MemoryOperation, api::memory::MemoryWrite, web::testing::fixture};
 
     fn write_request(value: &str, backend: &str) -> MemoryWrite {
@@ -228,10 +230,13 @@ mod tests {
         assert!(text.contains("model='fixture'"));
         assert!(text.contains("[memory]"));
         assert_eq!(
-            memory_setup::initialize(runtime.sessions.database().pool(), false)
-                .await
-                .unwrap()
-                .state,
+            memory_setup::initialize(
+                runtime.sessions.database().pool(),
+                StartupPolicy::BrowserOnboarding,
+            )
+            .await
+            .unwrap()
+            .state,
             "selected"
         );
         let error = service

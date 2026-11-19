@@ -1,6 +1,5 @@
-import type { FormEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { api, errorMessage } from "../../api/client";
+import { api, ApiError, errorMessage } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useClientContext } from "../../app/context";
 import { useDialogs } from "../../components/useDialogs";
@@ -18,9 +17,6 @@ export function useOpenAiLogin({
   onConnected,
   intent = "onboard",
 }: OpenAiLoginProps) {
-  const [authScreen, setAuthScreen] = useState<"authorize" | "return">(
-    "authorize",
-  );
   const formId = useId();
   const { refresh } = useClientContext();
   const { confirm, dialog } = useDialogs();
@@ -28,7 +24,7 @@ export function useOpenAiLogin({
   const [connection, setConnection] = useState<Connection | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [selected, setSelected] = useState("");
-  const [callback, setCallback] = useState("");
+  const [replacing, setReplacing] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [catalogError, setCatalogError] = useState("");
@@ -98,7 +94,6 @@ export function useOpenAiLogin({
     connection,
     setAttempt,
     setConnection,
-    setCallback,
     setError,
     setDone,
     resumeConnection,
@@ -119,47 +114,17 @@ export function useOpenAiLogin({
     setBusy(true);
     setError("");
     setCatalogError("");
-    setCallback("");
     setDone(false);
-    setAuthScreen("authorize");
     try {
       setAttempt(
         await api("/openai-login-attempts", "post", {
           body: { replace_existing: replace },
         }),
       );
+      setReplacing(replace);
       setConnection(null);
       setCatalog(null);
     } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!attempt || busy) return;
-    const pasted = callback;
-    setCallback("");
-    setBusy(true);
-    setError("");
-    try {
-      setAttempt(
-        await api("/openai-login-attempts/{id}/submissions", "post", {
-          path: { id: attempt.id },
-          body: { callback: pasted },
-        }),
-      );
-    } catch (error) {
-      try {
-        setAttempt(
-          await api("/openai-login-attempts/{id}", "get", {
-            path: { id: attempt.id },
-          }),
-        );
-      } catch {
-        /* Keep the attempt for status recovery. */
-      }
       setError(errorMessage(error));
     } finally {
       setBusy(false);
@@ -204,13 +169,16 @@ export function useOpenAiLogin({
   }
   async function close() {
     if (busy || connection?.phase === "applying") return;
-    setCallback("");
     setBusy(true);
     try {
       if (attempt && pending(attempt))
         setAttempt(
           await api("/openai-login-attempts/{id}/cancellations", "post", {
             path: { id: attempt.id },
+          }).catch((error) => {
+            if (error instanceof ApiError && [404, 409].includes(error.status))
+              return null;
+            throw error;
           }),
         );
       if (intent === "add" || done || connection?.selected_model_id) {
@@ -242,7 +210,7 @@ export function useOpenAiLogin({
     attempt && ["failed", "expired", "cancelled"].includes(attempt.phase);
   const selecting =
     connection?.connected && connection.phase !== "applying" && !done;
-  const awaiting = attempt?.phase === "awaiting_callback";
+  const awaiting = attempt?.phase === "awaiting_device_code";
   const applying = connection?.phase === "applying";
   const retryApplying = Boolean(
     connection?.phase === "apply_failed" &&
@@ -257,15 +225,11 @@ export function useOpenAiLogin({
       ? "Model connected"
       : applying
         ? "Applying selected model"
-        : awaiting && authScreen === "return"
-          ? "Return to Albert"
-          : "Sign in with OpenAI";
+        : "Sign in with OpenAI";
 
   return {
     onClose,
     intent,
-    authScreen,
-    setAuthScreen,
     formId,
     dialog,
     attempt,
@@ -273,8 +237,6 @@ export function useOpenAiLogin({
     catalog,
     selected,
     setSelected,
-    callback,
-    setCallback,
     busy,
     error,
     setError,
@@ -283,7 +245,7 @@ export function useOpenAiLogin({
     loadCatalog,
     resumeConnection,
     begin,
-    submit,
+    replacing,
     choose,
     apply,
     close,

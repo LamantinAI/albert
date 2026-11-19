@@ -22,17 +22,23 @@ builds; HTTP clients cannot choose token endpoints or credential paths. Use only
 synthetic accounts with a fixture-enabled binary. Build the binary on a compatible
 Linux system; the harness runtime uses Ubuntu 24.04 and its system libraries.
 
-The runner creates its build context, frontend test copy, reports and logs in a
-temporary directory outside the repository. Install the locked frontend packages
+The runner enables the `e2e` profile of the root `docker-compose.dev.yaml` and
+starts the loopback gateway together with its fixture services. Set
+`ALBERT_DEV_BUILD_PROXY` if the Docker builder needs a proxy for downloads. Ordinary dev
+starts the `albert` service from the same Compose file. Both use the development
+target of the main Dockerfile.
+
+The runner stages a copy of the local binary, a frontend test copy, reports and
+logs in a temporary directory outside the repository. Install the locked frontend packages
 and Playwright Chromium first. `ALBERT_BROWSER_PATH` may select an already installed
 Chromium executable. An optional `--frontend` points at a prepared dependency and
 source copy of `web/albert-panel` outside Git; it must match the current source tree.
 
-The browser suite covers first sign-in, mandatory owner password change, guided
-authorization and callback paste, persisted subscription credentials, the account
-model catalog, explicit model selection and a streamed response. Before selection,
-no model is added to the pool. Catalog retries reuse the connected subscription. Additional cases cover invalid callbacks,
-cancelled attempts, owner permissions, CSRF, refresh and restart persistence.
+The browser suite covers first sign-in, mandatory owner password change, device
+code verification, persisted subscription credentials, account model discovery,
+explicit selection and a streamed response. Catalog retries reuse the connected
+subscription. Additional cases cover cancelled device codes, provider refusal,
+owner permissions, CSRF, refresh and restart persistence.
 Passing the fixture suite does not establish eligibility with the live provider.
 
 Normal completion and failures stop only that run's containers and remove its

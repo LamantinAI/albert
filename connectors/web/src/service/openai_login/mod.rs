@@ -1,35 +1,32 @@
-//! Owner-bound, bounded in-memory authorization attempts. No callback listener or
-//! durable OAuth secrets: restart requires a new attempt.
+//! Owner-bound, bounded in-memory device authorization attempts.
 mod catalog;
 mod connection;
 mod execution;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration, time::Instant};
+use std::{collections::VecDeque, sync::Arc};
 
 use albert_core::{
-    openai_login::LoginFlow, openai_login::OAuthEndpoints, openai_login::REDIRECT_URI,
+    openai_login::{DeviceAuthEndpoints, DEVICE_AUTH_TTL},
     runtime::AgentRuntime,
 };
 use axum::http::StatusCode;
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::random;
-use tokio::{spawn, sync::Mutex};
+use tokio::{spawn, sync::Mutex, task::AbortHandle, time::Instant};
 
 use crate::{
     api::errors::ApiError, api::errors::ApiResult, api::host::OpenAiLoginOperation,
-    api::models::OpenAiLoginPhase, api::models::OpenAiLoginStart,
-    api::models::OpenAiLoginSubmission, api::models::OpenAiLoginView, api::principal::Principal,
-    service::auth::AuthService, service::panel_models::ModelService,
+    api::models::OpenAiLoginPhase, api::models::OpenAiLoginStart, api::models::OpenAiLoginView,
+    api::principal::Principal, service::auth::AuthService, service::panel_models::ModelService,
 };
 
-const TTL: Duration = Duration::from_secs(600);
 const RETAIN: usize = 8;
 
 pub(crate) struct OpenAiLoginService {
     runtime: Arc<AgentRuntime>,
     auth: Arc<AuthService>,
     models: ModelService,
-    endpoints: Option<OAuthEndpoints>,
+    endpoints: Option<DeviceAuthEndpoints>,
     model_origin: String,
     attempts: Mutex<VecDeque<Attempt>>,
     credential_gate: Mutex<()>,
@@ -38,22 +35,22 @@ pub(crate) struct OpenAiLoginService {
 struct Attempt {
     owner: String,
     credential: String,
-    created: Instant,
+    deadline: Instant,
     terminal: Option<Instant>,
     replace: bool,
-    flow: Option<LoginFlow>,
+    worker: Option<AbortHandle>,
     view: OpenAiLoginView,
 }
 impl Attempt {
     fn active(&self) -> bool {
         matches!(
             self.view.phase,
-            OpenAiLoginPhase::AwaitingCallback | OpenAiLoginPhase::Exchanging
+            OpenAiLoginPhase::Preparing | OpenAiLoginPhase::AwaitingDeviceCode
         )
     }
     fn expire(&mut self) {
-        if self.active() && self.created.elapsed() >= TTL && !self.view.credentials_saved {
-            self.finish(
+        if self.active() && Instant::now() >= self.deadline {
+            self.stop(
                 OpenAiLoginPhase::Expired,
                 "Authorization expired. Start a new attempt.",
             );
@@ -62,9 +59,16 @@ impl Attempt {
     fn finish(&mut self, phase: OpenAiLoginPhase, message: &str) {
         self.view.phase = phase;
         self.view.message = Some(message.into());
-        self.view.authorize_url = None;
-        self.flow = None;
+        self.view.verification_url = None;
+        self.view.user_code = None;
+        self.worker = None;
         self.terminal = Some(Instant::now());
+    }
+    fn stop(&mut self, phase: OpenAiLoginPhase, message: &str) {
+        if let Some(worker) = self.worker.take() {
+            worker.abort();
+        }
+        self.finish(phase, message);
     }
     fn belongs(&self, principal: &Principal) -> bool {
         self.owner == principal.account_id() && self.credential == principal.credential_id()
@@ -86,7 +90,7 @@ impl OpenAiLoginService {
             runtime,
             auth,
             models,
-            endpoints: OAuthEndpoints::startup().ok(),
+            endpoints: DeviceAuthEndpoints::startup().ok(),
             model_origin,
             attempts: Mutex::new(VecDeque::new()),
             credential_gate: Mutex::new(()),
@@ -107,7 +111,6 @@ impl OpenAiLoginService {
                 let mut attempts = self.attempts.lock().await;
                 Ok(Self::find(&mut attempts, &caller, &id)?.view.clone())
             }
-            OpenAiLoginOperation::Submit { id, input } => self.submit(caller, id, input).await,
             OpenAiLoginOperation::Cancel { id } => {
                 let mut attempts = self.attempts.lock().await;
                 let attempt = Self::find(&mut attempts, &caller, &id)?;
@@ -117,7 +120,7 @@ impl OpenAiLoginService {
                     ));
                 }
                 if attempt.active() {
-                    attempt.finish(OpenAiLoginPhase::Cancelled, "Authorization cancelled.");
+                    attempt.stop(OpenAiLoginPhase::Cancelled, "Authorization cancelled.");
                 }
                 Ok(attempt.view.clone())
             }
@@ -136,18 +139,22 @@ impl OpenAiLoginService {
         Ok(attempt)
     }
     async fn start(
-        &self,
+        self: &Arc<Self>,
         caller: &Principal,
         input: OpenAiLoginStart,
     ) -> ApiResult<OpenAiLoginView> {
-        let endpoints = self.endpoints.as_ref().ok_or_else(|| {
+        let endpoints = self.endpoints.clone().ok_or_else(|| {
             ApiError::unavailable("Authorization is unavailable. Review the host settings.")
         })?;
         let mut attempts = self.attempts.lock().await;
         for attempt in attempts.iter_mut() {
             attempt.expire();
         }
-        attempts.retain(|attempt| attempt.terminal.is_none_or(|at| at.elapsed() < TTL));
+        attempts.retain(|attempt| {
+            attempt
+                .terminal
+                .is_none_or(|at| at.elapsed() < DEVICE_AUTH_TTL)
+        });
         if let Some(existing) = attempts
             .iter()
             .find(|attempt| attempt.belongs(caller) && attempt.active())
@@ -174,79 +181,70 @@ impl OpenAiLoginService {
         while attempts.len() >= RETAIN {
             attempts.pop_front();
         }
-        let flow = LoginFlow::new(endpoints);
+        let deadline = Instant::now() + DEVICE_AUTH_TTL;
         let view = OpenAiLoginView {
             id: format!("{:032x}", random::<u128>()),
-            phase: OpenAiLoginPhase::AwaitingCallback,
-            authorize_url: Some(flow.authorize_url().into()),
-            redirect_uri: REDIRECT_URI.into(),
-            expires_at: (Utc::now() + ChronoDuration::seconds(TTL.as_secs() as i64)).to_rfc3339(),
+            phase: OpenAiLoginPhase::Preparing,
+            verification_url: None,
+            user_code: None,
+            expires_at: (Utc::now() + ChronoDuration::seconds(DEVICE_AUTH_TTL.as_secs() as i64))
+                .to_rfc3339(),
             credentials_saved: false,
             message: None,
         };
+        let service = Arc::clone(self);
+        let principal = caller.clone();
+        let id = view.id.clone();
+        let worker = spawn(async move {
+            service
+                .authorize_device(principal, id, endpoints, deadline)
+                .await;
+        });
         attempts.push_back(Attempt {
             owner: caller.account_id().into(),
             credential: caller.credential_id().into(),
-            created: Instant::now(),
+            deadline,
             terminal: None,
             replace: input.replace_existing,
-            flow: Some(flow),
+            worker: Some(worker.abort_handle()),
             view: view.clone(),
         });
         Ok(view)
-    }
-    async fn submit(
-        self: &Arc<Self>,
-        caller: Principal,
-        id: String,
-        input: OpenAiLoginSubmission,
-    ) -> ApiResult<OpenAiLoginView> {
-        let mut attempts = self.attempts.lock().await;
-        let attempt = Self::find(&mut attempts, &caller, &id)?;
-        if !matches!(attempt.view.phase, OpenAiLoginPhase::AwaitingCallback) {
-            return Err(ApiError::conflict(
-                "This authorization attempt no longer accepts a callback.",
-            ));
-        }
-        let code = attempt.flow.as_ref().ok_or_else(ApiError::internal)?.parse_submission(&input.callback)
-            .map_err(|_| ApiError::invalid("The authorization result is invalid, declined, or belongs to another attempt. Check the paste or cancel and retry."))?
-            .ok_or_else(|| ApiError::invalid("Paste the complete callback URL or authorization code."))?;
-        let flow = attempt.flow.take().ok_or_else(ApiError::internal)?;
-        attempt.view.phase = OpenAiLoginPhase::Exchanging;
-        attempt.view.authorize_url = None;
-        let result = attempt.view.clone();
-        let service = Arc::clone(self);
-        spawn(async move {
-            service.exchange_and_install(caller, id, flow, code).await;
-        });
-        Ok(result)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::read, fs::write, sync::atomic::AtomicBool, sync::Arc, time::Instant};
+    use std::{
+        fs::{read, write},
+        sync::{atomic::AtomicBool, Arc},
+        time::Duration,
+    };
 
     use albert_core::{
-        config::Config, openai_login::OAuthEndpoints, runtime::AgentRuntime,
+        config::Config, openai_login::DeviceAuthEndpoints, runtime::AgentRuntime,
         service::session::SessionService, sessions::settings::SessionSettings,
         sessions::transport::LocalTransport,
     };
-    use axum::{routing::post, serve, Json, Router};
+    use axum::{http::StatusCode, routing::post, serve, Json, Router};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use octo_history::SqliteHistory;
     use serde_json::{json, to_string};
     use tempfile::{tempdir, TempDir};
     use tokio::{
-        net::TcpListener, spawn, sync::Mutex, sync::Notify, task::yield_now, time::timeout,
+        net::TcpListener,
+        spawn,
+        sync::{Mutex, Notify},
+        task::JoinHandle,
+        time::{sleep, timeout, Instant},
     };
 
-    use super::{OpenAiLoginService, TTL};
+    use super::OpenAiLoginService;
     use crate::{
         api::host::OpenAiLoginOperation, api::models::CredentialUpdate, api::models::LoginRequest,
-        api::models::OpenAiLoginPhase, api::models::OpenAiLoginStart,
-        api::models::OpenAiLoginSubmission, api::principal::Principal, service::auth::AuthService,
-        service::auth::AuthSettings, service::panel_models::ModelService,
+        api::models::OpenAiLoginPhase, api::models::OpenAiLoginStart, api::models::OpenAiLoginView,
+        api::principal::Principal, service::auth::AuthService, service::auth::AuthSettings,
+        service::panel_models::ModelService,
     };
 
     pub(super) async fn fixture() -> (TempDir, Arc<OpenAiLoginService>, Principal) {
@@ -312,9 +310,59 @@ mod tests {
         })
     }
 
+    async fn mock(
+        service: &mut Arc<OpenAiLoginService>,
+        exchange_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+    ) -> JoinHandle<()> {
+        let payload = URL_SAFE_NO_PAD.encode(json!({"exp":9_999_999_999_i64,"https://api.openai.com/auth":{"chatgpt_account_id":"synthetic-account"}}).to_string());
+        let tokens =
+            json!({"access_token":format!("x.{payload}.x"),"refresh_token":"synthetic-refresh"});
+        let can_authorize = exchange_gate.is_some();
+        let router = Router::new()
+            .route("/api/accounts/deviceauth/usercode", post(|| async {
+                Json(json!({"device_auth_id":"private-device-id","user_code":"ABCD-EFGH","interval":"1"}))
+            }))
+            .route("/api/accounts/deviceauth/token", post(move || async move {
+                use axum::response::IntoResponse;
+                if !can_authorize {
+                    return StatusCode::NOT_FOUND.into_response();
+                }
+                Json(json!({"authorization_code":"private-auth-code","code_verifier":"private-verifier"})).into_response()
+            }))
+            .route("/oauth/token", post(move || {
+                let gate = exchange_gate.clone();
+                let tokens = tokens.clone();
+                async move {
+                    if let Some((entered, release)) = gate {
+                        entered.notify_one();
+                        release.notified().await;
+                    }
+                    Json(tokens)
+                }
+            }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        Arc::get_mut(service).unwrap().endpoints = Some(DeviceAuthEndpoints::test_origin(&origin));
+        spawn(async move {
+            serve(listener, router).await.unwrap();
+        })
+    }
+
+    async fn status(
+        service: &Arc<OpenAiLoginService>,
+        owner: &Principal,
+        id: &str,
+    ) -> OpenAiLoginView {
+        service
+            .operation(owner, OpenAiLoginOperation::Get { id: id.into() })
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn attempts_are_single_writer_owner_bound_expiring_and_bounded() {
-        let (_dir, service, owner) = fixture().await;
+        let (_dir, mut service, owner) = fixture().await;
+        let server = mock(&mut service, None).await;
         let first = service.operation(&owner, start()).await.unwrap();
         assert_eq!(
             service.operation(&owner, start()).await.unwrap().id,
@@ -327,16 +375,11 @@ mod tests {
             owner.csrf().into(),
         );
         assert!(OpenAiLoginService::find(&mut attempts, &foreign, &first.id).is_err());
-        attempts[0].created = Instant::now() - TTL;
+        attempts[0].deadline = Instant::now();
         drop(attempts);
-        assert!(matches!(
-            service
-                .operation(&owner, OpenAiLoginOperation::Get { id: first.id })
-                .await
-                .unwrap()
-                .phase,
-            OpenAiLoginPhase::Expired
-        ));
+        let expired = status(&service, &owner, &first.id).await;
+        assert!(matches!(expired.phase, OpenAiLoginPhase::Expired));
+        assert!(expired.user_code.is_none());
         for _ in 0..12 {
             let view = service.operation(&owner, start()).await.unwrap();
             service
@@ -345,76 +388,95 @@ mod tests {
                 .unwrap();
         }
         assert!(service.attempts.lock().await.len() <= 8);
+        server.abort();
     }
 
     #[tokio::test]
     async fn cancellation_and_revocation_fence_an_in_flight_provider_result() {
-        timeout(TTL / 60, async {
+        timeout(Duration::from_secs(15), async {
             for revoke in [false, true] {
                 let (_dir, mut service, owner) = fixture().await;
-                let entered = Arc::new(Notify::new()); let release = Arc::new(Notify::new());
-                let entry = entered.clone(); let exit = release.clone();
-                let payload = URL_SAFE_NO_PAD.encode(json!({"exp":9_999_999_999_i64,"https://api.openai.com/auth":{"chatgpt_account_id":"synthetic-account"}}).to_string());
-                let body = json!({"access_token":format!("x.{payload}.x"),"refresh_token":"synthetic-refresh"});
-                let router = Router::new().route("/token", post(move || { let entry=entry.clone(); let exit=exit.clone(); let body=body.clone(); async move { entry.notify_one(); exit.notified().await; Json(body) } }));
-                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-                let url = format!("http://{}/token", listener.local_addr().unwrap());
-                let server = spawn(async move { serve(listener, router).await.unwrap(); });
-                Arc::get_mut(&mut service).unwrap().endpoints = Some(OAuthEndpoints::test_endpoint(url));
+                let entered = Arc::new(Notify::new());
+                let release = Arc::new(Notify::new());
+                let server = mock(&mut service, Some((entered.clone(), release.clone()))).await;
                 let view = service.operation(&owner, start()).await.unwrap();
-                let flow = {
-                    let mut attempts = service.attempts.lock().await;
-                    attempts[0].view.phase = OpenAiLoginPhase::Exchanging;
-                    attempts[0].flow.take().unwrap()
-                };
-                let worker_service = service.clone(); let worker_owner = owner.clone(); let id = view.id.clone();
-                let worker = spawn(async move { worker_service.exchange_and_install(worker_owner, id, flow, "synthetic-code".into()).await; });
                 entered.notified().await;
+                let ready = status(&service, &owner, &view.id).await;
+                assert_eq!(ready.user_code.as_deref(), Some("ABCD-EFGH"));
+                assert!(!to_string(&ready).unwrap().contains("private-"));
+                let worker = service.attempts.lock().await[0].worker.clone().unwrap();
                 if revoke {
-                    service.auth.revoke_credential(&owner, owner.credential_id()).await.unwrap();
+                    service
+                        .auth
+                        .revoke_credential(&owner, owner.credential_id())
+                        .await
+                        .unwrap();
                 } else {
-                    service.operation(&owner, OpenAiLoginOperation::Cancel { id: view.id.clone() }).await.unwrap();
-                    service.operation(&owner, start()).await.unwrap();
+                    service
+                        .operation(
+                            &owner,
+                            OpenAiLoginOperation::Cancel {
+                                id: view.id.clone(),
+                            },
+                        )
+                        .await
+                        .unwrap();
                 }
-                release.notify_one(); worker.await.unwrap(); server.abort();
+                release.notify_one();
+                while !worker.is_finished() {
+                    sleep(Duration::from_millis(10)).await;
+                }
                 assert!(!service.runtime.subscription.path().exists());
                 let attempts = service.attempts.lock().await;
-                assert!(matches!(attempts[0].view.phase, OpenAiLoginPhase::Cancelled | OpenAiLoginPhase::Failed));
+                assert!(matches!(
+                    attempts[0].view.phase,
+                    OpenAiLoginPhase::Cancelled | OpenAiLoginPhase::Failed
+                ));
+                assert!(attempts[0].view.user_code.is_none());
+                server.abort();
             }
-        }).await.expect("bounded provider race tests");
+        })
+        .await
+        .expect("bounded provider race tests");
     }
+
     #[tokio::test]
-    async fn oauth_completion_saves_only_credentials_and_survives_attempt_expiry_and_service_restart(
-    ) {
-        timeout(TTL / 60, async {
+    async fn device_completion_saves_only_credentials_and_survives_service_restart() {
+        timeout(Duration::from_secs(15), async {
             let (_dir, mut service, owner) = fixture().await;
-            let payload = URL_SAFE_NO_PAD.encode(json!({"exp":9_999_999_999_i64,"https://api.openai.com/auth":{"chatgpt_account_id":"synthetic-account"}}).to_string());
-            let body = json!({"access_token":format!("x.{payload}.x"),"refresh_token":"synthetic-refresh"});
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let url = format!("http://{}/token", listener.local_addr().unwrap());
-            let router = Router::new().route("/token", post(move || { let body=body.clone(); async move { Json(body) } }));
-            let server = spawn(async move { serve(listener, router).await.unwrap(); });
-            Arc::get_mut(&mut service).unwrap().endpoints = Some(OAuthEndpoints::test_endpoint(url));
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let server = mock(&mut service, Some((entered.clone(), release.clone()))).await;
             let before = read(&service.runtime.path).unwrap();
             let started = service.operation(&owner, start()).await.unwrap();
-            service.operation(&owner, OpenAiLoginOperation::Submit { id: started.id.clone(), input: OpenAiLoginSubmission { callback: "synthetic-code".into() } }).await.unwrap();
+            entered.notified().await;
+            release.notify_one();
             loop {
-                let result = service.operation(&owner, OpenAiLoginOperation::Get { id: started.id.clone() }).await.unwrap();
-                if matches!(result.phase, OpenAiLoginPhase::Connected) {
-                    assert!(result.credentials_saved); assert!(!to_string(&result).unwrap().contains("synthetic-refresh")); break;
+                let result = status(&service, &owner, &started.id).await;
+                if !matches!(result.phase, OpenAiLoginPhase::AwaitingDeviceCode) {
+                    assert!(matches!(result.phase, OpenAiLoginPhase::Connected));
+                    assert!(result.credentials_saved);
+                    assert!(result.user_code.is_none());
+                    assert!(!to_string(&result).unwrap().contains("synthetic-refresh"));
+                    break;
                 }
-                yield_now().await;
+                sleep(Duration::from_millis(10)).await;
             }
             assert_eq!(read(&service.runtime.path).unwrap(), before);
             assert!(service.models.list().await.unwrap().models.is_empty());
             let connected = service.subscription_connection(&owner).await.unwrap();
-            service.attempts.lock().await[0].created = Instant::now() - TTL;
-            assert!(service.subscription_connection(&owner).await.unwrap().connected);
-            let restarted = OpenAiLoginService::new(service.runtime.clone(), service.auth.clone(), service.models.clone());
+            let restarted = OpenAiLoginService::new(
+                service.runtime.clone(),
+                service.auth.clone(),
+                service.models.clone(),
+            );
             let resumed = restarted.subscription_connection(&owner).await.unwrap();
-            assert!(resumed.connected); assert_ne!(connected.generation, resumed.generation);
+            assert!(resumed.connected);
+            assert_ne!(connected.generation, resumed.generation);
             assert!(restarted.models.list().await.unwrap().models.is_empty());
             server.abort();
-        }).await.expect("bounded auth completion");
+        })
+        .await
+        .expect("bounded auth completion");
     }
 }

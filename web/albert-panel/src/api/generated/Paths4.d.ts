@@ -1,23 +1,7 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Paths4 {
-"/operator/snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["operator_snapshot"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 "/prompts/{id}": {
         parameters: {
             query?: never;
@@ -226,6 +210,23 @@ export interface Paths4 {
         put?: never;
         /** Create sessions messages */
         post: operations["sessions_post_sessions_id_messages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+"/sessions/{id}/messages/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get sessions messages receipt */
+        get: operations["sessions_get_sessions_id_messages_request_id"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

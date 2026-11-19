@@ -51,9 +51,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp target/release/albert /albert
 
 # ---- runtime ----
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:24.04 AS runtime-base
 
-ENV DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 # Runtime libraries + tools:
 #  - ca-certificates, libssl3, libcurl4: TLS + the libcurl the binary links (and the
 #    search backend uses).
@@ -111,37 +111,21 @@ RUN curl -fsSL -o /usr/local/bin/yt-dlp \
     && deno --version
 
 WORKDIR /opt/albert
-COPY --from=build /albert /usr/local/bin/albert
-# The deployment defaults are also kept outside the writable deployment directory,
-# so the entrypoint can initialize an empty mount without overwriting user changes.
-COPY soul.md system.md ./
-COPY config ./config
-COPY skills ./skills
-COPY albert.prod.toml /usr/share/albert/albert.prod.toml
-COPY docker/entrypoint.sh /usr/local/bin/albert-entrypoint
-# Relative connector state (including the default SQL file) belongs on the volume.
+# The entrypoint seeds a writable deployment mount without replacing edited files.
+COPY soul.md system.md /usr/share/albert/defaults/
+COPY config /usr/share/albert/defaults/config
+COPY skills /usr/share/albert/defaults/skills
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/albert-entrypoint
 RUN mkdir -p /data/state \
-    && chown albert:albert /data/state \
-    && ln -s /data/state /opt/albert/state \
-    && chown -R albert:albert /opt/albert \
-    && mkdir -p /usr/share/albert/defaults \
-    && cp -a /opt/albert/. /usr/share/albert/defaults/ \
-    && cp /usr/share/albert/albert.prod.toml /usr/share/albert/defaults/albert.toml \
-    && chmod 0755 /usr/local/bin/albert-entrypoint
-
-ENV ALBERT_CONFIG=/opt/albert/albert.toml \
-    KAERU_VAULT_PATH=/data/kaeru \
-    OCTO_CODE_WORKSPACE=/data/workspace \
-    # The browser connector's Chrome writes under $HOME (crashpad/NSS) and SIGTRAPs on a
-    # missing one; point it at the writable volume.
-    HOME=/data \
-    OCTO_SKILLS_DIR=/opt/albert/skills \
-    RUST_LOG=albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_connector_browser=info,octo_connector_transcribe=info,octo_connector_speak=info,octo_connector_imagegen=info,octo_http_auth=info,octo_core=warn
-
-# Run as the unprivileged service user. forkd still drops scripts to albert-scripts —
-# from non-root that needs CAP_SETUID/CAP_SETGID, granted in docker-compose (cap_add).
-# Running as `albert` (gid albert) means workspace files are group `albert` by default,
-# so the dropped script user can read them without a setgid dance.
+    && chown albert:albert /data/state /opt/albert \
+    && ln -s /data/state /usr/share/albert/defaults/state
 USER albert
-
 ENTRYPOINT ["albert-entrypoint"]
+
+# Development mounts a binary built on the host. Both stages share system libraries.
+FROM runtime-base AS development
+COPY albert.dev.toml /usr/share/albert/defaults/albert.toml
+
+FROM runtime-base AS runtime
+COPY albert.toml /usr/share/albert/defaults/albert.toml
+COPY --from=build /albert /usr/local/bin/albert

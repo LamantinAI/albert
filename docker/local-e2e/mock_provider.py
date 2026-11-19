@@ -2,13 +2,12 @@
 
 import base64
 import hashlib
-import html
 import json
 import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 def encoded(value):
@@ -33,6 +32,7 @@ def jwt(account):
 class State:
     def __init__(self):
         self.lock = threading.Lock()
+        self.devices = {}
         self.codes = {}
         self.refreshes = set()
         self.accesses = set()
@@ -88,32 +88,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, dict(STATE.counts))
         if request.path == "/backend-api/codex/models":
             return self.catalog(parse_qs(request.query))
-        if request.path != "/oauth/authorize":
+        if request.path != "/codex/device":
             return self.send(404, {"error": "not_found"})
-        params = parse_qs(request.query, keep_blank_values=True)
-        required = ("state", "code_challenge", "redirect_uri", "client_id")
-        if any(len(params.get(key, [])) != 1 or not params[key][0] for key in required):
-            return self.send(400, {"error": "invalid_authorization"})
-        callback = urlsplit(params["redirect_uri"][0])
-        if (
-            callback.scheme != "http"
-            or callback.hostname != "localhost"
-            or callback.port != 1455
-            or callback.path != "/auth/callback"
-            or params.get("code_challenge_method") != ["S256"]
-        ):
-            return self.send(400, {"error": "invalid_redirect_or_pkce"})
-        hidden = "".join(
-            f'<input type="hidden" name="{html.escape(key)}" '
-            f'value="{html.escape(values[0], quote=True)}">'
-            for key, values in params.items()
-        )
         self.send(
             200,
-            "<!doctype html><title>Local authorization fixture</title>"
+            "<!doctype html><title>Local device sign-in fixture</title>"
             "<h1>Local OpenAI test sign-in</h1>"
             "<p>This isolated fixture uses no real account.</p>"
-            f'<form method="post" action="/oauth/authorize">{hidden}'
+            '<form method="post" action="/codex/device">'
+            '<label>One-time code <input name="user_code" required></label>'
             '<button name="decision" value="approve">Approve test sign-in</button>'
             '<button name="decision" value="deny">Decline</button></form>',
             "text/html; charset=utf-8",
@@ -123,8 +106,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             body = self.form()
-            if path == "/oauth/authorize":
-                return self.authorize(parse_qs(body.decode()))
+            if path == "/codex/device":
+                return self.authorize_device(parse_qs(body.decode()))
+            if path == "/api/accounts/deviceauth/usercode":
+                return self.issue_device(json.loads(body))
+            if path == "/api/accounts/deviceauth/token":
+                return self.poll_device(json.loads(body))
             if path == "/oauth/token":
                 if self.headers.get("Content-Type", "").startswith("application/json"):
                     params = {key: [value] for key, value in json.loads(body).items()}
@@ -145,28 +132,65 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             return self.send(400, {"error": "invalid_request"})
 
-    def authorize(self, params):
-        if params.get("decision") == ["deny"]:
-            query = {"error": "access_denied", "state": params["state"][0]}
-        else:
-            code = secrets.token_urlsafe(24)
-            with STATE.lock:
-                STATE.codes[code] = {
-                    "challenge": params["code_challenge"][0],
-                    "redirect": params["redirect_uri"][0],
-                    "client": params["client_id"][0],
-                    "expires": time.monotonic() + 90,
-                }
-            query = {"code": code, "state": params["state"][0]}
-        callback = params["redirect_uri"][0] + "?" + urlencode(query)
+    def issue_device(self, params):
+        client = params["client_id"]
+        if not isinstance(client, str) or not client:
+            return self.send(400, {"error": "invalid_client"})
+        device_id = secrets.token_urlsafe(24)
+        code = secrets.token_hex(4).upper()
+        user_code = code[:4] + "-" + code[4:]
+        with STATE.lock:
+            now = time.monotonic()
+            STATE.devices = {
+                key: record for key, record in STATE.devices.items()
+                if record["expires"] > now
+            }
+            STATE.devices[device_id] = {
+                "client": client, "user_code": user_code, "expires": now + 90,
+                "decision": None,
+            }
+        return self.send(200, {"device_auth_id": device_id, "user_code": user_code, "interval": "1"})
+
+    def authorize_device(self, params):
+        decision = params["decision"][0]
+        if decision not in {"approve", "deny"}:
+            raise ValueError("Unknown decision")
+        with STATE.lock:
+            record = next((
+                record for record in STATE.devices.values()
+                if record["user_code"] == params["user_code"][0]
+                and record["expires"] > time.monotonic()
+                and record["decision"] is None
+            ), None)
+            if record is None:
+                return self.send(400, {"error": "invalid_device_code"})
+            record["decision"] = decision
+            record["redirect"] = f"http://{self.headers['Host']}/deviceauth/callback"
         self.send(
             200,
-            "<!doctype html><title>Authorization complete</title>"
-            "<h1>Return to Albert</h1><label>Returned address"
-            f'<input readonly value="{html.escape(callback, quote=True)}"></label>'
-            "<p>Paste this address into Albert to finish this test sign-in.</p>",
+            "<!doctype html><title>Device authorization complete</title>"
+            "<h1>Return to Albert</h1>",
             "text/html; charset=utf-8",
         )
+
+    def poll_device(self, params):
+        with STATE.lock:
+            device_id = params["device_auth_id"]
+            record = STATE.devices.get(device_id)
+            if not record or record["expires"] <= time.monotonic():
+                return self.send(404, {"error": "not_found"})
+            if record["user_code"] != params["user_code"]:
+                return self.send(400, {"error": "invalid_device_code"})
+            if record["decision"] is None:
+                return self.send(403, {"error": "authorization_pending"})
+            del STATE.devices[device_id]
+            if record["decision"] == "deny":
+                return self.send(400, {"error": "access_denied"})
+            code = secrets.token_urlsafe(24)
+            verifier = secrets.token_urlsafe(32)
+            challenge = encoded(hashlib.sha256(verifier.encode()).digest())
+            STATE.codes[code] = {**record, "challenge": challenge}
+        return self.send(200, {"authorization_code": code, "code_verifier": verifier, "code_challenge": challenge})
 
     def token(self, params):
         with STATE.lock:

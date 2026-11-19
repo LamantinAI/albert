@@ -101,10 +101,10 @@ base_url  = "https://chatgpt.com/backend-api/codex" # the Codex backend (default
 
 Get the tokens either way:
 
-- **`albert login`** — a self-contained sign-in: it opens `auth.openai.com` in your
-  browser (OAuth + PKCE), catches the redirect on `http://localhost:1455`, and writes
-  the tokens to `auth_json`. On a headless / remote box where the browser can't reach
-  that loopback, paste the redirect URL (or the bare code) at the prompt instead.
+- **`albert login`** — prints the OpenAI verification address and a one-time
+  device code. Sign in and enter the code on that page within 15 minutes.
+  Albert stores the tokens at `auth_json` after approval. Enable device-code
+  sign-in in your ChatGPT security settings or through your workspace admin.
 - **`codex login`** — since `auth_json` defaults to `~/.codex/auth.json`, an existing
   codex CLI login is reused as-is.
 

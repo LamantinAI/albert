@@ -118,13 +118,16 @@ pub(super) fn fields() -> Vec<ConfigField> {
             "Context budget, also limited by the selected model.",
             json!(context.window_tokens),
         ),
-        field(
-            "context.reserve_tokens",
-            "Context",
-            "Reserved tokens",
-            "Space for instructions, tools and the response.",
-            json!(context.reserve_tokens),
-        ),
+        ConfigField {
+            default_value: Value::Null,
+            ..field(
+                "context.reserve_tokens",
+                "Context",
+                "Reserved tokens",
+                "Space for instructions, tools and the response. Leave empty to reserve up to 65,536 tokens or half the model window, whichever is smaller.",
+                json!(context.effective_reserve()),
+            )
+        },
         field(
             "context.response_tokens",
             "Context",

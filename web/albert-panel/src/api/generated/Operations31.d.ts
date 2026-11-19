@@ -1,21 +1,22 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations31 {
-configuration_delete_secrets_id: {
+sessions_post_session_starts: {
         parameters: {
             query?: never;
             header: {
                 /** @description Current browser CSRF value */
                 "x-albert-csrf": string;
             };
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionStart"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -23,7 +24,7 @@ configuration_delete_secrets_id: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmptyObject"];
+                    "application/json": components["schemas"]["SessionStartView"];
                 };
             };
             /** @description Invalid request */
@@ -109,21 +110,17 @@ configuration_delete_secrets_id: {
             };
         };
     };
-sessions_post_session_starts: {
+sessions_get_session_starts_id: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
             };
-            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionStart"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {

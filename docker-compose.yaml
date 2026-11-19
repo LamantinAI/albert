@@ -5,6 +5,13 @@ services:
     ports:
       - "9877:9877"
     environment:
+      ALBERT_CONFIG: /opt/albert/albert.toml
+      KAERU_VAULT_PATH: /data/kaeru
+      OCTO_CODE_WORKSPACE: /data/workspace
+      OCTO_SKILLS_DIR: /opt/albert/skills
+      # Chrome needs a writable home for its runtime state.
+      HOME: /data
+      RUST_LOG: ${RUST_LOG:-albert=info,octo_rig=info,octo_connector_scheduler=info,octo_connector_telegram=info,octo_connector_caldav=info,octo_connector_storage=info,octo_connector_forkd=info,octo_connector_search=info,octo_connector_http=info,octo_connector_mail=info,octo_connector_browser=info,octo_connector_transcribe=info,octo_connector_speak=info,octo_connector_imagegen=info,octo_http_auth=info,octo_core=warn}
       ALBERT_MEMORY_TOKEN: ${KAERU_MCP_AUTH_TOKEN:?Set KAERU_MCP_AUTH_TOKEN in .env}
     cap_add:
       - SETUID

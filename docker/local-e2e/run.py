@@ -52,7 +52,15 @@ def require_local_docker():
         raise RuntimeError("This runner only supports a local Docker daemon")
 
 
-def cleanup(source, artifacts):
+def compose_command(root, artifacts, project):
+    return [
+        "docker", "compose", "--project-directory", str(root),
+        "--env-file", str(artifacts / "compose.env"), "-p", project,
+        "-f", str(root / "docker-compose.dev.yaml"), "--profile", "e2e",
+    ]
+
+
+def cleanup(root, artifacts):
     marker = artifacts / "run.json"
     state = json.loads(marker.read_text())
     if not re.fullmatch(r"albert-local-[0-9a-f]{10}", state["project"]):
@@ -60,16 +68,16 @@ def cleanup(source, artifacts):
     if state.get("cleaned"):
         return
     env = os.environ.copy()
-    env["ALBERT_E2E_CONTEXT"] = str(artifacts / "context")
+    env["ALBERT_E2E_BINARY"] = str(artifacts / "context" / "albert")
+    env["ALBERT_DEV_ENV_FILE"] = str(artifacts / "compose.env")
     for field, variable in (("url", "ALBERT_E2E_PORT"), ("fixture", "ALBERT_E2E_AUTH_PORT")):
         endpoint = urlsplit(state[field])
         if endpoint.scheme != "http" or endpoint.hostname != "127.0.0.1" or not endpoint.port:
             raise RuntimeError("Invalid local fixture endpoint")
         env[variable] = str(endpoint.port)
     subprocess.run([
-        "docker", "compose", "--project-directory", str(artifacts),
-        "--env-file", str(artifacts / "compose.env"), "-p", state["project"],
-        "-f", str(source / "compose.yaml"), "down", "--volumes", "--remove-orphans",
+        *compose_command(root, artifacts, state["project"]),
+        "down", "--volumes", "--remove-orphans",
     ], env=env, check=True, timeout=60)
     state["cleaned"] = True
     marker.write_text(json.dumps(state, indent=2))
@@ -85,18 +93,18 @@ def main():
     parser.add_argument("--skip-browser", action="store_true", help="Start for manual exploration; does not claim tests passed")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent
+    root = source.parents[1]
     require_local_docker()
     if args.cleanup:
         if in_repository(args.cleanup.resolve()):
             parser.error("Run artifacts must be outside repositories")
-        cleanup(source, args.cleanup.resolve())
+        cleanup(root, args.cleanup.resolve())
         return
     if not args.binary:
         parser.error("--binary is required when starting a fixture run")
     if args.skip_browser and not args.keep:
         parser.error("Manual preview requires --skip-browser --keep")
     os.umask(0o077)
-    root = source.parents[1]
     artifacts = args.artifacts.resolve() if args.artifacts else Path(tempfile.mkdtemp(prefix="albert-local-e2e-"))
     if in_repository(artifacts):
         parser.error("Artifacts must be outside the repository")
@@ -110,18 +118,18 @@ def main():
     if shutil.which("strip"):
         # Keep Docker layers small; leave the source executable untouched.
         subprocess.run(["strip", "--strip-debug", str(context / "albert")], check=True)
-    for name in ("Runtime.Dockerfile", "start.py", "mock_provider.py", "gateway.conf"):
-        shutil.copy2(source / name, context / name)
+    (context / "albert").chmod(0o755)
     env = os.environ.copy()
     env.update(
-        ALBERT_E2E_CONTEXT=str(context),
+        ALBERT_E2E_BINARY=str(context / "albert"),
+        ALBERT_DEV_ENV_FILE=str(artifacts / "compose.env"),
         ALBERT_E2E_PORT=str(port()),
         ALBERT_E2E_AUTH_PORT=str(port()),
     )
     project = "albert-local-" + secrets.token_hex(5)
     environment_file = artifacts / "compose.env"
     environment_file.write_text("")
-    compose = ["docker", "compose", "--project-directory", str(artifacts), "--env-file", str(environment_file), "-p", project, "-f", str(source / "compose.yaml")]
+    compose = compose_command(root, artifacts, project)
     url = "http://127.0.0.1:" + env["ALBERT_E2E_PORT"]
     fixture = "http://127.0.0.1:" + env["ALBERT_E2E_AUTH_PORT"]
     state = {"project": project, "url": url, "fixture": fixture, "phase": "starting", "browser_verified": False}
@@ -129,7 +137,7 @@ def main():
     marker.write_text(json.dumps(state, indent=2))
     try:
         with (artifacts / "compose.log").open("w") as log:
-            subprocess.run([*compose, "up", "-d", "--build", "--wait", "--wait-timeout", "120"], env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            subprocess.run([*compose, "up", "-d", "--wait", "--wait-timeout", "120", "gateway"], env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         ready(url + "/api/v1/context")
         state["phase"] = "ready"
         if not args.skip_browser:
@@ -151,7 +159,7 @@ def main():
                 "ALBERT_E2E_URL": url,
                 "ALBERT_E2E_AUTH_URL": fixture,
                 "ALBERT_E2E_COMPOSE_PROJECT": project,
-                "ALBERT_E2E_COMPOSE_FILE": str(source / "compose.yaml"),
+                "ALBERT_E2E_COMPOSE_FILE": str(root / "docker-compose.dev.yaml"),
                 "ALBERT_E2E_COMPOSE_ENV": str(environment_file),
                 "ALBERT_E2E_ARTIFACTS": str(artifacts),
             }

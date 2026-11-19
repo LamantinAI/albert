@@ -9,6 +9,9 @@ kaeru/
 **/telegram_acl.json
 *.log
 .env
+**/.env
+/albert/
+/albert.local.toml
 .DS_Store
 
 # Frontend dependencies and local browser reports are not embedded inputs.

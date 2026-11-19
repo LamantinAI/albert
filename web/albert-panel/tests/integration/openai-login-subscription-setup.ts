@@ -3,6 +3,7 @@ import {
   authorize,
   compose,
   environment,
+  fixtureService,
   password,
   request,
   username,
@@ -32,7 +33,7 @@ export function registerSubscriptionSetup() {
       .getByRole("button", { name: "Save profile", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Sign in with OpenAI", exact: true })
+      .getByRole("button", { name: "Subscription", exact: true })
       .click();
     const dialog = page.locator(".subscription-dialog");
     await expect(dialog).toBeVisible();
@@ -57,18 +58,10 @@ export function registerSubscriptionSetup() {
     await client.post(environment("ALBERT_E2E_AUTH_URL") + "/test-control", {
       data: { catalog_failures: 1 },
     });
-    const returned = await authorize(page, (await link.getAttribute("href"))!);
-    await dialog.getByRole("button", { name: /I[’']ve signed in/ }).click();
-    await expect(dialog).toHaveAccessibleName("Return to Albert");
-    await dialog
-      .getByRole("textbox", {
-        name: "Callback URL or authorization code",
-        exact: true,
-      })
-      .fill(returned);
-    await dialog
-      .getByRole("button", { name: "Connect subscription", exact: true })
-      .click();
+    const code = (await dialog
+      .locator(".subscription-device-code code")
+      .textContent())!;
+    await authorize(page, (await link.getAttribute("href"))!, code);
     const retry = dialog.getByRole("button", {
       name: "Retry loading models",
       exact: true,
@@ -110,7 +103,7 @@ export function registerSubscriptionSetup() {
       .getByRole("button", { name: "Use selected model", exact: true })
       .click();
     await expect(
-      dialog.getByRole("button", { name: "Open chat", exact: true }),
+      dialog.getByRole("button", { name: "Choose memory", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
     const metrics = await client
       .get(environment("ALBERT_E2E_AUTH_URL") + "/metrics")
@@ -118,8 +111,14 @@ export function registerSubscriptionSetup() {
     expect(metrics.exchanges).toBe(1);
     expect(metrics.catalogs).toBeGreaterThanOrEqual(2);
     await dialog
-      .getByRole("button", { name: "Open chat", exact: true })
+      .getByRole("button", { name: "Choose memory", exact: true })
       .click();
+    const memory = page.getByRole("region", { name: "Memory settings" });
+    await expect(memory).toBeVisible();
+    await memory
+      .getByRole("button", { name: "Use this memory", exact: true })
+      .click();
+    await expect(memory).not.toBeVisible({ timeout: 30_000 });
     const context = await request(page, "/context");
     expect(context.body.setup.model_ready).toBe(true);
     const pool = await request(page, "/model-pool");
@@ -137,7 +136,7 @@ export function registerSubscriptionSetup() {
       compose(
         "exec",
         "-T",
-        "albert",
+        fixtureService,
         "python3",
         "-c",
         "from pathlib import Path;import json,stat;p=Path('/data/auth.json');a=json.loads(p.read_text());print(json.dumps({'mode':stat.S_IMODE(p.stat().st_mode),'tokens_present':all(a['tokens'].get(k) for k in ['access_token','refresh_token','account_id'])}))",
@@ -148,16 +147,15 @@ export function registerSubscriptionSetup() {
       .getByRole("textbox", { name: "Message Albert", exact: true })
       .fill("Check the local subscription connection.");
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(page.locator(".message-assistant")).toContainText(
-      "offline Docker fixture",
-      { timeout: 30_000 },
-    );
+    await expect(
+      page.locator(".message-assistant[data-message-id]").last(),
+    ).toContainText("offline Docker fixture", { timeout: 30_000 });
     for (const store of await page.evaluate(() => [
       JSON.stringify(localStorage),
       JSON.stringify(sessionStorage),
     ])) {
       expect(store).not.toContain("fixture-refresh-");
-      expect(store).not.toContain(new URL(returned).searchParams.get("code")!);
+      expect(store).not.toContain(code);
     }
   });
 }

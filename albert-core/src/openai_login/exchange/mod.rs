@@ -1,39 +1,32 @@
 mod diagnostics;
+pub(super) use diagnostics::Category;
 pub use diagnostics::ExchangeError;
 
 use std::time::Duration;
 
 use octo_openai_auth::{account_id_from_jwt, Tokens, CLIENT_ID};
-use reqwest::{redirect::Policy, Client, Error as HttpError};
+use reqwest::{redirect::Policy, Client, Error as HttpError, Response, StatusCode};
 use serde::Deserialize;
 use serde_json::{from_slice, Value};
 
-use self::diagnostics::Category;
-
 const MAX_RESPONSE: usize = 64 * 1024;
 
-pub(super) async fn exchange_code(
-    endpoint: &str,
-    redirect: &str,
-    verifier: &str,
-    code: &str,
-) -> Result<Tokens, ExchangeError> {
-    let client = Client::builder()
+pub(super) fn client() -> Result<Client, ExchangeError> {
+    Client::builder()
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(5))
         .redirect(Policy::none())
         .build()
-        .map_err(|_| ExchangeError::new(Category::ClientSetup, None))?;
-    exchange_using(&client, endpoint, redirect, verifier, code).await
+        .map_err(|_| ExchangeError::new(Category::ClientSetup, None))
 }
-async fn exchange_using(
+pub(super) async fn exchange_using(
     client: &Client,
     endpoint: &str,
     redirect: &str,
     verifier: &str,
     code: &str,
 ) -> Result<Tokens, ExchangeError> {
-    let mut response = client
+    let response = client
         .post(endpoint)
         .form(&[
             ("grant_type", "authorization_code"),
@@ -45,6 +38,16 @@ async fn exchange_using(
         .send()
         .await
         .map_err(|error| transport(&error, None))?;
+    let (status, body) = read_response(response).await?;
+    if !status.is_success() {
+        return Err(rejection(status, &body));
+    }
+    decode_tokens(&body, Some(status.as_u16()))
+}
+
+pub(super) async fn read_response(
+    mut response: Response,
+) -> Result<(StatusCode, Vec<u8>), ExchangeError> {
     let status = response.status();
     let http_status = Some(status.as_u16());
     if response
@@ -69,26 +72,21 @@ async fn exchange_using(
         }
         body.extend_from_slice(&chunk);
     }
-    if !status.is_success() {
-        let parsed: Option<Value> = from_slice(&body).ok();
-        let error = parsed.as_ref().and_then(|value| value.get("error"));
-        let code = error
-            .and_then(Value::as_str)
-            .or_else(|| {
-                error
-                    .and_then(|value| value.get("code"))
-                    .and_then(Value::as_str)
-            })
-            .or_else(|| {
-                error
-                    .and_then(|value| value.get("type"))
-                    .and_then(Value::as_str)
-            });
-        return Err(ExchangeError::rejected(status.as_u16(), code));
-    }
-    decode_tokens(&body, http_status)
+    Ok((status, body))
 }
-fn transport(error: &HttpError, status: Option<u16>) -> ExchangeError {
+pub(super) fn rejection(status: StatusCode, body: &[u8]) -> ExchangeError {
+    let parsed: Option<Value> = from_slice(body).ok();
+    let error = parsed.as_ref().and_then(|value| value.get("error"));
+    let code = error.and_then(|value| {
+        value
+            .as_str()
+            .or_else(|| value.get("code").and_then(Value::as_str))
+            .or_else(|| value.get("type").and_then(Value::as_str))
+    });
+    ExchangeError::rejected(status.as_u16(), code)
+}
+
+pub(super) fn transport(error: &HttpError, status: Option<u16>) -> ExchangeError {
     ExchangeError::new(
         if error.is_timeout() {
             Category::Timeout
@@ -128,9 +126,6 @@ pub(super) fn decode_tokens(body: &[u8], status: Option<u16>) -> Result<Tokens, 
         id_token: response.id_token,
         account_id,
     })
-}
-pub(super) fn invalid_code() -> ExchangeError {
-    ExchangeError::new(Category::InvalidCode, None)
 }
 
 #[cfg(test)]

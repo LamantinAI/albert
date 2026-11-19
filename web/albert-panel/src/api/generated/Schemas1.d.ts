@@ -1,4 +1,4 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Schemas1 {
@@ -117,6 +117,8 @@ MessageReceipt: {
             duplicate: boolean;
             message_ids: string[];
         };
+/** @enum {string} */
+        MessageSource: "telegram";
 MessageView: {
             attachments?: components["schemas"]["AttachmentView"][];
             content: string;
@@ -124,6 +126,7 @@ MessageView: {
             id: string;
             role: string;
             skills?: components["schemas"]["SelectedSkillView"][];
+            source?: null | components["schemas"]["MessageSource"];
         };
 ModelConfig: {
             api_key_env?: string | null;
@@ -199,21 +202,18 @@ ModelWrite: {
             revision?: string | null;
         };
 /** @enum {string} */
-        OpenAiLoginPhase: "awaiting_callback" | "exchanging" | "connected" | "failed" | "cancelled" | "expired";
+        OpenAiLoginPhase: "preparing" | "awaiting_device_code" | "connected" | "failed" | "cancelled" | "expired";
 OpenAiLoginStart: {
             replace_existing?: boolean;
         };
-OpenAiLoginSubmission: {
-            callback: string;
-        };
 OpenAiLoginView: {
-            authorize_url?: string | null;
             credentials_saved: boolean;
             expires_at: string;
             id: string;
             message?: string | null;
             phase: components["schemas"]["OpenAiLoginPhase"];
-            redirect_uri: string;
+            user_code?: string | null;
+            verification_url?: string | null;
         };
 OperatorCard: {
             active_children: number;

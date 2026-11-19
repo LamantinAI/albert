@@ -1,5 +1,4 @@
 use std::{
-    env::args,
     io::{stdout, Error as IoError, Write},
     process::ExitCode,
 };
@@ -10,8 +9,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum TaskError {
-    #[error("usage: cargo run --locked -p xtask -- openapi")]
-    Usage,
     #[error("write schema: {0}")]
     Io(#[from] IoError),
     #[error("serialize schema: {0}")]
@@ -19,9 +16,6 @@ enum TaskError {
 }
 
 fn export() -> Result<(), TaskError> {
-    if args().skip(1).collect::<Vec<_>>() != ["openapi"] {
-        return Err(TaskError::Usage);
-    }
     let mut output = stdout().lock();
     to_writer_pretty(&mut output, &schema())?;
     writeln!(output)?;

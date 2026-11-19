@@ -18,9 +18,9 @@ export async function authorizeFixture(page: Page) {
     cancels = 0;
   const attempt = {
     id: "same-attempt",
-    phase: "awaiting_callback",
-    authorize_url: "https://auth.example.test/authorize?state=synthetic",
-    redirect_uri: "http://localhost:1455/auth/callback",
+    phase: "awaiting_device_code",
+    verification_url: "https://auth.example.test/codex/device",
+    user_code: "TEST-CODE",
     expires_at: "2099-01-01T12:00:00Z",
     credentials_saved: false,
     message: null,
@@ -42,7 +42,14 @@ export async function authorizeFixture(page: Page) {
     if (path.endsWith("/openai-login-attempts")) starts++;
     if (path.endsWith("/cancellations")) {
       cancels++;
-      return route.fulfill({ json: { ...attempt, phase: "cancelled" } });
+      return route.fulfill({
+        json: {
+          ...attempt,
+          phase: "cancelled",
+          verification_url: null,
+          user_code: null,
+        },
+      });
     }
     return route.fulfill({ json: attempt });
   });

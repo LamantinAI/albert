@@ -48,12 +48,21 @@ pub struct MessageCreate {
     #[serde(default)]
     pub skills: Vec<SkillSelection>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageSource {
+    Telegram,
+}
+
 #[derive(Clone, Serialize, ToSchema)]
 pub struct MessageView {
     pub id: String,
     pub created_at: String,
     pub role: String,
     pub content: String,
+    /// Recognized channel of the original message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<MessageSource>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[schema(required = false)]
     pub attachments: Vec<AttachmentView>,

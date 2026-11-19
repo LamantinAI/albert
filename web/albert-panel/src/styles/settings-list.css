@@ -97,6 +97,11 @@
 .settings-row-description > span {
   display: block;
 }
+.skill-list-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-row-metadata {
   display: block;
   color: var(--muted);

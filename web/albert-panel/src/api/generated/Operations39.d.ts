@@ -1,22 +1,15 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations39 {
-skills_post_skill_imports: {
+skills_get_skills: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SkillImport"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -24,7 +17,7 @@ skills_post_skill_imports: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkillView"];
+                    "application/json": components["schemas"]["SkillList"];
                 };
             };
             /** @description Invalid request */
@@ -110,11 +103,14 @@ skills_post_skill_imports: {
             };
         };
     };
-skills_get_skills: {
+skills_get_skills_id: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -125,7 +121,7 @@ skills_get_skills: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkillList"];
+                    "application/json": components["schemas"]["SkillView"];
                 };
             };
             /** @description Invalid request */

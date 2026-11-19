@@ -499,6 +499,20 @@ mod tests {
             Some(40000)
         );
         assert_eq!(parsed["context"]["enabled"].as_bool(), Some(false));
+        let reset = transform(input(
+            &draft.content,
+            &[("context.reserve_tokens", Value::Null)],
+        ))
+        .unwrap();
+        let parsed: Table = from_str(&reset.content).unwrap();
+        assert!(parsed["context"].get("reserve_tokens").is_none());
+        let automatic = reset
+            .fields
+            .iter()
+            .find(|f| f.path == "context.reserve_tokens")
+            .unwrap();
+        assert_eq!(automatic.value, None);
+        assert_eq!(automatic.default_value, Value::Null);
         let zeros = transform(input("[skills]\ncache = 0\npage = 0\n", &[])).unwrap();
         assert_eq!(
             zeros

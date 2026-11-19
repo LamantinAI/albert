@@ -172,7 +172,7 @@ mod tests {
             enabled: true,
             tokenizer: Tokenizer::Bytes,
             window_tokens: 40000,
-            reserve_tokens: 20000,
+            reserve_tokens: Some(20000),
             response_tokens: 1000,
             compact_output_tokens: 1000,
             ..Default::default()
@@ -267,7 +267,7 @@ mod tests {
         let (mut host, ctx, server) = setup("small").await;
         let me = Arc::get_mut(&mut host).unwrap();
         me.config.context.enabled = true;
-        me.config.context.reserve_tokens = 30000;
+        me.config.context.reserve_tokens = Some(30000);
         me.config.models.as_mut().unwrap().models[0].context_window = Some(1000);
         me.models = ModelPool::new(&me.config);
         let (answer, _) = host
@@ -293,7 +293,7 @@ mod tests {
                 .context
                 .count(include_str!("../../../../system.md"))
             + host.config.context.response_tokens;
-        assert!(service_estimate < Settings::default().reserve_tokens);
+        assert!(service_estimate < Settings::default().effective_reserve());
         assert_eq!(
             requests[0]["max_tokens"],
             host.config.context.response_tokens
@@ -369,7 +369,7 @@ mod tests {
         me.config.context = Settings {
             enabled: true,
             tokenizer: Tokenizer::Bytes,
-            reserve_tokens: 20000,
+            reserve_tokens: Some(20000),
             response_tokens: 1000,
             compact_output_tokens: 1000,
             ..Default::default()
@@ -397,7 +397,7 @@ mod tests {
             enabled: true,
             tokenizer: Tokenizer::Bytes,
             window_tokens: 10000,
-            reserve_tokens: 5000,
+            reserve_tokens: Some(5000),
             response_tokens: 512,
             compact_output_tokens: 512,
             ..Default::default()

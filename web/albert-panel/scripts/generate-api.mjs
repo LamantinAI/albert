@@ -12,7 +12,18 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspace = resolve(root, "../..");
 const exported = spawnSync(
   "cargo",
-  ["run", "--quiet", "--locked", "-p", "xtask", "--", "openapi"],
+  [
+    "run",
+    "--quiet",
+    "--locked",
+    "-p",
+    "albert-connector-web",
+    "--no-default-features",
+    "--features",
+    "openapi-export",
+    "--bin",
+    "export-openapi",
+  ],
   { cwd: workspace, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
 );
 if (exported.status !== 0)
@@ -40,8 +51,7 @@ const schemas = components.members.find(
   (node) => node.name.getText(ast) === "schemas",
 );
 const output = new Map();
-const banner =
-  "/** Generated from the Rust Utoipa schema via xtask. Do not edit. */\n";
+const banner = "/** Generated from the Rust Utoipa schema. Do not edit. */\n";
 function split(name, members) {
   const groups = [[]];
   let count = 0;

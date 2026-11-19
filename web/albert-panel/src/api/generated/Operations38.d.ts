@@ -1,16 +1,14 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations38 {
-sessions_get_sessions_id_messages_request_id: {
+sessions_get_sessions_id_state: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
-                /** @description Resource identifier */
-                request_id: string;
             };
             cookie?: never;
         };
@@ -22,7 +20,7 @@ sessions_get_sessions_id_messages_request_id: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageReceipt"];
+                    "application/json": components["schemas"]["SessionState"];
                 };
             };
             /** @description Invalid request */
@@ -108,17 +106,21 @@ sessions_get_sessions_id_messages_request_id: {
             };
         };
     };
-sessions_get_sessions_id_state: {
+skills_post_skill_imports: {
         parameters: {
             query?: never;
-            header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
             };
+            path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillImport"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -126,7 +128,7 @@ sessions_get_sessions_id_state: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionState"];
+                    "application/json": components["schemas"]["SkillView"];
                 };
             };
             /** @description Invalid request */

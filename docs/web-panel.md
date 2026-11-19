@@ -15,11 +15,10 @@ to open the panel. Open **http://127.0.0.1:9877/ui/**.
 1. Sign in as **owner** with password **owner**.
 2. Replace the initial password (at least 12 bytes); optionally rename the account.
 3. Choose Sign in with OpenAI for a ChatGPT subscription, or connect an
-   OpenAI-compatible model with an API key. The subscription wizard opens the
-   authorization instructions directly and accepts the returned callback address or
-   one-time code. After credentials connect, choose a model from the account-specific
-   catalog; no model ID or model settings are required before authorization.
-   `albert login` remains the interactive terminal alternative.
+   OpenAI-compatible model with an API key. The subscription wizard displays a
+   one-time code and a link to OpenAI. Enter the code there and approve sign-in.
+   Albert opens the account's model catalog as soon as authorization completes.
+   `albert login` provides the same sign-in in the terminal.
 4. Choose built-in Kaeru memory or a dedicated Kaeru MCP server. HTTP supports an
    optional masked bearer token; stdio uses named server credential references.
    Saving initializes the selected backend and creates the Albert initiative if
@@ -626,6 +625,12 @@ the guided subscription wizard. In Models, **Add model** offers **API** or
 **Subscription**; account reconnection is a separate action inside the subscription
 picker.
 
+After model setup, a fresh workspace with no explicit `[memory]` backend asks
+the owner to choose one. A valid backend supplied by the deployment is adopted
+on startup. For example, production Compose already chooses Kaeru MCP. If the
+configured backend fails to initialize, Settings reports the error and offers a
+retry.
+
 Settings is the single directory of administrative sections. Agent contains
 behavior fields and Raw only. Connections, Persona, Credentials, Models and API
 reference remain sibling destinations, with a shared Settings navigation. The sidebar expands its section links above
@@ -636,24 +641,17 @@ configuration remains available through its Advanced link.
 ## ChatGPT subscription sign-in
 
 Only an owner who has changed the initial password can authorize a workspace
-subscription. Start sign-in, open the OpenAI page, then bring its result back.
-The authorization link and return-address form occupy separate screens. Choose
-**I've signed in** to continue to the form; **Back** and forward navigation keep
-the same authorization attempt and pasted input.
-The final localhost callback page may show “This site can’t be reached” or
-“Unable to connect” when the agent runs remotely or inside a container. Keep that
-tab open: the sign-in result is in its address bar. Select the address bar with
-Cmd+L on Mac or Ctrl+L elsewhere and copy the complete address, including all query
-parameters after the question mark. Return to Albert, paste the address into the
-wizard and choose Connect subscription. Copy the address, not the error text on
-the page; a one-time authorization code is also accepted. An API
-key, access token or refresh token is not the requested input.
+subscription. Copy the one-time code, open OpenAI's verification page and enter
+the code there. Approve only a sign-in you started in Albert. Enable device-code
+sign-in in ChatGPT security settings or ask your ChatGPT workspace admin to
+allow it. See [Codex authentication](https://learn.chatgpt.com/docs/auth#login-on-headless-devices).
 
-CLI and panel share the authorization-code/PKCE implementation. The server holds
-the verifier and state for each expiring, owner-bound attempt. Full callback URLs
-must match the exact callback address and state; duplicate or malformed parameters
-are rejected. A pasted address is parsed locally and never fetched. Authentication
-attempts are bounded in RAM and expire; they are not conversation records.
+The CLI and panel share the Codex-compatible device authorization protocol. The
+server polls OpenAI at the provider's interval and stops at the attempt deadline
+or on cancellation. Only the owner browser session that started the attempt can
+retrieve the one-time code or cancel it. Attempts are held in memory for up to 15
+minutes. Restarting Albert clears pending attempts. The server keeps the provider polling
+ID and token-exchange data private.
 
 Authorization ends when credentials are connected. It does not add a model or
 change the model pool. Albert then loads the authenticated account's subscription
@@ -691,8 +689,8 @@ Credentials are written atomically with restrictive permissions, stay off browse
 storage and API responses, and are not included in provider errors. Existing model
 entries, order and unrelated configurations remain intact. The preferred model
 changes only through the explicit selection action. No provider model ID is
-requested before authorization. The panel never assumes that an arbitrary public callback
-URL is registered with the provider.
+requested before authorization. The verification page works when Albert runs behind
+a proxy or on a headless server.
 
 See [local testing](local-testing.md) for isolated Docker end-to-end checks with
 synthetic OAuth and model services.
@@ -754,7 +752,7 @@ declarations against a fresh schema export. The schema-only tool and
 Export the same schema directly without starting Albert:
 
 ```sh
-cargo run --locked -p xtask -- openapi
+cargo run --locked -p albert-connector-web --no-default-features --features openapi-export --bin export-openapi
 ```
 
 For local frontend work, run `npm --prefix web/albert-panel run dev -- --host 0.0.0.0`.

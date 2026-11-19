@@ -1,45 +1,38 @@
 import { expect, test } from "@playwright/test";
 import { readyFixture } from "./fixture";
 import { authorizeFixture } from "./subscription-dialog-support";
-test("authorization is two keyboard-navigable screens with one PKCE attempt", async ({
+test("one device challenge supports keyboard copy and cancellation", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined });
+    document.execCommand = (command: string) => {
+      const field = document.activeElement as HTMLTextAreaElement;
+      if (command !== "copy" || !field.closest("dialog[open]")) return false;
+      document.documentElement.dataset.copied = field.value;
+      return true;
+    };
+  });
   const fixture = await authorizeFixture(page);
   const { dialog } = fixture;
-  await expect(
-    dialog.getByRole("heading", { name: "Sign in with OpenAI", exact: true }),
-  ).toBeVisible();
+  await expect(dialog).toHaveAccessibleName("Sign in with OpenAI");
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
-  const next = dialog.getByRole("button", {
-    name: "I've signed in",
-    exact: true,
-  });
-  await next.focus();
+  await expect(
+    dialog.getByRole("link", { name: "Open OpenAI sign-in" }),
+  ).toHaveAttribute("href", "https://auth.example.test/codex/device");
+  const copy = dialog.getByRole("button", { name: "Copy code", exact: true });
+  await copy.focus();
   await page.keyboard.press("Enter");
-  await expect(
-    dialog.getByRole("heading", { name: "Return to Albert", exact: true }),
-  ).toBeVisible();
-  const callback = dialog.getByLabel("Callback URL or authorization code", {
-    exact: true,
-  });
-  await expect(callback).toBeFocused();
-  await callback.fill("synthetic-memory-only-code");
-  await dialog.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(dialog.getByRole("textbox")).toHaveCount(0);
-  await dialog
-    .getByRole("button", { name: "I've signed in", exact: true })
-    .click();
-  await expect(callback).toHaveValue("synthetic-memory-only-code");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-copied",
+    "TEST-CODE",
+  );
+  await expect(copy).toBeFocused();
   expect(fixture.starts()).toBe(1);
   expect(fixture.cancels()).toBe(0);
   expect(
-    await page.evaluate(() =>
-      JSON.stringify({
-        local: { ...localStorage },
-        session: { ...sessionStorage },
-      }),
-    ),
-  ).not.toContain("synthetic-memory-only-code");
+    await page.evaluate(() => JSON.stringify([localStorage, sessionStorage])),
+  ).not.toContain("TEST-CODE");
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   expect(fixture.cancels()).toBe(1);
@@ -65,6 +58,29 @@ test("cancelling or navigating away releases the authorization attempt", async (
   await expect(fixture.dialog).not.toBeVisible();
   // Native navigation cannot reliably send an asynchronous cleanup request; the
   // attempt is also bounded server-side. SPA close above proves cancellation.
+});
+
+test("a lost device attempt clears the code and offers a new sign-in", async ({
+  page,
+}) => {
+  const fixture = await authorizeFixture(page);
+  const status = "**/api/v1/openai-login-attempts/same-attempt";
+  await page.route(status, (route) =>
+    route.fulfill({ status: 404, json: { error: { code: "not_found" } } }),
+  );
+  const retry = fixture.dialog.getByRole("button", {
+    name: "Start a new sign-in",
+  });
+  await expect(retry).toBeVisible();
+  await expect(
+    fixture.dialog.getByText("TEST-CODE", { exact: true }),
+  ).toHaveCount(0);
+  await page.unroute(status);
+  await retry.click();
+  await expect(
+    fixture.dialog.getByText("TEST-CODE", { exact: true }),
+  ).toBeVisible();
+  expect(fixture.starts()).toBe(2);
 });
 
 for (const viewport of [

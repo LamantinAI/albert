@@ -13,7 +13,8 @@ export function environment(name: string): string {
 export interface LoginAttempt {
   id: string;
   phase: string;
-  authorize_url: string | null;
+  verification_url: string | null;
+  user_code: string | null;
   credentials_saved: boolean;
 }
 
@@ -43,6 +44,8 @@ export async function request(
   );
 }
 
+export const fixtureService = "albert-e2e";
+
 export function compose(...args: string[]) {
   return execFileSync(
     "docker",
@@ -54,6 +57,8 @@ export function compose(...args: string[]) {
       environment("ALBERT_E2E_COMPOSE_PROJECT"),
       "-f",
       environment("ALBERT_E2E_COMPOSE_FILE"),
+      "--profile",
+      "e2e",
       ...args,
     ],
     { env: process.env, encoding: "utf8", timeout: 60_000 },
@@ -72,22 +77,28 @@ export async function login(page: Page) {
   await expect(page.locator(".sidebar")).toBeVisible();
 }
 
-export async function authorize(page: Page, url: string, decline = false) {
+export async function authorize(
+  page: Page,
+  url: string,
+  code: string,
+  decline = false,
+) {
   // Guard before opening a tab: an accidentally production-built binary must
   // fail here, without a browser ever contacting the live provider.
   expect(new URL(url).origin).toBe(environment("ALBERT_E2E_AUTH_URL"));
   const tab = await page.context().newPage();
   try {
     await tab.goto(url);
+    await tab.getByLabel("One-time code", { exact: true }).fill(code);
     await tab
       .getByRole("button", {
         name: decline ? "Decline" : "Approve test sign-in",
         exact: true,
       })
       .click();
-    return await tab
-      .getByLabel("Returned address", { exact: true })
-      .inputValue();
+    await expect(
+      tab.getByRole("heading", { name: "Return to Albert" }),
+    ).toBeVisible();
   } finally {
     await tab.close();
   }
@@ -98,5 +109,17 @@ export async function start(page: Page): Promise<LoginAttempt> {
     replace_existing: true,
   });
   expect([200, 201, 202]).toContain(response.status);
-  return response.body as LoginAttempt;
+  const { id } = response.body as LoginAttempt;
+  let attempt: LoginAttempt = response.body;
+  await expect
+    .poll(async () => {
+      const status = await request(page, `/openai-login-attempts/${id}`);
+      expect(status.status).toBe(200);
+      attempt = status.body;
+      return attempt.phase;
+    })
+    .toBe("awaiting_device_code");
+  expect(attempt.verification_url).toBeTruthy();
+  expect(attempt.user_code).toBeTruthy();
+  return attempt;
 }

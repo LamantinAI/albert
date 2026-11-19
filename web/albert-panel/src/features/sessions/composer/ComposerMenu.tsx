@@ -223,7 +223,12 @@ export function ComposerMenu({
                           <Icon name="skills" size={16} />
                           <span>
                             {skill.name}
-                            <small>{skill.description}</small>
+                            <small
+                              className="composer-skill-description"
+                              title={skill.description}
+                            >
+                              {skill.description}
+                            </small>
                           </span>
                           {chosen && <Icon name="check" size={15} />}
                         </button>

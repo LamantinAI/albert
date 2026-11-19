@@ -1,9 +1,22 @@
 import { expect, test } from "@playwright/test";
-import { setup, snapshot } from "./composer-support";
+import { policy, setup, snapshot } from "./composer-support";
 test("menu selects revision-bound skills and keeps plus on the left", async ({
   page,
 }) => {
   const fixture = await setup(page, false);
+  const description = `${policy.skills[0].description}. ${"Compare references, verify details, and summarize the findings. ".repeat(5).trim()}`;
+  await page.route("**/api/v1/composer", (route) =>
+    route.fulfill({
+      json: {
+        ...policy,
+        speech_available: false,
+        skills: [
+          { ...policy.skills[0], description },
+          ...policy.skills.slice(1),
+        ],
+      },
+    }),
+  );
   await page.goto("/ui/chats/session-1");
   await page
     .getByRole("button", { name: "Add to message", exact: true })
@@ -13,6 +26,16 @@ test("menu selects revision-bound skills and keeps plus on the left", async ({
     .getByRole("button", { name: /Skills Choose instructions/ })
     .click();
   await page.getByRole("textbox", { name: "Search skills" }).fill("research");
+  const preview = page.getByText(description, { exact: true });
+  await expect(preview).toBeVisible();
+  expect(
+    await preview.evaluate((element) => ({
+      clipped: element.scrollWidth > element.clientWidth,
+      singleLine:
+        element.clientHeight <=
+        Math.ceil(parseFloat(getComputedStyle(element).lineHeight)),
+    })),
+  ).toEqual({ clipped: true, singleLine: true });
   await snapshot(page, "15-composer-skills");
   await page.getByRole("button", { name: /Research Read sources/ }).click();
   await expect(

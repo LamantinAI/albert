@@ -8,7 +8,18 @@ import { clientContext } from "./fixture";
 const schema = JSON.parse(
   execFileSync(
     "cargo",
-    ["run", "--quiet", "--locked", "-p", "xtask", "--", "openapi"],
+    [
+      "run",
+      "--quiet",
+      "--locked",
+      "-p",
+      "albert-connector-web",
+      "--no-default-features",
+      "--features",
+      "openapi-export",
+      "--bin",
+      "export-openapi",
+    ],
     {
       cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
       encoding: "utf8",

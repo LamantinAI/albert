@@ -181,7 +181,16 @@ export function Skills(props: SkillsProps) {
                 className="data-row"
                 leading={<Icon name="skills" />}
                 title={skill.name}
-                description={skill.description}
+                description={
+                  skill.description && (
+                    <span
+                      className="skill-list-description"
+                      title={skill.description}
+                    >
+                      {skill.description}
+                    </span>
+                  )
+                }
                 status={
                   <>
                     {!skill.enabled && <span className="badge">Disabled</span>}

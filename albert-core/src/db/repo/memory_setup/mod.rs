@@ -24,16 +24,34 @@ pub async fn read(pool: &SqlitePool) -> DatabaseResult<MemorySetup> {
         revision: row.1,
     })
 }
-/// Called at startup before connectors/listeners, against the startup config.
-/// A pending choice is never reclassified after the first model mutation.
-pub async fn initialize(pool: &SqlitePool, provisioned: bool) -> DatabaseResult<MemorySetup> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StartupPolicy {
+    BrowserOnboarding,
+    LegacyProvisioned,
+    ExplicitMemory,
+}
+
+/// An explicit startup file may complete a pending choice. A newly saved model
+/// alone must never reclassify a pending browser flow.
+pub async fn initialize(pool: &SqlitePool, policy: StartupPolicy) -> DatabaseResult<MemorySetup> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let retained: bool =
         query_scalar("SELECT EXISTS(SELECT 1 FROM turns) OR EXISTS(SELECT 1 FROM compacts)")
             .fetch_one(&mut *tx)
             .await?;
-    query("UPDATE albert_memory_setup SET state=?,revision=revision+1 WHERE singleton=1 AND state='uninitialized'")
-        .bind(if provisioned || retained { "adopted" } else { "pending" }).execute(&mut *tx).await?;
+    let state = if policy != StartupPolicy::BrowserOnboarding || retained {
+        "adopted"
+    } else {
+        "pending"
+    };
+    query(
+        "UPDATE albert_memory_setup SET state=?,revision=revision+1 WHERE singleton=1
+         AND (state='uninitialized' OR (state='pending' AND ?))",
+    )
+    .bind(state)
+    .bind(policy == StartupPolicy::ExplicitMemory)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     read(pool).await
 }
@@ -53,7 +71,7 @@ mod tests {
     use std::sync::Arc;
     use tempfile::tempdir;
 
-    use super::{accept, initialize, read};
+    use super::{accept, initialize, read, StartupPolicy};
     use crate::db::Database;
 
     #[tokio::test]
@@ -66,15 +84,26 @@ mod tests {
         );
         let db = Database::from_pool(history.pool().clone()).await.unwrap();
         assert_eq!(read(db.pool()).await.unwrap().state, "uninitialized");
-        let pending = initialize(db.pool(), false).await.unwrap();
+        let pending = initialize(db.pool(), StartupPolicy::BrowserOnboarding)
+            .await
+            .unwrap();
         assert!(!pending.selected());
-        assert_eq!(initialize(db.pool(), true).await.unwrap().state, "pending");
+        assert_eq!(
+            initialize(db.pool(), StartupPolicy::LegacyProvisioned)
+                .await
+                .unwrap()
+                .state,
+            "pending"
+        );
         Database::from_pool(history.pool().clone()).await.unwrap();
         assert_eq!(read(db.pool()).await.unwrap().state, "pending");
         let selected = accept(db.pool(), pending.revision).await.unwrap();
         assert!(selected.selected());
         assert!(accept(db.pool(), pending.revision).await.is_err());
-        assert!(initialize(db.pool(), false).await.unwrap().selected());
+        assert!(initialize(db.pool(), StartupPolicy::BrowserOnboarding)
+            .await
+            .unwrap()
+            .selected());
     }
     #[tokio::test]
     async fn provisioned_and_retained_installations_adopt_existing_memory() {
@@ -90,7 +119,17 @@ mod tests {
                     .await
                     .unwrap();
             }
-            assert!(initialize(db.pool(), provisioned).await.unwrap().selected());
+            assert!(initialize(
+                db.pool(),
+                if provisioned {
+                    StartupPolicy::LegacyProvisioned
+                } else {
+                    StartupPolicy::BrowserOnboarding
+                }
+            )
+            .await
+            .unwrap()
+            .selected());
         }
     }
     #[tokio::test]
@@ -118,6 +157,9 @@ mod tests {
             .unwrap();
         Database::from_pool(history.pool().clone()).await.unwrap();
         assert_eq!(read(db.pool()).await.unwrap().state, "adopted");
-        assert!(initialize(db.pool(), false).await.unwrap().selected());
+        assert!(initialize(db.pool(), StartupPolicy::BrowserOnboarding)
+            .await
+            .unwrap()
+            .selected());
     }
 }

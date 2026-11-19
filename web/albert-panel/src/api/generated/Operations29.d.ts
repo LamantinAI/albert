@@ -1,18 +1,25 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations29 {
-configuration_get_prompts_id: {
+configuration_put_prompts_id: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
             path: {
                 /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigWrite"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -106,24 +113,14 @@ configuration_get_prompts_id: {
             };
         };
     };
-configuration_put_prompts_id: {
+configuration_get_secrets: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
-            };
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfigWrite"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -131,7 +128,7 @@ configuration_put_prompts_id: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigDocument"];
+                    "application/json": components["schemas"]["SecretList"];
                 };
             };
             /** @description Invalid request */

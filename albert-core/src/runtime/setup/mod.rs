@@ -1,8 +1,8 @@
 use tokio::sync::MutexGuard;
 
 use crate::{
-    config::AuthMode, config::Config, db::repo::memory_setup, memory::config::MemoryConfig,
-    memory::Memory, models::PoolConfig,
+    config::AuthMode, config::Config, db::repo::memory_setup,
+    db::repo::memory_setup::StartupPolicy, memory::Memory, models::PoolConfig,
 };
 
 use super::AgentRuntime;
@@ -32,11 +32,14 @@ impl AgentRuntime {
     /// classify onboarding from a configuration saved by the first model step.
     pub async fn initialize_memory_setup(&self, browser_first: bool) -> Result<(), String> {
         let config = Config::load_from(&self.path).ok();
-        let provisioned = !browser_first
-            || config.as_ref().is_some_and(|config| {
-                model_configured(config) || matches!(config.memory, MemoryConfig::Mcp { .. })
-            });
-        let setup = memory_setup::initialize(self.sessions.database().pool(), provisioned)
+        let policy = if config.as_ref().is_some_and(|config| config.memory_explicit) {
+            StartupPolicy::ExplicitMemory
+        } else if !browser_first {
+            StartupPolicy::LegacyProvisioned
+        } else {
+            StartupPolicy::BrowserOnboarding
+        };
+        let setup = memory_setup::initialize(self.sessions.database().pool(), policy)
             .await
             .map_err(|_| "Memory setup could not be initialized.".to_owned())?;
         let mut status = self.status.write().unwrap();
@@ -83,6 +86,69 @@ mod tests {
         config::Config, db::repo::memory_setup, service::session::SessionService,
         sessions::settings::SessionSettings, sessions::transport::LocalTransport,
     };
+
+    #[tokio::test]
+    async fn explicit_startup_memory_completes_the_choice_without_a_model() {
+        for (document, start_pending) in [
+            (include_str!("../../../../albert.toml"), false),
+            ("[memory]\nbackend='embedded'\n", true),
+        ] {
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("albert.toml");
+            let history = Arc::new(
+                SqliteHistory::open_retained(dir.path().join("history.db"))
+                    .await
+                    .unwrap(),
+            );
+            let sessions = Arc::new(
+                SessionService::from_history(history, SessionSettings::default())
+                    .await
+                    .unwrap(),
+            );
+            write(dir.path().join(".env"), "FIXTURE_KEY=local-only-key\n").unwrap();
+            let without_memory = "model='fixture'\nopenai_key_env='FIXTURE_KEY'\n";
+            write(
+                &path,
+                if start_pending {
+                    without_memory
+                } else {
+                    document
+                },
+            )
+            .unwrap();
+            let config = Config::load_from(&path).unwrap();
+            let authority = config.authorization.build();
+            let runtime = AgentRuntime::new(
+                path.clone(),
+                config,
+                sessions,
+                authority,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(LocalTransport),
+            );
+            runtime.initialize_memory_setup(true).await.unwrap();
+            if start_pending {
+                assert!(runtime.status().model_configured);
+                assert!(!runtime.status().memory_configured);
+                write(&path, document).unwrap();
+                runtime.initialize_memory_setup(true).await.unwrap();
+            }
+            assert!(runtime.status().memory_configured);
+            assert!(!runtime.status().model_ready);
+            let saved = memory_setup::read(runtime.sessions.database().pool())
+                .await
+                .unwrap();
+            assert_eq!(saved.state, "adopted");
+            runtime.initialize_memory_setup(true).await.unwrap();
+            assert_eq!(
+                memory_setup::read(runtime.sessions.database().pool())
+                    .await
+                    .unwrap()
+                    .revision,
+                saved.revision,
+            );
+        }
+    }
 
     #[tokio::test]
     async fn saving_first_model_never_initializes_default_memory_before_durable_choice() {

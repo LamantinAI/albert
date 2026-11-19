@@ -59,6 +59,7 @@ pub struct Config {
     pub mcp_registry: PathBuf,
     pub models: Option<PoolConfig>,
     pub memory: MemoryConfig,
+    pub(crate) memory_explicit: bool,
     pub model: String,
     /// How the LLM call authenticates — API key (default) or ChatGPT subscription.
     pub auth: AuthMode,

@@ -134,6 +134,11 @@
   font-size: 11px;
   line-height: 1.4;
 }
+.composer-skill-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .composer-menu button:hover:not(:disabled),
 .composer-menu button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--ochre) 9%, transparent);

@@ -4,9 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "export-openapi"
+path = "src/bin/export-openapi.rs"
+required-features = ["openapi-export"]
+
 [features]
 default = ["embedded-panel"]
 embedded-panel = []
+openapi-export = []
 local-e2e = ["albert-core/local-e2e"]
 
 [dependencies]

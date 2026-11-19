@@ -7,16 +7,11 @@ pub struct OpenAiLoginStart {
     #[serde(default)]
     pub replace_existing: bool,
 }
-#[derive(Deserialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-pub struct OpenAiLoginSubmission {
-    pub callback: String,
-}
 #[derive(Clone, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenAiLoginPhase {
-    AwaitingCallback,
-    Exchanging,
+    Preparing,
+    AwaitingDeviceCode,
     Connected,
     Failed,
     Cancelled,
@@ -26,8 +21,8 @@ pub enum OpenAiLoginPhase {
 pub struct OpenAiLoginView {
     pub id: String,
     pub phase: OpenAiLoginPhase,
-    pub authorize_url: Option<String>,
-    pub redirect_uri: String,
+    pub verification_url: Option<String>,
+    pub user_code: Option<String>,
     pub expires_at: String,
     pub credentials_saved: bool,
     pub message: Option<String>,

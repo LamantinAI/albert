@@ -1,15 +1,25 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations30 {
-configuration_get_secrets: {
+configuration_put_secrets_id: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
+            path: {
+                /** @description Resource identifier */
+                id: string;
+            };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretWrite"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -17,7 +27,7 @@ configuration_get_secrets: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SecretList"];
+                    "application/json": components["schemas"]["EmptyObject"];
                 };
             };
             /** @description Invalid request */
@@ -103,7 +113,7 @@ configuration_get_secrets: {
             };
         };
     };
-configuration_put_secrets_id: {
+configuration_delete_secrets_id: {
         parameters: {
             query?: never;
             header: {
@@ -116,11 +126,7 @@ configuration_put_secrets_id: {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SecretWrite"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {

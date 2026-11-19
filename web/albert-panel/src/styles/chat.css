@@ -49,6 +49,13 @@
   color: var(--muted);
   font: 9px var(--mono);
 }
+.message-heading .message-source {
+  visibility: hidden;
+}
+.message:hover .message-source,
+.message:focus-within .message-source {
+  visibility: visible;
+}
 .message-heading .albert-label {
   color: var(--ink);
 }

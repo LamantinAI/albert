@@ -23,11 +23,17 @@ Given a configured model window `W` and fixed reserve `R`, the dialogue budget i
 - System instructions, tool definitions, protocol overhead, and space for the
   generated response belong to `R`, outside both dialogue partitions.
 
-For example, `W = 1,000,000` and `R = 10,000` gives 693,000 fresh-message tokens
-and 297,000 compact tokens. The shipped reserve is **32,768**, since the reference
-owner toolset, repository system prompt and a 4,096-token response reserve already
-need approximately 20,824 tokens before live per-turn context is added. This is a
-configuration choice, not an automatically expanding reservation.
+When `reserve_tokens` is omitted, the reserve is the smaller of **65,536
+tokens** and half the effective model window. A 1,000,000-token window reserves
+65,536 tokens, leaving 654,124 for fresh messages and 280,340 for compacts.
+On smaller windows, each generation cap is also limited to half the automatic
+reserve to leave space for instructions and tools.
+
+An explicit `reserve_tokens` value keeps the fixed partition and the configured
+output caps. Existing files with `reserve_tokens = 32768` retain that value.
+Remove the setting or reset it in the Agent settings to use the automatic policy.
+If a request exceeds its reserve, Albert reports the estimated tokens needed and
+the available reserve before contacting the provider.
 
 There is no padding to fill the compact's share. `compact_output_tokens` is an
 additional generation ceiling; the resulting compact must fit the 30% partition
@@ -39,7 +45,7 @@ and be smaller than its input before it can be committed.
 [context]
 enabled = true
 window_tokens = 1000000
-reserve_tokens = 32768
+# reserve_tokens = 65536 # Optional fixed override
 response_tokens = 4096
 new_messages_percent = 70
 compact_output_tokens = 16384

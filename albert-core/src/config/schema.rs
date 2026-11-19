@@ -25,8 +25,7 @@ pub(super) struct Raw {
     #[serde(default)]
     pub(super) model_pool: Option<String>,
     pub(super) mcp_registry: Option<String>,
-    #[serde(default)]
-    pub(super) memory: MemoryConfig,
+    pub(super) memory: Option<MemoryConfig>,
     #[serde(default)]
     pub(super) model: String,
     /// `"api_key"` (default) or `"subscription"`.

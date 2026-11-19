@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   authorize,
   compose,
+  fixtureService,
   environment,
   login,
   request,
@@ -9,67 +10,46 @@ import {
 } from "./openai-login-fixture";
 
 export function registerSubscriptionBoundaries() {
-  test("bad state, cancellation and provider refusal preserve the installed credentials", async ({
+  test("cancelled device codes and provider refusal preserve the installed credentials", async ({
     page,
   }) => {
     await login(page);
     const before = compose(
       "exec",
       "-T",
-      "albert",
+      fixtureService,
       "python3",
       "-c",
       "from pathlib import Path;import hashlib;print(hashlib.sha256(Path('/data/auth.json').read_bytes()).hexdigest())",
     ).trim();
     const first = await start(page);
-    const returned = new URL(await authorize(page, first.authorize_url!));
-    returned.searchParams.set("state", "incorrect-state");
-    const invalid = await request(
+    const cancelled = await request(
       page,
-      `/openai-login-attempts/${first.id}/submissions`,
-      "POST",
-      { callback: returned.href },
-    );
-    expect([400, 422]).toContain(invalid.status);
-    expect(
-      (
-        await request(
-          page,
-          `/openai-login-attempts/${first.id}/cancellations`,
-          "POST",
-          {},
-        )
-      ).status,
-    ).toBeLessThan(300);
-    expect(
-      (
-        await request(
-          page,
-          `/openai-login-attempts/${first.id}/submissions`,
-          "POST",
-          { callback: "fixture-code" },
-        )
-      ).status,
-    ).toBeGreaterThanOrEqual(400);
-    const second = await start(page);
-    const denied = await authorize(page, second.authorize_url!, true);
-    const refusal = await request(
-      page,
-      `/openai-login-attempts/${second.id}/submissions`,
-      "POST",
-      { callback: denied },
-    );
-    expect(refusal.status).toBeGreaterThanOrEqual(400);
-    await request(
-      page,
-      `/openai-login-attempts/${second.id}/cancellations`,
+      `/openai-login-attempts/${first.id}/cancellations`,
       "POST",
       {},
     );
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body).toMatchObject({
+      phase: "cancelled",
+      user_code: null,
+    });
+    await authorize(page, first.verification_url!, first.user_code!);
+    const second = await start(page);
+    await authorize(page, second.verification_url!, second.user_code!, true);
+    await expect
+      .poll(async () => {
+        const status = await request(
+          page,
+          `/openai-login-attempts/${second.id}`,
+        );
+        return status.body.phase;
+      })
+      .toBe("failed");
     const after = compose(
       "exec",
       "-T",
-      "albert",
+      fixtureService,
       "python3",
       "-c",
       "from pathlib import Path;import hashlib;print(hashlib.sha256(Path('/data/auth.json').read_bytes()).hexdigest())",

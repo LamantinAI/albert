@@ -1,23 +1,25 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations37 {
-sessions_get_sessions_id_messages: {
+sessions_post_sessions_id_messages: {
         parameters: {
-            query?: {
-                after?: string;
-                limit?: number;
-                order?: string;
-                through_id?: string;
+            query?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
             };
-            header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -25,7 +27,7 @@ sessions_get_sessions_id_messages: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageList"];
+                    "application/json": components["schemas"]["MessageReceipt"];
                 };
             };
             /** @description Invalid request */
@@ -111,24 +113,19 @@ sessions_get_sessions_id_messages: {
             };
         };
     };
-sessions_post_sessions_id_messages: {
+sessions_get_sessions_id_messages_request_id: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
-            };
+            header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
+                /** @description Resource identifier */
+                request_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MessageCreate"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {

@@ -32,7 +32,6 @@ Orient by crate before changing code:
 | `connectors/web/` | HTTP API/DTOs, JWT/CSRF, accounts, owner configuration services, session streaming, embedded assets and self-hosted Swagger. |
 | `web/ui-dist/` | Generated, ignored browser bundle; verified and embedded from Cargo `OUT_DIR`. |
 | `web/albert-panel/` | React + TypeScript CSR project, generated API declarations, browser tests and explicit asset build. |
-| `xtask/` | Export the Utoipa schema without requiring a built browser client. |
 
 Dependencies point inward: the app depends on core and connectors; connectors depend
 on core. Core must not depend on the application or Albert connector crates,
@@ -63,15 +62,16 @@ Rules of thumb:
 - `cargo build --locked` — build the default application member.
 - `cargo test --locked --workspace --all-targets` — run the complete Rust suite.
 - `cargo test --locked -p albert-core` — test core independently of browser assets.
-- `cargo run` — run Albert. Telegram if `OCTO_TELEGRAM_TOKEN` is set, else a
-  console channel. Config from `albert.toml`; secrets from `.env`.
-- `cargo run -- login` — sign in with a ChatGPT subscription (writes tokens to the
+- `ALBERT_CONFIG=albert.dev.toml cargo run` — run Albert locally. It uses Telegram
+  when `OCTO_TELEGRAM_TOKEN` is set and the console otherwise. Secrets come from `.env`.
+- `ALBERT_CONFIG=albert.dev.toml cargo run -- login` — sign in with a ChatGPT subscription (writes tokens to the
   `[subscription] auth_json` path). Only needed when `auth = "subscription"`.
 - `cargo build --locked --release` — the deploy binary (optimized profile: LTO + strip).
 
-Utoipa is the API schema authority. Do not commit an OpenAPI JSON snapshot or a
-compiled browser bundle. Generated TypeScript declarations are checked against the
-schema export. Cargo build scripts verify/copy already-built assets to `OUT_DIR`;
+Utoipa is the API schema authority. The web connector’s optional `export-openapi`
+binary exports the schema without requiring a built browser client. Do not commit
+an OpenAPI JSON snapshot or a compiled browser bundle. Generated TypeScript
+declarations are checked against the schema export. Cargo build scripts verify/copy already-built assets to `OUT_DIR`;
 they must not invoke Node, install packages or fetch browser dependencies.
 
 Deployment (build here, ship the binary; the target is small): see

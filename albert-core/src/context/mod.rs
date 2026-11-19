@@ -6,6 +6,7 @@ mod recovery;
 pub(crate) use chunks::batches;
 pub(crate) use diagnostics::DiagnosticScope;
 pub use guard::BudgetedModel;
+pub(crate) use guard::ReserveError;
 
 use rig::{
     completion::Message, message::AssistantContent, message::ToolResultContent,
@@ -14,6 +15,8 @@ use rig::{
 use serde::Deserialize;
 use serde_json::to_string;
 use tiktoken_rs::{cl100k_base_singleton, o200k_base_singleton};
+
+const DEFAULT_RESERVE_CAP: usize = 65_536;
 
 use crate::{
     artifacts::Settings as ArtifactSettings, history::to_messages, history::ContextWindow,
@@ -34,8 +37,8 @@ pub struct Settings {
     pub enabled: bool,
     pub artifacts: ArtifactSettings,
     pub window_tokens: usize,
-    /// A hard partition, including instructions/tools/framing AND generation.
-    pub reserve_tokens: usize,
+    /// An explicit fixed reserve. Omission derives it from the effective model window.
+    pub reserve_tokens: Option<usize>,
     pub response_tokens: usize,
     pub new_messages_percent: usize,
     pub compact_output_tokens: usize,
@@ -54,7 +57,7 @@ impl Default for Settings {
             enabled: true,
             artifacts: Default::default(),
             window_tokens: 1_000_000,
-            reserve_tokens: 32_768,
+            reserve_tokens: None,
             response_tokens: 4096,
             new_messages_percent: 70,
             compact_output_tokens: 16_384,
@@ -80,9 +83,15 @@ impl Settings {
         if self.continuation_retries > 3 || self.continuation_retry_delay_ms > 60000 {
             return Err("context: continuation_retries must be 0..3 and continuation_retry_delay_ms at most 60000.".into());
         }
-        if self.window_tokens <= self.reserve_tokens
-            || self.response_tokens >= self.reserve_tokens
-            || self.compact_output_tokens >= self.reserve_tokens
+        let invalid_reserve = match self.reserve_tokens {
+            Some(reserve) => {
+                reserve >= self.window_tokens
+                    || self.response_tokens >= reserve
+                    || self.compact_output_tokens >= reserve
+            }
+            None => self.effective_reserve() < 2,
+        };
+        if invalid_reserve
             || self.response_tokens == 0
             || self.compact_output_tokens == 0
             || !(1..100).contains(&self.new_messages_percent)
@@ -102,8 +111,21 @@ impl Settings {
             .min(self.window_tokens);
         settings
     }
+    pub fn effective_reserve(&self) -> usize {
+        self.reserve_tokens
+            .unwrap_or_else(|| DEFAULT_RESERVE_CAP.min(self.window_tokens / 2))
+    }
+
+    /// On small windows, leave at least half of the automatic reserve for instructions and tools.
+    pub(crate) fn output_limit(&self, configured: usize) -> usize {
+        match self.reserve_tokens {
+            Some(_) => configured,
+            None => configured.min(self.effective_reserve() / 2),
+        }
+    }
+
     pub fn dialogue(&self) -> usize {
-        self.window_tokens.saturating_sub(self.reserve_tokens)
+        self.window_tokens.saturating_sub(self.effective_reserve())
     }
     pub fn new_budget(&self) -> usize {
         ((self.dialogue() as u128 * self.new_messages_percent as u128) / 100) as usize
@@ -333,7 +355,7 @@ mod tests {
         let _interest_isolation = isolate_callsite_interest();
         let settings = Settings {
             window_tokens: 4096,
-            reserve_tokens: 512,
+            reserve_tokens: Some(512),
             response_tokens: 64,
             compact_output_tokens: 128,
             image_tokens: 32,
@@ -359,7 +381,14 @@ mod tests {
                 .completion_request(Message::user("PRIVATE_USER"))
                 .preamble("PRIVATE_PREAMBLE ".repeat(500))
                 .build();
-            assert!(model.completion(request).await.is_err());
+            let error = model.completion(request).await.unwrap_err();
+            let CompletionError::RequestError(error) = error else {
+                panic!("expected a local request error");
+            };
+            assert!(matches!(
+                error.downcast_ref::<ReserveError>(),
+                Some(ReserveError::Insufficient { required, reserved: 512 }) if *required > 512
+            ));
         }
         .with_subscriber(subscriber)
         .await;
@@ -371,10 +400,45 @@ mod tests {
         assert!(!text.contains("provider_round_wall_ms="));
     }
 
+    #[tokio::test]
+    async fn automatic_reserve_accepts_requests_above_the_old_default_and_fits_small_models() {
+        use toml::from_str;
+
+        let settings: Settings = from_str("tokenizer = 'bytes'").unwrap();
+        assert_eq!(settings.effective_reserve(), 65_536);
+
+        let provider = TimingModel::default();
+        let model = BudgetedModel::new(provider, Some(settings.clone()), true);
+        let request = model
+            .completion_request(Message::user("hello"))
+            .preamble("x".repeat(45_000))
+            .build();
+        assert_eq!(
+            model.completion(request).await.unwrap().usage.output_tokens,
+            4096
+        );
+
+        let small: ModelSpec = from_str(
+            "id = 'small'\nmodel = 'small'\nprovider = 'api_key'\nvision = false\ntools = true\ncontext_window = 8192",
+        ).unwrap();
+        let small_settings = settings.for_model(&small);
+        assert_eq!(small_settings.effective_reserve(), 4096);
+        assert_eq!(small_settings.dialogue(), 4096);
+        let model = BudgetedModel::new(TimingModel::default(), Some(small_settings), true);
+        let request = model.completion_request(Message::user("hello")).build();
+        assert_eq!(
+            model.completion(request).await.unwrap().usage.output_tokens,
+            2048
+        );
+
+        let fixed: Settings = from_str("reserve_tokens = 32768").unwrap();
+        assert_eq!(fixed.for_model(&small).effective_reserve(), 32_768);
+    }
+
     #[test]
     fn fixed_reserve_is_outside_the_seventy_thirty_dialogue_partition() {
         let settings = Settings {
-            reserve_tokens: 10000,
+            reserve_tokens: Some(10000),
             compact_output_tokens: 4096,
             ..Default::default()
         };
@@ -383,7 +447,7 @@ mod tests {
         assert_eq!(settings.compact_budget(), 297000);
         assert!(settings.validate().is_ok());
         let mut invalid = settings;
-        invalid.reserve_tokens = invalid.window_tokens;
+        invalid.reserve_tokens = Some(invalid.window_tokens);
         assert!(invalid.validate().is_err());
     }
 
@@ -402,7 +466,7 @@ mod tests {
         let settings = Settings {
             tokenizer: Tokenizer::Bytes,
             window_tokens: 5000,
-            reserve_tokens: 1000,
+            reserve_tokens: Some(1000),
             response_tokens: 256,
             compact_output_tokens: 256,
             max_compaction_passes: 64,

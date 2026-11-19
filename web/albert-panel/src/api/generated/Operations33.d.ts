@@ -1,20 +1,22 @@
-/** Generated from the Rust Utoipa schema via xtask. Do not edit. */
+/** Generated from the Rust Utoipa schema. Do not edit. */
 import type { components, operations } from '../schema'
 
 export interface Operations33 {
-sessions_get_sessions: {
+sessions_post_sessions: {
         parameters: {
-            query?: {
-                after?: string;
-                limit?: number;
-                order?: string;
-                through_id?: string;
+            query?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
             };
-            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionCreate"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -22,7 +24,7 @@ sessions_get_sessions: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionList"];
+                    "application/json": components["schemas"]["SessionView"];
                 };
             };
             /** @description Invalid request */
@@ -108,21 +110,17 @@ sessions_get_sessions: {
             };
         };
     };
-sessions_post_sessions: {
+sessions_get_sessions_id: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
             };
-            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionCreate"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {

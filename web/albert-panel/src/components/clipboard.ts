@@ -27,7 +27,7 @@ export async function copyText(text: string): Promise<void> {
         selection.getRangeAt(index).cloneRange(),
       )
     : [];
-  document.body.append(input);
+  (focused?.closest("dialog[open]") ?? document.body).append(input);
   try {
     input.focus({ preventScroll: true });
     input.select();

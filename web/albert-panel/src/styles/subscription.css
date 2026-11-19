@@ -54,9 +54,6 @@
 .subscription-flow-footer .button {
   margin: 0;
 }
-.subscription-flow-footer .settings-back {
-  margin-bottom: 0;
-}
 .subscription-footer-note {
   margin: 0;
   color: var(--muted);
@@ -81,38 +78,32 @@
   font-size: 13px;
   line-height: 1.6;
 }
-.subscription-step {
-  margin: 0 0 12px;
-  color: var(--ochre);
-  font-size: 12px;
-}
 .subscription-auth-copy > p {
   margin: 0 0 16px;
 }
+.subscription-auth-copy > p:last-child {
+  margin-bottom: 0;
+}
+.subscription-device-code {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.subscription-device-code code {
+  color: var(--ochre);
+  font-size: 20px;
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .subscription-authorize-link {
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   gap: 8px;
 }
 .subscription-authorize-link svg {
   transform: rotate(-45deg);
-}
-.subscription-return-form > p {
-  margin: 0 0 16px;
-}
-.subscription-return-instructions {
-  margin: 0 0 24px;
-  padding-left: 20px;
-}
-.subscription-return-instructions li + li {
-  margin-top: 8px;
-}
-.subscription-return-form .field {
-  margin: 0;
-}
-.subscription-return-form .subscription-expiry {
-  margin: 20px 0 0;
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 .subscription-picker {
   display: flex;

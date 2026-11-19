@@ -14,7 +14,7 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
   });
   const fixture = await readyFixture(page, context);
   let connected = false,
-    submitted = false,
+    approved = false,
     selected = false,
     failCatalog = true;
   let oauthStarts = 0;
@@ -47,9 +47,9 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
   };
   const attempt = {
     id: "login-1",
-    phase: "awaiting_callback",
-    authorize_url: "https://auth.example.test/authorize",
-    redirect_uri: "http://localhost:1455/auth/callback",
+    phase: "awaiting_device_code",
+    verification_url: "https://auth.example.test/codex/device",
+    user_code: "TEST-CODE",
     expires_at: "2099-01-01T12:00:00Z",
     credentials_saved: false,
     message: null,
@@ -92,28 +92,20 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
       };
       return route.fulfill({ json: { ...connection(), phase: "applying" } });
     }
-    if (path.endsWith("/submissions")) {
-      expect(request.postDataJSON().callback).toContain(
-        "transient-secret-code",
-      );
-      submitted = true;
-      return route.fulfill({
-        json: { ...attempt, phase: "exchanging", authorize_url: null },
-      });
-    }
     if (path.endsWith("/openai-login-attempts")) {
       oauthStarts++;
       expect(request.postDataJSON()).toEqual({ replace_existing: false });
       return route.fulfill({ json: attempt });
     }
-    if (submitted) {
+    if (approved) {
       connected = true;
       return route.fulfill({
         json: {
           ...attempt,
           phase: "connected",
           credentials_saved: true,
-          authorize_url: null,
+          verification_url: null,
+          user_code: null,
         },
       });
     }
@@ -153,25 +145,9 @@ test("OpenAI begins with authorization, then account catalog and explicit model 
   await expect(
     dialog.getByLabel("Subscription provider model ID", { exact: true }),
   ).toHaveCount(0);
-  await expect(
-    dialog.getByLabel("Callback URL or authorization code", { exact: true }),
-  ).toHaveCount(0);
-  await dialog
-    .getByRole("button", { name: "I've signed in", exact: true })
-    .click();
-  await expect(dialog.getByText(/This site can’t be reached/)).toBeVisible();
-  await expect(dialog.getByText("Cmd+L on Mac", { exact: true })).toBeVisible();
-  await expect(
-    dialog.getByText(/Copy the address, not the error text/),
-  ).toBeVisible();
-  await dialog
-    .getByLabel("Callback URL or authorization code", { exact: true })
-    .fill(
-      "http://localhost:1455/auth/callback?code=transient-secret-code&state=synthetic",
-    );
-  await dialog
-    .getByRole("button", { name: "Connect subscription", exact: true })
-    .click();
+  await expect(dialog.getByText("TEST-CODE", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  approved = true;
   await expect(
     dialog.getByRole("heading", {
       name: "Choose Albert’s model",

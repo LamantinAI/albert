@@ -25,11 +25,11 @@ multi-step work.
 
 ## Quick start
 
-With Docker, and Compose plugin installed, create a deployment directory
-and download the Compose file:
+With Docker and the Compose plugin installed, create a deployment directory
+and download the production Compose file:
 
 ```sh
-curl -fsSLo compose.yml https://raw.githubusercontent.com/LamantinAI/albert/main/compose.prod.yml
+curl -fsSLo docker-compose.yaml https://raw.githubusercontent.com/LamantinAI/albert/main/docker-compose.yaml
 
 printf 'KAERU_MCP_AUTH_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
 docker compose pull
@@ -44,7 +44,9 @@ docker compose logs -f
 The image initializes `./albert` with configuration, prompts, connector manifests
 and skills. Edit those files on the host; restart with `docker compose restart`
 after changing startup configuration. Albert and Kaeru retain their state in Docker
-volumes. `docker compose down` stops the services without removing those volumes.
+volumes. `docker compose down` stops the services and keeps those volumes. The
+production defaults already select the Kaeru MCP service, so the panel skips the
+memory selection step. See the [Docker deployment guide](contrib/deploy/README.md).
 
 ## Web workspace
 
@@ -142,7 +144,7 @@ single **cogitator** (the deciding layer) wired in:
 
 The Cargo workspace separates `albert-core`, Albert-owned connectors under
 `connectors/`, and the `albert-server` crate producing the `albert` executable. The React client lives in
-`web/albert-panel`; Utoipa supplies its API schema through `xtask`. Browser bundles
+`web/albert-panel`; Utoipa supplies its API schema through the web connector’s exporter. Browser bundles
 are generated build outputs. See the [code map](docs/structure.md) for ownership
 and dependency boundaries.
 
@@ -160,7 +162,7 @@ Telegram bot token and, optionally, calendar credentials.
    OCTO_YANDEX_APP_PASSWORD=...           # calendar APP password (basic-auth providers)
    ```
 
-2. **Config** — edit `albert.toml` (model, timezone, cadence, paths) and the connector
+2. **Config** — edit `albert.dev.toml` (model, timezone, cadence, paths) and the connector
    manifests:
    - Telegram — connect the bot inside its own page under **Settings → Connections**, create a personal
      login token in the same connector settings, then send `/login <token>` in the
@@ -174,7 +176,7 @@ Telegram bot token and, optionally, calendar credentials.
    ```sh
    npm --prefix web/albert-panel ci
    npm --prefix web/albert-panel run build:embedded
-   cargo run --locked # from the repository root
+   ALBERT_CONFIG=albert.dev.toml cargo run --locked
    ```
 
    With `OCTO_TELEGRAM_TOKEN` set, Albert connects to Telegram (ACL-gated) and the

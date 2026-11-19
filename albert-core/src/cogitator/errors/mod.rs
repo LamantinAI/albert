@@ -1,8 +1,9 @@
 use rig::{completion::CompletionError, completion::PromptError};
 
 use crate::{
-    models::Failure, models::FailureKind, subagents::budget::REPORT_EXHAUSTED,
-    transport::completion_is_transient, transport::is_transient, transport::TIMEOUT,
+    context::ReserveError, models::Failure, models::FailureKind,
+    subagents::budget::REPORT_EXHAUSTED, transport::completion_is_transient,
+    transport::is_transient, transport::TIMEOUT,
 };
 
 /// A short, polite English message for an LLM failure — never the raw provider payload.
@@ -20,8 +21,8 @@ pub(super) fn user_facing_llm_error(e: &PromptError) -> String {
     if is_transient(&e.to_string()) {
         return "Model connection was interrupted before the response completed.".into();
     }
-    if e.to_string().contains("ALBERT_CONTEXT_RESERVE") {
-        return "Instructions, tools and response exceed the fixed context reserve. Increase context.reserve_tokens or reduce installed tools/instructions.".into();
+    if let Some(reserve) = reserve_error(e) {
+        return reserve.to_string();
     }
     if e.to_string().contains("ALBERT_CONTEXT_WINDOW") {
         return "The dialogue exceeds its context budget. Use /compact or reduce the oversized message/tool result; no additional tool action was started.".into();
@@ -38,6 +39,13 @@ pub(super) fn user_facing_llm_error(e: &PromptError) -> String {
 }
 
 pub(super) use crate::transport::provider_status_code;
+
+fn reserve_error(error: &PromptError) -> Option<&ReserveError> {
+    match error {
+        PromptError::CompletionError(CompletionError::RequestError(error)) => error.downcast_ref(),
+        _ => None,
+    }
+}
 
 /// True when the completion failed because the server no longer accepts the access
 /// token — an HTTP 401 or an explicit `token_expired` from the provider. Detected
@@ -64,7 +72,7 @@ pub(super) fn transient(e: &PromptError) -> bool {
 /// errors must not become repeated attempts against every provider.
 pub(super) fn model_failure(error: PromptError) -> Failure {
     let raw = error.to_string();
-    if raw.contains("ALBERT_CONTEXT_WINDOW") || raw.contains("ALBERT_CONTEXT_RESERVE") {
+    if raw.contains("ALBERT_CONTEXT_WINDOW") || reserve_error(&error).is_some() {
         return Failure {
             kind: FailureKind::Incompatible,
             message: user_facing_llm_error(&error),
@@ -159,6 +167,25 @@ mod tests {
             .map(|_| ())
             .map_err(|e| model_failure(PromptError::CompletionError(e)))
     }
+    #[test]
+    fn local_reserve_error_is_safe_actionable_and_allows_fallback() {
+        use rig::completion::CompletionError;
+
+        use crate::context::ReserveError;
+
+        let error = PromptError::CompletionError(CompletionError::RequestError(Box::new(
+            ReserveError::Insufficient {
+                required: 45_000,
+                reserved: 32_768,
+            },
+        )));
+        let failure = model_failure(error);
+        assert_eq!(failure.kind, FailureKind::Incompatible);
+        assert!(failure.message.contains("45000 tokens"));
+        assert!(failure.message.contains("reserve is 32768"));
+        assert!(failure.message.contains("context.reserve_tokens"));
+    }
+
     #[tokio::test]
     async fn stalled_sse_is_transient_and_falls_back_without_losing_cause() {
         let server = Server::new().await;

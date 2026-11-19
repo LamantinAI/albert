@@ -10,7 +10,7 @@ fn enable(fixture: &mut Fixture) {
         enabled: true,
         tokenizer: Tokenizer::Bytes,
         window_tokens: 400_000,
-        reserve_tokens: 320_000,
+        reserve_tokens: Some(320_000),
         response_tokens: 1000,
         compact_output_tokens: 1000,
         new_messages_percent: 10,

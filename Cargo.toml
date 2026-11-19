@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["albert-core", "connectors/console", "connectors/telegram", "connectors/web", "albert-server", "xtask"]
+members = ["albert-core", "connectors/console", "connectors/telegram", "connectors/web", "albert-server"]
 default-members = ["albert-server"]
 
 [workspace.package]
