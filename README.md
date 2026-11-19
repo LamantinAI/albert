@@ -25,6 +25,8 @@ multi-step work.
 
 ## Quick start
 
+### Start Albert
+
 With Docker and the Compose plugin installed, create a deployment directory
 and download the production Compose file:
 
@@ -48,7 +50,7 @@ volumes. `docker compose down` stops the services and keeps those volumes. The
 production defaults already select the Kaeru MCP service, so the panel skips the
 memory selection step. See the [Docker deployment guide](contrib/deploy/README.md).
 
-## Web workspace
+### Web workspace
 
 Open `http://127.0.0.1:9877/ui/` after starting Albert. Sign in with `owner` /
 `owner`, replace the initial credentials, and connect a model. The embedded React
@@ -125,122 +127,69 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   named in the TOML by their env var (never the value); persona + a compact operating
   prompt in `soul.md` / `system.md`, held in RAM and **hot-reloaded by mtime**.
 
-## How it fits together
+## PEMRR architecture
 
-A running Albert is an Octo runtime supervising a set of long-lived connectors, with a
-single **cogitator** (the deciding layer) wired in:
+**PEMRR** is Albert's long-term architecture. Each layer has a distinct
+responsibility.
 
-- **Octo** owns the nervous system — an in-process bus of typed envelopes, connectors
-  as autonomous supervised tasks, a reflex/cognition split, a control-plane. Albert
-  does not reimplement any of this; it is a userland `Cogitator`.
-- **kaeru** is the deliberate memory — a typed, bi-temporal cognitive graph the agent
-  recalls from and writes to **as a tool** (`kaeru_search`, `kaeru_read`, `kaeru_note`, …). Not
-  a memory file re-read every turn.
-- **The cogitator** ties them: it perceives `chat.message` and `alarm.fired`, runs a
-  rig native tool-loop over its full toolset (memory, scheduler, calendar, files,
-  storage, skills, scripts, and — for the owner — restart), and replies.
+- **Perception** receives messages, events, and observations from the environment.
+- **Experience** interprets those observations in the context of the current task.
+- **Memory** recalls relevant knowledge and records what should persist.
+- **Reflection** reviews outcomes and identifies what to reuse or revise.
+- **Reaction** takes action in the environment and communicates the result.
 
-## Source workspace
-
-The Cargo workspace separates `albert-core`, Albert-owned connectors under
-`connectors/`, and the `albert-server` crate producing the `albert` executable. The React client lives in
-`web/albert-panel`; Utoipa supplies its API schema through the web connector’s exporter. Browser bundles
-are generated build outputs. See the [code map](docs/structure.md) for ownership
-and dependency boundaries.
-
-## Quick start
-
-Prerequisites: a Rust toolchain compatible with `Cargo.lock`, Node.js for the web
-client build, an OpenRouter (or compatible) API key, and — for the real run — a
-Telegram bot token and, optionally, calendar credentials.
-
-1. **Secrets** — put them in `.env` in the deployment directory:
-
-   ```sh
-   ALBERT_OPENAI_KEY=sk-or-...            # LLM key (OpenRouter)
-   OCTO_TELEGRAM_TOKEN=123456:ABC...      # Telegram bot token (omit -> console)
-   OCTO_YANDEX_APP_PASSWORD=...           # calendar APP password (basic-auth providers)
-   ```
-
-2. **Config** — edit `albert.dev.toml` (model, timezone, cadence, paths) and the connector
-   manifests:
-   - Telegram — connect the bot inside its own page under **Settings → Connections**, create a personal
-     login token in the same connector settings, then send `/login <token>` in the
-     bot's private chat. Existing conversations are preserved. See
-     [Telegram account access](docs/telegram-accounts.md).
-   - `config/connectors/calendar/calendar.toml` — set your account (`login`, or the
-     Google `collection` + client).
-
-3. **Run**:
-
-   ```sh
-   npm --prefix web/albert-panel ci
-   npm --prefix web/albert-panel run build:embedded
-   ALBERT_CONFIG=albert.dev.toml cargo run --locked
-   ```
-
-   With `OCTO_TELEGRAM_TOKEN` set, Albert connects to Telegram (ACL-gated) and the
-   calendar; otherwise it runs a stdin/stdout console channel for local dev.
-
-See [`docs/`](docs/) for the architecture and the full configuration reference, and
-[`docs/configuration.md`](docs/configuration.md) for a complete, copyable working config.
-
-## The long arc: PEMRR
-
-The frame Albert grows into is **PEMRR** — Perception, Experience, Memory, Reflection,
-Reaction — five layers it composes from. Today Albert is the working-first cut: a
-ReAct-style cogitator over Octo, with kaeru as Memory and the scheduler for proactive
-routines; Experience/Reflection are one rig tool-loop turn. Richer cognition is future
-work — the agent building and reusing **its own** task structure (a self-built graph it
-authors, grown from the per-turn scratchpad), **not** a LangGraph-style control-flow
-engine over fixed stages. The architecture is laid out in
-[`docs/architecture.md`](docs/architecture.md).
+Today, connectors deliver observations, a single model-driven loop handles
+Experience and Reflection, kaeru provides Memory, and Octo routes actions. Over
+time, Albert should be able to build and reuse its own task structure from
+scratchpad plans and verified outcomes. [Architecture guide](docs/architecture.md)
 
 ## Roadmap
 
-Albert is early and moving fast. Near-term:
+The current release focuses on making Albert easier to set up and use.
 
-- **More integrations.** More connectors — Albert's action space *is* its set of
-  connectors, and each is a small manifest, so new systems (messaging, task trackers,
-  home/devices, more calendars and mailboxes) slot in without touching the core.
-- **More model providers.** Beyond an API key and a ChatGPT subscription — first-class
-  support for more providers and their subscription plans, chosen from config.
-- **An admin panel.** A UI for setup and day-to-day configuration (connectors, secrets,
-  persona, skills), so running your own Albert doesn't mean hand-editing TOML.
+### Next release — agent efficiency and speed
 
-Longer-term cognition work is sketched in **The long arc** above and in
-[`docs/architecture.md`](docs/architecture.md).
+- **Session forks.** Start a separate task from an existing session and carry over
+  its context. The original conversation remains available.
+- **Lightweight browser use.** Reduce the startup time and resource cost of opening
+  and interacting with web pages.
+- **Faster web search.** Shorten the time from a query to results Albert can use.
+- **Sandbox and workspace.** Simplify workspace layout and execution isolation so
+  tools run reliably with less overhead.
+- **Scratchpad task plans.** Record stages and dependencies, and prepare scripts for
+  predictable steps that can run without another model call.
 
-## Built on
+### Following release — coding mode
 
-Albert is assembled from three LamantinAI substrates rather than reimplemented. Each
-earns its place — and each is what makes the advantages above cheap to have:
+A dedicated mode with skills and tools for navigating and editing code, running
+checks, and rendering and inspecting user interfaces. It will emphasize
+syntax-aware navigation and concise command output.
 
-- **[Octo](https://github.com/LamantinAI/octo)** — the Reaction runtime, the reason
-  Albert *lives in an environment* instead of a chat loop. Connectors are autonomous,
-  supervised **in-process tasks** (one process, no IPC tax) that push events on their
-  own cadence, so the assistant is proactive and multi-channel by construction. Its
-  **env-as-tools** model means the agent's action space *is* the set of registered
-  connectors — add an organ (calendar, storage, forkd) and it appears in the toolset
-  with **zero cogitator change**. A reflex/cognition split keeps security and routing
-  deterministic (off the LLM), and a **control-plane** lets Albert restart a connector
-  or its whole self. Octo also carries the rig tool bridge and **octo-code** — a
-  separate set of file tools (`read`/`write`/`edit`/`list`/`glob`/`grep`) jailed to the
-  workspace, so Albert gets a coding-agent's hands on the filesystem without leaving
-  the runtime.
-- **[kaeru](https://github.com/LamantinAI/kaeru)** — the Memory substrate, the reason
-  the prompt stays light as Albert learns. Not a memory file but a typed, **bi-temporal
-  cognitive graph** with operational and archival tiers, reached entirely **as tools**
-  (recall / remember / reflect / link / synthesise, filed into named *initiatives*).
-  Recall is selective, so context per turn stays small and memory scales far past any
-  context window; being bi-temporal, it records both when something happened and when
-  it was learned. Optional cloud endpoints let it share to / pull from team knowledge.
-- **[rig](https://github.com/0xPlaygrounds/rig)** — the LLM tool-calling loop Albert
-  drives, with a custom HTTP layer that also speaks the OpenAI Codex backend so the
-  same agent runs on an API key **or** a ChatGPT subscription.
+Connector and model-provider coverage will continue to expand across releases.
 
-Octo and kaeru are pulled as git dependencies (one repo each, many crates, pinned to a
-rev); there is no local sibling-checkout requirement.
+## How it fits together
+
+- **Octo** supervises connectors and routes typed events. Scheduling and runtime
+  lifecycle controls run at this layer. [Octo](https://github.com/LamantinAI/octo)
+- **The cogitator** runs the model's tool loop. It handles messages and scheduled
+  events, calls tools, and produces replies. [rig](https://github.com/0xPlaygrounds/rig)
+- **kaeru** provides a typed, bi-temporal memory graph. The cogitator writes and
+  recalls relevant records through tools. [kaeru](https://github.com/LamantinAI/kaeru)
+
+See the [architecture guide](docs/architecture.md) for the runtime and data flow.
+
+## Source workspace
+
+| Path | Responsibility |
+| --- | --- |
+| `albert-core/` | Cognition, sessions, and shared runtime state |
+| `albert-server/` | Application assembly and the `albert` executable |
+| `connectors/` | Albert's console, Telegram, and web adapters |
+| `web/albert-panel/` | React workspace and generated TypeScript API contracts |
+
+The web connector exports its OpenAPI schema from Utoipa. Browser assets are
+generated at build time. Cargo fetches Octo and kaeru at pinned revisions.
+See the [code map](docs/structure.md) for dependency and build boundaries.
 
 ## License
 
