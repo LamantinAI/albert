@@ -4,41 +4,70 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      source_commit: ${{ steps.version.outputs.source_commit }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate release tag and workspace version
+      - name: Validate release tag
+        id: tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           python3 - <<'PY'
           import os
           import re
-          import tomllib
 
           tag = os.environ['RELEASE_TAG']
           number = r'(?:0|[1-9][0-9]*)'
           identifier = r'(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
           if not re.fullmatch(rf'v{number}\.{number}\.{number}(?:-{identifier}(?:\.{identifier})*)?', tag):
               raise SystemExit(f'Invalid release tag: {tag}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f'tag={tag}', file=output)
+          PY
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - name: Validate tagged workspace version
+        id: version
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+
+          tag = os.environ['RELEASE_TAG']
           with open('Cargo.toml', 'rb') as manifest:
               version = tomllib.load(manifest)['workspace']['package']['version']
           if tag != f'v{version}':
               raise SystemExit(f'Tag {tag} does not match workspace version {version}')
           PY
+          echo "source_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   test:
     needs: validate
     uses: ./.github/workflows/ci.yml
+    with:
+      source_commit: ${{ needs.validate.outputs.source_commit }}
 
   publish:
-    needs: test
+    needs: [validate, test]
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -47,12 +76,12 @@ jobs:
     with:
       output: image
       push: true
-      context: .
+      context: https://github.com/${{ github.repository }}.git#${{ needs.validate.outputs.source_commit }}
       file: ./docker/Dockerfile
       meta-images: ghcr.io/${{ github.repository }}
       meta-tags: |
-        type=ref,event=tag
-        type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+        type=raw,value=${{ needs.validate.outputs.tag }},priority=600
+        type=raw,value=latest,enable=${{ !contains(needs.validate.outputs.tag, '-') }}
       meta-flavor: |
         latest=false
     secrets:
