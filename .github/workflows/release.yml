@@ -42,6 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
 
       - name: Validate tagged workspace version
         id: version
@@ -58,7 +59,11 @@ jobs:
           if tag != f'v{version}':
               raise SystemExit(f'Tag {tag} does not match workspace version {version}')
           PY
-          echo "source_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          source_commit=$(git rev-parse HEAD)
+          # The reusable builder reads the event's git context. A replay from main
+          # can repair workflow files while keeping every runtime build input pinned.
+          git diff --exit-code "$source_commit" "$GITHUB_SHA" -- . ':(exclude).github/workflows/ci.yml' ':(exclude).github/workflows/release.yml'
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
 
   test:
     needs: validate
@@ -76,7 +81,7 @@ jobs:
     with:
       output: image
       push: true
-      context: https://github.com/${{ github.repository }}.git#${{ needs.validate.outputs.source_commit }}
+      context: .
       file: ./docker/Dockerfile
       meta-images: ghcr.io/${{ github.repository }}
       meta-tags: |
