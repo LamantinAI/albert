@@ -99,9 +99,10 @@ Albert decides what a new chat event means; Octo does not impose an interruption
 policy on other cogitators. A message in the same conversation interrupts the
 current model/tool future, sends `octo.control.cancel` for that attempt's unique
 scope and resumes with the complete working context plus the new input.
-Different connector/channel pairs have separate interruption gates. An unfinished
-trusted-user task cannot gain owner tools just because the owner sends the next
-message.
+Compatible input for the same Session uses one interruption gate across linked
+transports. Input outside the Session runtime is scoped by connector and channel.
+An unfinished trusted-user task cannot gain owner tools when the owner sends the
+next message.
 
 Accepted user messages enter history **before** model execution. Completed tool
 rounds retain their full results; outstanding calls get explicit unknown-outcome
@@ -118,8 +119,9 @@ see [model history](model-history.md).
 
 The reply commit and accepting a new input are serialized. Once an interrupt wins,
 the old task cannot publish a stale final reply. `/cancel` stops without launching
-a continuation, while keeping accepted messages and the tool checkpoint. Provider
-retries are allowed only before any tool calls have been issued.
+a continuation, while keeping accepted messages and the tool checkpoint. Model
+fallback applies before tools run. A transient failure after that can
+retry the same inference request with its existing results. [Provider recovery](context.md#recovery-after-tool-results)
 
 Voice transcription runs inside the scoped turn, so it does not hold up incoming
 chat events. Periodic routines and scheduled reminders do not block the intake

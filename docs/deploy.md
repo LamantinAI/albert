@@ -1,19 +1,16 @@
 # Deploy
 
-Albert is a single binary. **Build on a dev box, ship the binary** — the target
-(2 core / 2 GB) would struggle to compile the cozo/rocksdb/rig tree. No
-cross-compilation is needed when the build host and target share arch + glibc
-(here: both x86_64 Ubuntu 24.04, glibc 2.39); otherwise build a matching target
-or a static musl binary.
+This guide installs Albert on a host with systemd. Build the executable on a
+compatible machine and ship it with its configuration, prompts and skills. The
+build must match the target architecture and system library ABI.
 
-> Prefer containers? `contrib/deploy/` has a self-contained **Docker** runbook
-> (subscription mode; all state in one named volume) — see
-> [`contrib/deploy/README.md`](../contrib/deploy/README.md). This page is the
-> systemd-on-a-host path.
+For a container deployment, use the production Compose stack. It mounts Albert's
+editable configuration and uses separate volumes for Albert and Kaeru. Both API
+keys and ChatGPT subscriptions can be configured in the panel. [Docker Compose guide](../contrib/deploy/README.md)
 
 ## Host prerequisites
 
-Two things beyond the binary, both satisfied by having `curl` installed (Ubuntu ships it):
+Install the system libraries and tools used by your enabled connectors.
 
 - **`curl` on `PATH`** — the forkd sandbox runs scripts that fetch with `curl`/`wget`.
 - **`libcurl.so.4`** — the **search** connector's DuckDuckGo engine links the system
@@ -117,8 +114,12 @@ npm --prefix web/albert-panel ci
 npm --prefix web/albert-panel run build:embedded
 cargo build --locked --release
 
-# 2. stage: binary + albert.toml + soul.md/system.md + skills/ + config/ + .env + the
-#    unit; configure the calendar account in config/connectors/calendar/calendar.toml.
+# 2. Stage the host config with embedded memory, the binary, prompts, skills and manifests.
+mkdir -p stage
+cp albert.dev.toml stage/albert.toml
+cp target/release/albert contrib/deploy/albert.service soul.md system.md stage/
+cp -R config skills stage/
+#    Create the deployment .env in stage/ and configure the calendar if used.
 #    Connect Telegram and issue your personal login token in the panel after startup.
 
 # 3. ship (tar over ssh keeps hidden files + perms; no rsync needed)

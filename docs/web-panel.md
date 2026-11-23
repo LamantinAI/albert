@@ -19,10 +19,12 @@ to open the panel. Open **http://127.0.0.1:9877/ui/**.
    one-time code and a link to OpenAI. Enter the code there and approve sign-in.
    Albert opens the account's model catalog as soon as authorization completes.
    `albert login` provides the same sign-in in the terminal.
-4. Choose built-in Kaeru memory or a dedicated Kaeru MCP server. HTTP supports an
-   optional masked bearer token; stdio uses named server credential references.
-   Saving initializes the selected backend and creates the Albert initiative if
-   needed. A connection failure keeps this choice and offers a retry.
+4. If no memory backend is configured, choose built-in Kaeru memory or a dedicated
+   Kaeru MCP server. A valid configuration, including the production Compose
+   default, skips this step. HTTP supports an optional masked bearer token. Stdio
+   uses named server credential references. Saving initializes the selected
+   backend and creates the Albert initiative if needed. A connection failure
+   keeps this choice and offers a retry.
 5. Start a permanent or temporary conversation.
 
 The initial account is seeded once. Restarting never resets its password. Model
@@ -232,6 +234,11 @@ The existing ten-message cursor pagination and reading position are retained, wi
 an inline loading status instead of a manual page button. Upload errors can be
 dismissed and clear when attachments change or a message is accepted.
 
+For recognized Telegram user messages, hovering over the message or focusing
+its controls reveals **Telegram** beside the timestamp. The panel hides internal
+source metadata. It removes generated media labels when the corresponding image
+or audio is available to display, while preserving the user's caption.
+
 ## Composer skills, commands and voice
 
 The left add button opens Attach file, Skills and Commands. Selected files and
@@ -240,6 +247,8 @@ skill picker lists enabled, runtime-available skills; standing instructions are
 already in force and are not selectable. Explicit selection currently requires
 the owner, matching installed-skill management permissions. Skill bodies stay on
 the server and load into the selected request; selection never grants extra tools.
+Skill previews in the picker and settings show one line. Hover over a description
+to read it in full.
 
 Authenticated `GET /composer` supplies available choices, recording availability
 and effective limits. Ordered skill IDs and revisions participate in message and

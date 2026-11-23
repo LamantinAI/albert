@@ -52,6 +52,7 @@ jobs:
       meta-images: ghcr.io/${{ github.repository }}
       meta-tags: |
         type=ref,event=tag
+        type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       meta-flavor: |
         latest=false
     secrets:

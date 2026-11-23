@@ -14,16 +14,21 @@ deeper reference.
   proactive routines, and the config-driven connectors. Plus what is settled vs. future.
 - **[configuration.md](configuration.md)** — the config reference: `albert.toml`
   (auth, history, skills, workspace, clouds), the `.env` secrets, `soul.md` /
-  `system.md`, and the Octo connector manifests (Telegram, calendar, storage, forkd) —
-  ending in a complete, copyable working config.
+  `system.md`, and Octo connector manifests. Includes standalone and Compose setup.
 - **[structure.md](structure.md)** — the Cargo workspace map: what each crate owns and where
   a given concern lives.
 - **[stage-planning.md](stage-planning.md)** — RAM scratchpad stages, model-role
   configuration, child links and evidence-based verification.
+- **[subagents.md](subagents.md)** — child lifecycle, model pools, tool grants, and bounded results.
+- **[model-pool.md](model-pool.md)** — model providers, operator selection, role profiles, and fallback.
+- **[context.md](context.md)** — model windows, context reserves, compaction, and large tool results.
+- **[model-history.md](model-history.md)** — provider-neutral journals and model switching.
 - **[sql-connector.md](sql-connector.md)** — dedicated SQLite purpose stores, schema metadata, native SQL and authenticated human approval.
 - **[sessions.md](sessions.md)** — private chats across transports, channel-bound groups,
   temporary chats, retained history, startup backups and automatic legacy import.
-- **[web-panel.md](web-panel.md)** — embedded React workspace, first setup, owner/user accounts, private chats, configuration and API.
+- **[web-panel.md](web-panel.md)** — first setup, accounts, chat, Operator view, OpenAI
+  device sign-in, model and connector settings, MCP, approvals, and the API.
+- **[telegram-accounts.md](telegram-accounts.md)** — bot setup, account linking, group access, and legacy migration.
 - **[session-messaging.md](session-messaging.md)** — host-only addressed messages,
   bounded context exchange, asynchronous session work and separate report routing;
   remote-device execution remains a planned extension.
@@ -34,6 +39,8 @@ deeper reference.
 - **[deploy.md](deploy.md)** — shipping Albert to a machine: build on a dev box,
   the `/opt/albert` layout, the hardened systemd unit + user/workspace provisioning,
   the Docker alternative, and the per-target config.
+- **[Docker Compose deployment](../contrib/deploy/README.md)** — production and development stacks.
+- **[local-testing.md](local-testing.md)** — isolated end-to-end tests with a synthetic provider.
 
 ## One-paragraph mental model
 

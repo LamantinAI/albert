@@ -30,9 +30,9 @@ The Session catalog and all permanent root/child journals are owned by
 `octo-history` in the internal SQLite database. Albert's user bindings, private
 channel selectors and content-free lifecycle markers share its pool with their
 own migration registry. User SQL stores remain isolated. Linking a User never
-renames native SQL principals or grants extra SQL permissions. Browser login,
-HTTP control endpoints and a browser UI are separate work and are not enabled
-by this stage.
+renames native SQL principals or grants extra SQL permissions. The web workspace
+uses the same Session catalog and journal as linked private Telegram chats.
+Access is checked against the signed-in account. [Web accounts and conversations](web-panel.md#accounts-and-conversations)
 
 ## Names
 

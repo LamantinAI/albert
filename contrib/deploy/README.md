@@ -7,10 +7,11 @@ runs a binary built on your machine and also defines the isolated [e2e profile](
 ## Production
 
 Follow the [quick start](../../README.md#quick-start) to prepare the directory,
-set `KAERU_MCP_AUTH_TOKEN` in `.env`, and start the stack. The same token
-authenticates Albert to Kaeru over a private Compose network. Open the web
-workspace on port 9877, rotate the initial owner credentials, and connect a
-model in the panel.
+set `KAERU_MCP_AUTH_TOKEN` in `.env`, and start the stack. On a remote host,
+restrict access to port 9877 before starting Compose. The default port mapping
+listens on all host interfaces, and first sign-in uses `owner` / `owner`. Rotate
+the initial credentials and connect a model in the web workspace. The token in
+`.env` authenticates Albert to Kaeru over the Compose network.
 
 The image seeds missing configuration, prompts, skills and manifests under
 `./albert`. Subsequent starts preserve existing files. The shipped `albert.toml`
@@ -37,9 +38,13 @@ docker compose up -d
 docker compose down
 ```
 
-Config and model paths, writable storage paths and the logging filter are set
-by the Compose file. Prompts and skills can be edited in `./albert` while the
-service is running. Restart after changing startup config or connector manifests.
+Compose sets the config path, writable storage paths and logging filter. Set up
+models in the web workspace or edit the mounted config. Prompts and skills can
+be edited in `./albert` while the service is running. Restart after changing
+startup config or connector manifests.
+An image update preserves `./albert/system.md` and `./albert/soul.md`. To adopt
+shipped prompt changes on an existing deployment, merge them into the mounted
+files or edit the corresponding documents in the web workspace.
 Treat `.env`, auth stores and backups as private.
 
 ## Development

@@ -28,12 +28,17 @@ multi-step work.
 ### Start Albert
 
 With Docker and the Compose plugin installed, create a deployment directory
-and download the production Compose file:
+and download the production Compose file. On a remote host, restrict access to
+port 9877 before first startup. Compose publishes it on all interfaces and the
+initial password is the same for every installation.
 
 ```sh
 curl -fsSLo docker-compose.yaml https://raw.githubusercontent.com/LamantinAI/albert/main/docker-compose.yaml
 
-printf 'KAERU_MCP_AUTH_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+(
+  umask 077
+  printf 'KAERU_MCP_AUTH_TOKEN=%s\n' "$(od -An -v -N32 -tx1 /dev/urandom | tr -d '[:space:]')" > .env
+)
 docker compose pull
 
 mkdir ./albert
@@ -52,8 +57,8 @@ memory selection step. See the [Docker deployment guide](contrib/deploy/README.m
 
 ### Web workspace
 
-Open `http://127.0.0.1:9877/ui/` after starting Albert. Sign in with `owner` /
-`owner`, replace the initial credentials, and connect a model. The embedded React
+Open `http://127.0.0.1:9877/ui/` from the host. Sign in with `owner` / `owner`,
+replace the initial credentials, and connect a model. The embedded React
 workspace supports private and temporary chats, model priorities, skills, users,
 configuration and SQL approvals. Telegram is optional. See the
 [web panel guide](docs/web-panel.md) for setup, permissions and frontend builds.
@@ -80,9 +85,9 @@ pricier each reply gets. Albert is built the other way round:
 - **Real hands.** A jailed file workspace (read/write/edit/glob/grep) with durable
   storage and file send/receive, plus a sandboxed script runner (forkd) for executable
   skills. It doesn't only talk — it fetches, transforms, and produces files.
-- **Safe at the edge.** Untrusted chats are dropped *before* they reach cognition (an
-  edge ACL — the prompt-injection boundary); scripts run as a lower-privileged user
-  under a hardened systemd unit.
+- **Scoped access.** Account and channel policy determine which tools are available.
+  Telegram guests can address Albert in groups with no tool access. Scripts run as
+  a lower-privileged user.
 
 The net effect: a lighter, faster loop that stays sharp as it accumulates knowledge —
 because knowledge lives in memory it recalls, not in a prompt it re-reads.

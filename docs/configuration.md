@@ -5,14 +5,15 @@ Albert is config-as-data: nothing tunable is hardcoded. There are three layers �
 manifests** (`config/`). Secrets only ever live in the environment; every config file
 is safe to commit (it names secrets by their env-var name, never the value).
 
-The rest of this page is a reference for each knob. For a **complete, working
-configuration** you can copy and fill in, jump to [A working config](#a-working-config)
-at the end — it is the exact set of files a running Albert uses.
+This page is a configuration reference. See [A working config](#a-working-config)
+for the starting files for standalone and Compose installations.
 
 ## `.env` — secrets only
 
-Loaded from the repo root (`../.env`, next to this crate). Holds secret *values* and,
-optionally, the path to the config file:
+Put `.env` in the deployment directory beside `albert.toml`. Albert looks there
+for saved secret values and falls back to the process environment. Set
+`ALBERT_CONFIG` in the process environment before starting Albert to select a
+different config file.
 
 ```sh
 ALBERT_OPENAI_KEY=sk-or-...            # LLM API key (named by openai_key_env in albert.toml)
@@ -25,15 +26,15 @@ OCTO_YANDEX_APP_PASSWORD=...           # an APP password (named by password_env 
 # --- mail: only if you enable the (off-by-default) mail connector ---
 # OCTO_MAIL_USER=...                   # IMAP/SMTP login  (named in mail.toml)
 # OCTO_MAIL_PASS=...                   # IMAP/SMTP app-password (named in mail.toml)
-# ALBERT_CONFIG=/path/to/albert.toml   # optional; default: next to the binary, else the crate dir
 ```
 
 kaeru reads its own `KAERU_*` env (`KAERU_VAULT_PATH`, etc.) directly.
 
 ## `albert.toml` — Albert-level config
 
-Located via `ALBERT_CONFIG`, else `albert.toml` next to the binary, else the crate dir.
-Relative paths inside it resolve against the file's own directory.
+Albert looks for `ALBERT_CONFIG` first, then `albert.toml` next to the binary,
+then `albert.toml` in the working directory. Relative paths inside it resolve
+against the file's own directory.
 
 ```toml
 auth  = "api_key"                        # "api_key" (default) | "subscription"
@@ -195,10 +196,11 @@ can instead own the vault:
 
 The web panel exposes this choice in **Settings → Agent → Memory**. On a fresh
 browser-first installation it also appears immediately after the first model
-connection, for both API keys and subscriptions. The agent initializes only after
-the choice is saved. Existing installations adopt their current backend without
-repeating setup. The small internal setup checkpoint stores selection state;
-memory contents remain in the selected Kaeru storage.
+connection, for both API keys and subscriptions, when no backend has been
+selected. Existing installations and fresh deployments with a valid explicit
+`[memory]` backend, including production Compose, skip this step. The internal
+setup checkpoint records the selection while the selected Kaeru storage holds
+the memory contents.
 
 HTTP bearer tokens can be entered through the masked field, or referenced by an
 existing credential name. Values go to the server secret store and are never
@@ -560,18 +562,17 @@ alarms, the SQLite history, the workspace, promoted artifacts) and
 
 ## A working config
 
-The set of files above **is** a working configuration — the repo ships them with
-placeholder values already in place (`config/connectors/*/*.toml`, `albert.toml`), so a
-real deployment is those files with three edits:
+For a standalone binary, start from `albert.dev.toml` with embedded memory. Keep
+the prompts, skills and `config/` manifests beside it. Set `ALBERT_CONFIG` to
+that file or copy it to `albert.toml` in the deployment directory. Connect your
+first model in the web panel, or specify a provider and its credential reference
+in the config. [Host deployment guide](deploy.md)
 
-1. **Settings → Connections** → connect the Telegram bot, issue a personal token, then `/login` in its private chat.
-2. `config/connectors/calendar/calendar.toml` → your account (`login`, or the Google
-   `collection` + client).
-3. `.env` → the actual secret values (`ALBERT_OPENAI_KEY`, `OCTO_TELEGRAM_TOKEN`, the
-   calendar password/OAuth secrets).
+The production Compose stack seeds its own `albert.toml` with Kaeru MCP already
+configured on the Compose network. [Docker Compose deployment](../contrib/deploy/README.md)
 
-Everything else — the `albert.toml` above, the storage and forkd manifests — works
-unchanged. See [deploy.md](deploy.md) for the host provisioning that pairs with it.
+Set up Telegram under **Settings → Connections** if you use it. Edit the calendar
+manifest and supply calendar credentials in `.env` to enable calendar integration.
 
 ## Model pool
 
@@ -586,8 +587,10 @@ The `[subagents]` table controls delegation limits and enablement. See
 
 ## Conversation context
 
-`[context]` partitions the configured model window into a fixed service/response
-reserve and a configurable fresh-message/compact split. SQLite retains messages
+`[context]` allocates a service and response reserve within each effective model
+window. The reserve is automatic by default and `reserve_tokens` overrides it
+with a fixed value. The remaining space is split between fresh messages and
+compacts. SQLite retains messages
 and separate compacts. See [context.md](context.md) for defaults, `/compact`,
 provider limits, estimation and failure behavior.
 
