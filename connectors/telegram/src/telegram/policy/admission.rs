@@ -47,9 +47,17 @@ impl SessionTelegramPolicy {
             .filter(|command| {
                 matches!(
                     command.name.as_str(),
-                    "sessions" | "new" | "open" | "rename" | "tmp" | "save" | "end"
+                    "sessions" | "new" | "open" | "rename" | "tmp" | "save" | "end" | "fork"
                 )
             });
+        if command
+            .as_ref()
+            .is_some_and(|command| command.name == "fork")
+            && admission.scope() == AdmissionScope::Private
+            && self.service.fork_replayed(&alias).await?
+        {
+            return Ok(IngressDecision::Ignore);
+        }
         let native_route = if admission.scope() == AdmissionScope::Private {
             self.service
                 .resolve_native_frame(&native_navigation(&frame))

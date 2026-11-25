@@ -151,6 +151,14 @@ mod tests {
             .execute(db.pool())
             .await
             .unwrap();
+        query("DROP TABLE albert_fork_name_sequences")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        query("DROP TABLE albert_fork_receipts")
+            .execute(db.pool())
+            .await
+            .unwrap();
         query("DROP TABLE albert_media_assets")
             .execute(db.pool())
             .await

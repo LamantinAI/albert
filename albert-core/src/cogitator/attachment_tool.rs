@@ -4,6 +4,7 @@ use std::{convert::Infallible, path::PathBuf, sync::Arc};
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::task::spawn_blocking;
 
 use crate::{
@@ -78,23 +79,32 @@ impl GetAttachment {
             return Err(MediaError::Scope);
         }
         let store = self.service.media();
-        let asset = store.metadata(session.as_str(), id, false).await?;
+        let (origin, asset) = self
+            .service
+            .resolve_attachment(&self.session, id, false)
+            .await?;
         if asset.size > store.limits.max_file_bytes {
             return Err(MediaError::Limit);
         }
         let bytes = store
-            .slice(session.as_str(), id, false, 0, asset.size)
+            .slice(origin.as_str(), id, false, 0, asset.size)
             .await?;
+        // Forks own their workspace copies independently even when the configured
+        // workspace is shared. The public attachment keeps its original ID.
+        let copy_id = if *session == origin {
+            asset.id.clone()
+        } else {
+            inherited_copy_id(session.as_str(), id)
+        };
         store
-            .register_workspace_copies(session.as_str(), &[asset.id.clone()], &self.workspace)
+            .register_workspace_copies(session.as_str(), &[copy_id.clone()], &self.workspace)
             .await?;
         let workspace = self.workspace.clone();
-        let asset_id = asset.id.clone();
         let path = spawn_blocking(move || {
             // The worker can outlive a canceled turn. Keep the erasure fence
             // until the copy has either been published or failed.
             let _lease = lease;
-            save_script_input_file(&workspace, &asset_id, &bytes)
+            save_script_input_file(&workspace, &copy_id, &bytes)
         })
         .await
         .map_err(|_| MediaError::Workspace)??;
@@ -108,6 +118,22 @@ impl GetAttachment {
     }
 }
 
+// A deterministic UUIDv8 for materialization in the receiving session.
+fn inherited_copy_id(session: &str, asset: &str) -> String {
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(format!("attachment-copy/{session}/{asset}"))
+    );
+    format!(
+        "{}-{}-8{}-8{}-{}",
+        &hash[..8],
+        &hash[8..12],
+        &hash[13..16],
+        &hash[17..20],
+        &hash[20..32]
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -115,12 +141,15 @@ mod tests {
         sync::Arc,
     };
 
-    use octo_history::{AppendRequest, HistoryStore, SessionId, Turn};
+    use octo_history::{AppendRequest, HistoryStore, SessionId, SessionUpdate, Turn};
     use rig::tool::Tool;
 
     use super::{AttachmentArgs, GetAttachment};
     use crate::{
-        media::encode, service::session::web::tests::fixture, sessions::actor::ActorToolPolicy,
+        media::{encode, Asset},
+        service::session::web::{tests::fixture, WebActor},
+        service::session::SessionService,
+        sessions::{actor::ActorToolPolicy, error::SessionError, SessionContext},
     };
 
     #[tokio::test]
@@ -191,5 +220,132 @@ mod tests {
             .unwrap();
         assert_eq!(tool.session.tool_policy(), ActorToolPolicy::ChatOnly);
         assert_eq!(tool.call(call()).await.unwrap()["ok"], false);
+    }
+    async fn accepted_fixture(
+        service: &SessionService,
+        actor: &WebActor,
+        context: &SessionContext,
+        bytes: &[u8],
+    ) -> Asset {
+        let asset = service
+            .media()
+            .stage(
+                &actor.account_id,
+                bytes.to_vec(),
+                "application/octet-stream",
+                "fixture.bin",
+            )
+            .await
+            .unwrap();
+        service
+            .journal_router()
+            .append_journal(
+                &context.root_history_key(),
+                &AppendRequest {
+                    namespace: "fork-media-test".into(),
+                    idempotency_key: asset.id.clone(),
+                    digest: asset.id.clone(),
+                    turns: vec![Turn::user(encode(String::new(), vec![asset.clone()]))],
+                },
+            )
+            .await
+            .unwrap();
+        asset
+    }
+
+    #[tokio::test]
+    async fn fork_materializes_only_inherited_assets_and_owns_its_workspace_copy() {
+        let (dir, service, _, owner) = fixture().await;
+        let service = Arc::new(service);
+        let workspace = dir.path().join("workspace");
+        create_dir(&workspace).unwrap();
+        let parent = service.web_create(&owner, "Parent", false).await.unwrap();
+        let original = service.web_context(&owner, &parent.id).await.unwrap();
+        let early = accepted_fixture(&service, &owner, &original, b"before branch").await;
+        let mut tx = service.history().begin_journal().await.unwrap();
+        let fork = service
+            .history()
+            .fork_session_in(&mut tx, &parent.id, None, "Fork".into())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let late = accepted_fixture(&service, &owner, &original, b"after branch").await;
+        let fork_context = service.web_context(&owner, &fork.id).await.unwrap();
+        let mut tool = GetAttachment {
+            service: service.clone(),
+            session: original,
+            workspace: workspace.clone(),
+            allowed_ids: None,
+        };
+        let parent_copy = tool
+            .call(AttachmentArgs {
+                attachment_id: early.id.clone(),
+            })
+            .await
+            .unwrap();
+        tool.session = fork_context;
+        let fork_copy = tool
+            .call(AttachmentArgs {
+                attachment_id: early.id.clone(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(parent_copy["ok"], true);
+        assert_eq!(fork_copy["ok"], true);
+        assert_ne!(parent_copy["path"], fork_copy["path"]);
+        assert_eq!(
+            read(workspace.join(fork_copy["path"].as_str().unwrap())).unwrap(),
+            b"before branch"
+        );
+        assert_eq!(
+            tool.call(AttachmentArgs {
+                attachment_id: late.id
+            })
+            .await
+            .unwrap()["ok"],
+            false
+        );
+        let archived = service
+            .web_update(
+                &owner,
+                &parent.id,
+                SessionUpdate {
+                    expected_revision: parent.revision,
+                    title: None,
+                    archived: Some(true),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(service.web_delete(&owner, &parent.id, archived.revision, &workspace).await,
+            Err(SessionError::ForkDependents(ids)) if ids == vec![fork.id.clone()])
+        );
+        assert_eq!(
+            tool.call(AttachmentArgs {
+                attachment_id: early.id.clone()
+            })
+            .await
+            .unwrap()["ok"],
+            true
+        );
+        service
+            .web_delete(&owner, &fork.id, fork.revision, &workspace)
+            .await
+            .unwrap();
+        let copy = service.erasure_files(&fork.id).await.unwrap().unwrap();
+        assert_eq!(copy.assets.len(), 1);
+        assert_eq!(
+            format!("media-{}", copy.assets[0].0),
+            fork_copy["path"].as_str().unwrap()
+        );
+        assert_eq!(
+            service
+                .media()
+                .slice(parent.id.as_str(), &early.id, false, 0, early.size)
+                .await
+                .unwrap(),
+            b"before branch"
+        );
     }
 }

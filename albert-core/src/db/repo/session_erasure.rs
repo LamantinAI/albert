@@ -30,6 +30,7 @@ pub(crate) async fn erase_in(
         "DELETE FROM albert_messages WHERE source_session=?",
         "DELETE FROM albert_message_inbox WHERE recipient_session=?",
         "DELETE FROM albert_session_execution WHERE session_id=?",
+        "DELETE FROM albert_fork_name_sequences WHERE session_id=?",
         "DELETE FROM albert_work_reports WHERE session_id=?",
         "UPDATE albert_web_starts SET phase='expired' WHERE session_id=?",
     ] {

@@ -7,7 +7,7 @@ use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 use self::attachments::extract_attachments;
 use crate::{db::error::DatabaseError, db::error::DatabaseResult, media::AttachmentFiles};
 
-pub(super) const SCHEMA_VERSION: i64 = 16;
+pub(super) const SCHEMA_VERSION: i64 = 17;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -63,6 +63,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (
         16,
         include_str!("../../../migrations/0016_attachment_files.sql"),
+    ),
+    (
+        17,
+        include_str!("../../../migrations/0017_fork_receipts.sql"),
     ),
 ];
 fn checksum(sql: &str) -> String {

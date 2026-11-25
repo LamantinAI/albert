@@ -64,7 +64,16 @@ pub fn account_help(skills: &[SkillCommand], owner: bool, private: bool) -> Stri
                 && (private
                     || !matches!(
                         name,
-                        Some("sessions" | "new" | "open" | "rename" | "tmp" | "save" | "end")
+                        Some(
+                            "sessions"
+                                | "new"
+                                | "fork"
+                                | "open"
+                                | "rename"
+                                | "tmp"
+                                | "save"
+                                | "end"
+                        )
                     ))
         })
         .collect::<Vec<_>>()

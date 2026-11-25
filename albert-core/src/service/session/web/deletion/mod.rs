@@ -65,6 +65,10 @@ impl SessionService {
         if session.revision != expected_revision {
             return Err(DatabaseError::RevisionConflict.into());
         }
+        let forks = self.history.fork_dependents_in(&mut tx, id).await?;
+        if !forks.is_empty() {
+            return Err(SessionError::ForkDependents(forks));
+        }
         set_owned(
             &mut tx,
             id.as_str(),

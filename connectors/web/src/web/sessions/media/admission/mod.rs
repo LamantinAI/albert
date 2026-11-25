@@ -5,11 +5,15 @@ use albert_core::{
     service::session::web::start::StartRecord, service::session::web::WebActor,
     sessions::actor::ActorToolPolicy,
 };
-use octo_history::{AppendRequest, SessionId, Turn};
+use axum::http::StatusCode;
+use octo_history::{AppendRequest, HistoryStore, SessionId, Turn};
 use sqlx::query;
 use tokio::{spawn, time::sleep, time::timeout};
 
-use crate::web::sessions::{fixture::fixture, send::namespace, SessionHost};
+use crate::{
+    api::media::{MediaOperation, MediaResponse},
+    web::sessions::{fixture::fixture, send::namespace, SessionHost},
+};
 
 async fn accept(host: &SessionHost, actor: &WebActor, input: &MediaInput) -> StartRecord {
     let request = SessionId::new().to_string();
@@ -34,6 +38,76 @@ async fn accept(host: &SessionHost, actor: &WebActor, input: &MediaInput) -> Sta
         )
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn fork_range_reads_use_the_inherited_attachment_and_hide_later_files() {
+    let (_dir, host, caller) = fixture().await;
+    let actor = host.actor(&caller).await.unwrap();
+    let service = &host.runtime.sessions;
+    let parent = service.web_create(&actor, "Source", false).await.unwrap();
+    let context = host.resource(&actor, parent.id.as_str()).await.unwrap();
+    let put = |bytes: Vec<u8>| {
+        let parent_key = context.root_history_key();
+        let account_id = actor.account_id.clone();
+        async move {
+            let asset = service
+                .media()
+                .stage(&account_id, bytes, "application/octet-stream", "file.bin")
+                .await
+                .unwrap();
+            service
+                .journal_router()
+                .append_journal(
+                    &parent_key,
+                    &AppendRequest {
+                        namespace: "fork-range-test".into(),
+                        idempotency_key: asset.id.clone(),
+                        digest: asset.id.clone(),
+                        turns: vec![Turn::user(encode_prepared(
+                            String::new(),
+                            vec![asset.clone()],
+                            vec![],
+                            vec![],
+                        ))],
+                    },
+                )
+                .await
+                .unwrap();
+            asset.id
+        }
+    };
+    let early = put(b"original bytes".to_vec()).await;
+    let mut tx = service.history().begin_journal().await.unwrap();
+    let fork = service
+        .history()
+        .fork_session_in(&mut tx, &parent.id, None, "Branch".into())
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let late = put(b"future bytes".to_vec()).await;
+    let read = |id| MediaOperation::Read {
+        session: fork.id.to_string(),
+        id,
+        range: Some("bytes=0-7".into()),
+        head: false,
+    };
+    let value = host.media(&caller, read(early.clone())).await.unwrap();
+    let MediaResponse::Asset {
+        metadata,
+        bytes,
+        range,
+    } = value
+    else {
+        panic!("expected attachment bytes");
+    };
+    assert_eq!(metadata.id, early);
+    assert_eq!(bytes, b"original");
+    assert_eq!(range, Some((0, 7)));
+    assert_eq!(
+        host.media(&caller, read(late)).await.err().unwrap().status,
+        StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]

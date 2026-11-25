@@ -59,6 +59,17 @@ pub(super) async fn control(
                 .await?;
             format!("New chat opened: {}", context.session_id())
         }
+        "fork" => {
+            let Some(fork) = policy
+                .service
+                .fork_private_native(&context, args, &native_navigation(frame))
+                .await?
+            else {
+                return Ok(IngressDecision::Ignore);
+            };
+            context = fork;
+            format!("Fork opened: {}", context.session_id())
+        }
         "rename" => {
             context = policy
                 .service
@@ -147,7 +158,7 @@ pub(super) async fn control(
     // The pinned Control.notice seam carries only a retention scope, not its
     // selector revision. Publish navigation text as a separately fenced host
     // reply so a later navigation can suppress a stale preview/receipt.
-    let notice = if matches!(name, "new" | "open" | "tmp" | "end") {
+    let notice = if matches!(name, "new" | "open" | "tmp" | "end" | "fork") {
         post_events.push(navigation_notice(&context, notice));
         None
     } else {

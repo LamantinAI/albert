@@ -162,6 +162,159 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fork_switches_to_a_frozen_private_branch_and_survives_replay_after_restart() {
+        let (dir, policy) = fixture().await;
+        let message = accepted(admit(&policy, 1, None).await);
+        let parent = message.context.get::<SessionContext>().unwrap();
+        let parent_key = parent.root_history_key();
+        policy
+            .service
+            .journal_router()
+            .append(
+                &parent_key,
+                &[
+                    Turn::user("inherited prompt"),
+                    Turn::assistant("inherited answer"),
+                ],
+            )
+            .await
+            .unwrap();
+        let command = "/fork Research";
+        assert!(notice(admit(&policy, 2, Some(command)).await).contains("Fork opened"));
+        let message = accepted(admit(&policy, 3, None).await);
+        let fork = message.context.get::<SessionContext>().unwrap();
+        assert_ne!(fork.session_id(), parent.session_id());
+        assert_eq!(fork.session().title, "Research");
+        policy
+            .service
+            .journal_router()
+            .append(&parent_key, &[Turn::user("parent-only continuation")])
+            .await
+            .unwrap();
+        let turns = policy
+            .service
+            .journal_router()
+            .strict_load(&fork.root_history_key())
+            .await
+            .unwrap();
+        assert_eq!(
+            turns
+                .iter()
+                .map(|turn| turn.content.as_str())
+                .collect::<Vec<_>>(),
+            ["inherited prompt", "inherited answer"]
+        );
+        assert!(matches!(
+            admit(&policy, 2, Some(command)).await,
+            IngressDecision::Ignore
+        ));
+        let _ = admit(&policy, 4, Some(&format!("/open {}", parent.session_id()))).await;
+        let history = Arc::new(
+            SqliteHistory::open_retained(dir.path().join("history.db"))
+                .await
+                .unwrap(),
+        );
+        let service = Arc::new(
+            SessionService::from_history(history, SessionSettings::default())
+                .await
+                .unwrap(),
+        );
+        let authority = Authority::new(Duration::from_secs(300), 128)
+            .with_scope_validator(service.scope_registry());
+        let reopened = SessionTelegramPolicy::new(service, authority);
+        assert!(matches!(
+            admit(&reopened, 2, Some(command)).await,
+            IngressDecision::Ignore
+        ));
+        let message = accepted(admit(&reopened, 5, None).await);
+        let selected = message.context.get::<SessionContext>().unwrap();
+        assert_eq!(selected.session_id(), parent.session_id());
+    }
+
+    #[tokio::test]
+    async fn unnamed_forks_use_the_parent_title_and_persistent_independent_numbers() {
+        let (dir, policy) = fixture().await;
+        let original = accepted(admit(&policy, 1, None).await);
+        let parent = original
+            .context
+            .get::<SessionContext>()
+            .unwrap()
+            .session_id()
+            .clone();
+        let _ = admit(&policy, 2, Some("/rename Research")).await;
+        let _ = admit(&policy, 3, Some("/fork")).await;
+        let message = accepted(admit(&policy, 4, None).await);
+        let first = message
+            .context
+            .get::<SessionContext>()
+            .unwrap()
+            .session()
+            .clone();
+        assert_eq!(first.title, "Research-f1");
+        let open_parent = format!("/open {parent}");
+        let _ = admit(&policy, 5, Some(&open_parent)).await;
+        let _ = admit(&policy, 6, Some("/fork Custom title")).await;
+        let message = accepted(admit(&policy, 7, None).await);
+        assert_eq!(
+            message
+                .context
+                .get::<SessionContext>()
+                .unwrap()
+                .session()
+                .title,
+            "Custom title"
+        );
+        let _ = admit(&policy, 8, Some(&open_parent)).await;
+        let mut tx = policy.service.history().begin_journal().await.unwrap();
+        policy
+            .service
+            .history()
+            .delete_session_in(&mut tx, &first.id, first.revision)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let history = Arc::new(
+            SqliteHistory::open_retained(dir.path().join("history.db"))
+                .await
+                .unwrap(),
+        );
+        let service = Arc::new(
+            SessionService::from_history(history, SessionSettings::default())
+                .await
+                .unwrap(),
+        );
+        let authority = Authority::new(Duration::from_secs(300), 128)
+            .with_scope_validator(service.scope_registry());
+        let reopened = SessionTelegramPolicy::new(service, authority);
+        assert!(matches!(
+            admit(&reopened, 3, Some("/fork")).await,
+            IngressDecision::Ignore
+        ));
+        let _ = admit(&reopened, 9, Some("/fork")).await;
+        let message = accepted(admit(&reopened, 10, None).await);
+        assert_eq!(
+            message
+                .context
+                .get::<SessionContext>()
+                .unwrap()
+                .session()
+                .title,
+            "Research-f2"
+        );
+        let _ = admit(&reopened, 11, Some("/fork")).await;
+        let message = accepted(admit(&reopened, 12, None).await);
+        assert_eq!(
+            message
+                .context
+                .get::<SessionContext>()
+                .unwrap()
+                .session()
+                .title,
+            "Research-f2-f1"
+        );
+    }
+
+    #[tokio::test]
     async fn end_emits_native_close_token_and_late_messages_cannot_leak_into_original() {
         let (_dir, policy) = fixture().await;
         let original = accepted(admit(&policy, 1, None).await);

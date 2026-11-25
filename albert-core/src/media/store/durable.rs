@@ -1,5 +1,6 @@
 use super::MediaStore;
 use crate::media::{Asset, MediaError, MediaResult};
+use octo_history::SessionId;
 use sha2::{Digest, Sha256};
 use sqlx::{query, query_as, query_scalar, Sqlite, Transaction};
 use tokio::task::spawn_blocking;
@@ -122,6 +123,15 @@ impl MediaStore {
             entries.remove(&asset.id);
         }
     }
+    pub(crate) async fn durable_owner(&self, id: &str) -> MediaResult<SessionId> {
+        let owner: String = query_scalar("SELECT session_id FROM albert_media_assets WHERE id=?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(MediaError::NotFound)?;
+        SessionId::parse(&owner).map_err(|_| MediaError::StorageIntegrity)
+    }
+
     /// The caller must authorize the session and hold its backend lease.
     pub async fn metadata(&self, session: &str, id: &str, temporary: bool) -> MediaResult<Asset> {
         if temporary {

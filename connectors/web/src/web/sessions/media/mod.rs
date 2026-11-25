@@ -149,8 +149,10 @@ impl SessionHost {
                     return Err(ApiError::not_found());
                 }
                 let temporary = metadata.kind == SessionKind::Temporary;
-                let asset = store
-                    .metadata(&session, &id, temporary)
+                let (source, asset) = self
+                    .runtime
+                    .sessions
+                    .resolve_attachment(&context, &id, temporary)
                     .await
                     .map_err(error)?;
                 let selected = match range
@@ -166,7 +168,7 @@ impl SessionHost {
                     vec![]
                 } else {
                     store
-                        .slice(&session, &id, temporary, start, end - start + 1)
+                        .slice(source.as_str(), &id, temporary, start, end - start + 1)
                         .await
                         .map_err(error)?
                 };

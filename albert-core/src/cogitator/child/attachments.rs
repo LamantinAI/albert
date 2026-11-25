@@ -108,7 +108,9 @@ impl AlbertCogitator {
                 if !seen.insert(asset_id) {
                     return Err(MediaError::Scope);
                 }
-                let asset = store.metadata(id.as_str(), asset_id, temporary).await?;
+                let (source, asset) = service
+                    .resolve_attachment(context, asset_id, temporary)
+                    .await?;
                 total = total
                     .checked_add(asset.size)
                     .filter(|size| *size <= store.limits.max_file_bytes)
@@ -118,7 +120,7 @@ impl AlbertCogitator {
                     .push(UserContent::text(attachment_note(&asset)));
                 if asset.content_type.starts_with("image/") {
                     let bytes = store
-                        .slice(id.as_str(), asset_id, temporary, 0, asset.size)
+                        .slice(source.as_str(), asset_id, temporary, 0, asset.size)
                         .await?;
                     attachments.prompt_parts.push(UserContent::image_base64(
                         STANDARD.encode(bytes),

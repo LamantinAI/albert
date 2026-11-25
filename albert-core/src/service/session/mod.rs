@@ -1,7 +1,9 @@
 //! Session orchestration over the authoritative octo-history catalog. Albert owns
 //! verified users and private selectors, never a second catalog or transcript.
 mod admission;
+mod attachments;
 mod credentials;
+mod forks;
 mod init;
 mod lifecycle;
 mod messaging;

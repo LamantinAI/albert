@@ -57,6 +57,7 @@ These commands are deterministic private-chat controls:
 |---|---|
 | `/sessions [page-cursor]` | Show named buttons for saved private chats, five per page, with pagination. |
 | `/new [title]` | Create and open a separate persistent chat. |
+| `/fork [title]` | Open a private branch from the current saved chat. |
 | `/rename <title>` | Rename the current saved private chat without starting a model turn. |
 | `/open <session-id>` | Continue an accessible private chat and preview its latest readable message. The bounded preview is not a history dump. |
 | `/tmp` | Open a separate temporary conversation, retaining the return chat. Repeating it inside that excursion is a no-op. |
@@ -141,6 +142,26 @@ outputs are tracked too. Deletion is bounded, best effort and subject to Bot API
 permissions and time limits; failures or unknown outcomes are reported honestly.
 Telegram messages may remain visible. Active work in a saved conversation keeps
 running after End; cleanup does not cancel or mute its later permanent output.
+
+## Session forks
+
+`/fork` uses the committed head and applicable compact of the current saved
+private chat. It opens a new session in the requesting channel. Omit the title to
+use the parent's name and the next automatic suffix, such as `Research-f1` or
+`Research-f2`. Each parent has its own automatic-name sequence. Named forks
+keep the supplied title. Nested forks reuse their inherited journal prefixes.
+New turns and compacts are written to the selected branch, and fresh runs use
+its own execution state.
+
+The stored prefix is referenced by its boundary, so later source messages and
+compacts stay outside the branch. A branch can read an attachment from an
+inherited message via its own session URL or `get_attachment`. The original
+payload is read from its owning session. Workspace copies belong to the branch
+that creates them.
+
+Archiving a source preserves the referenced history. Permanent deletion returns
+a conflict with dependent session IDs while forks exist, including archived
+forks. Deleting a leaf cleans up its own data and releases its reference.
 
 ## Configuration
 

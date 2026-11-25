@@ -257,6 +257,15 @@ pub(super) fn session_error(error: SessionError) -> ApiError {
             "This conversation is no longer available.",
         ),
         SessionError::InvalidInput(message) => ApiError::invalid(message),
+        SessionError::ForkDependents(forks) => {
+            let ids = forks
+                .iter()
+                .take(10)
+                .map(|id| id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            ApiError::conflict(format!("This chat is used by {} fork(s). Archive it or delete its forks before deleting it. Dependent chat IDs: {ids}.", forks.len()))
+        }
         _ => {
             ApiError::conflict("The chat changed or could not be updated. Reload before retrying.")
         }

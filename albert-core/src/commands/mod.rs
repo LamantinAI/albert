@@ -23,7 +23,7 @@ use tracing::{info, warn};
 use crate::acl::BOOTSTRAP_COMMANDS;
 
 /// Names no skill can claim.
-pub const RESERVED: [&str; 19] = [
+pub const RESERVED: [&str; 20] = [
     "start",
     "help",
     "cancel",
@@ -38,6 +38,7 @@ pub const RESERVED: [&str; 19] = [
     "model",
     "sessions",
     "new",
+    "fork",
     "open",
     "rename",
     "tmp",
@@ -49,7 +50,7 @@ pub const RESERVED: [&str; 19] = [
 pub const SET_COMMANDS: &str = "chat.set_commands";
 
 /// System commands as they appear in `/help` and the menu: `(name, what it does, owner-only)`.
-const SYSTEM: [(&str, &str, bool); 17] = [
+const SYSTEM: [(&str, &str, bool); 18] = [
     ("help", "Command reference", false),
     ("model", "Select a model", true),
     ("chatinfo", "Chat and author IDs", false),
@@ -61,6 +62,11 @@ const SYSTEM: [(&str, &str, bool); 17] = [
     (
         "new",
         "Private chats: open a new chat (optional title)",
+        false,
+    ),
+    (
+        "fork",
+        "Private chats: fork this saved chat (optional title)",
         false,
     ),
     ("open", "Private chats: continue /open <session-id>", false),
@@ -301,8 +307,8 @@ mod tests {
         assert_eq!(
             names("commands"),
             [
-                "help", "chatinfo", "sessions", "new", "open", "rename", "tmp", "save", "end",
-                "brief"
+                "help", "chatinfo", "sessions", "new", "fork", "open", "rename", "tmp", "save",
+                "end", "brief"
             ]
         );
         assert!(names("owner_commands").contains(&"settings".to_string()));

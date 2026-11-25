@@ -1,4 +1,4 @@
-use octo_history::HistoryError;
+use octo_history::{HistoryError, SessionId};
 use thiserror::Error;
 
 use crate::db::error::DatabaseError;
@@ -13,6 +13,8 @@ pub enum SessionError {
     Ended,
     #[error("temporary chat expired after a restart; choose a chat or use /tmp or /end")]
     Expired,
+    #[error("this chat has dependent forks")]
+    ForkDependents(Vec<SessionId>),
     #[error("session lifecycle state is unavailable")]
     Unavailable,
     #[error("session selectors are available only in private channels")]
