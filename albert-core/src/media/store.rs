@@ -7,7 +7,10 @@ use octo_history::SessionId;
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
-use super::{types::content_type, types::filename, Asset, MediaError, MediaLimits, MediaResult};
+use super::{
+    types::content_type, types::filename, Asset, AttachmentFiles, MediaError, MediaLimits,
+    MediaResult,
+};
 
 #[derive(Clone)]
 struct Entry {
@@ -32,14 +35,20 @@ impl PreparedMedia {
 
 pub struct MediaStore {
     pool: SqlitePool,
+    files: Option<AttachmentFiles>,
     pub limits: MediaLimits,
     entries: Mutex<HashMap<String, Entry>>,
     pub(crate) temporary_writes: Mutex<()>,
 }
 impl MediaStore {
-    pub fn new(pool: SqlitePool, limits: MediaLimits) -> Arc<Self> {
+    pub(crate) fn new(
+        pool: SqlitePool,
+        limits: MediaLimits,
+        files: Option<AttachmentFiles>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             pool,
+            files,
             limits,
             entries: Mutex::new(HashMap::new()),
             temporary_writes: Mutex::new(()),

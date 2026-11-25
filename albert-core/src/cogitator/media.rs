@@ -1,13 +1,62 @@
 use octo_core::{Blob, Envelope, InboundMessage};
+use octo_history::PageRequest;
+use rig::{completion::Message, message::UserContent, OneOrMany};
 
 use super::{context::source_context, retention::temporary, AlbertCogitator, UserInput};
 use crate::{
     composer::PreparedSkills,
-    media::{encode_prepared, encode_selected, workspace_note, Asset, MediaInput},
+    media::{
+        attachment_note, decode, encode_prepared, encode_selected, workspace_note, Asset,
+        MediaInput,
+    },
     sessions::SessionContext,
 };
 
 impl AlbertCogitator {
+    pub(super) async fn attachment_prompt(
+        &self,
+        incoming: &Envelope,
+        input: &UserInput,
+        channel: &str,
+        accepted_id: Option<i64>,
+    ) -> Message {
+        let prompt = input.prompt_with_source(incoming);
+        let assets = if let Some(media) = incoming.context.get::<MediaInput>() {
+            media.assets.clone()
+        } else if let Some(id) = accepted_id.filter(|_| !input.images.is_empty()) {
+            self.history
+                .journal_page(
+                    channel,
+                    PageRequest {
+                        through_id: Some(id),
+                        limit: 1,
+                        ..PageRequest::default()
+                    },
+                )
+                .await
+                .ok()
+                .and_then(|page| page.records.into_iter().find(|record| record.id == id))
+                .and_then(|record| decode(&record.turn.content))
+                .map(|record| record.attachments)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if assets.is_empty() {
+            return prompt;
+        }
+        let Message::User { content } = prompt else {
+            return prompt;
+        };
+        let mut parts: Vec<_> = content.into_iter().collect();
+        parts.push(UserContent::text(
+            assets.iter().map(attachment_note).collect::<String>(),
+        ));
+        Message::User {
+            content: OneOrMany::many(parts).expect("attachment notes accompany a user message"),
+        }
+    }
+
     pub(super) fn web_media_input(&self, media: &MediaInput, incoming: &Envelope) -> UserInput {
         let temporary = temporary(incoming.context.get::<SessionContext>());
         let mut text = media.text.clone();

@@ -64,6 +64,7 @@ period_secs = 21600      # base memory-reflection routine cadence (6h)
 [history]
 backend = "sqlite:state/history.db"   # retained session journals
 backup_dir = "state/history-backups" # pre-upgrade SQLite snapshots
+attachment_root = "state/attachments" # retained files, keyed by session and asset ID
 
 [scheduler]
 state_path = "state/scheduler.json"   # where alarms persist (survives restart)
@@ -79,6 +80,14 @@ page  = 10               # skill_list page size only (see below)
 [code]
 workspace = "state/workspace"   # ephemeral file-tool jail ($OCTO_CODE_WORKSPACE)
 ```
+
+Retained chat attachments use `[history].attachment_root`. The path is relative
+to the configuration file unless absolute. Keep this directory with SQLite in
+backups and preserve its `<session-id>/<attachment-id>` layout when moving it.
+Upgrading from SQLite attachments copies and verifies the payloads before the
+schema removes the old blobs. Temporary chat attachments stay in RAM until the
+chat is saved.
+
 
 ### Auth: API key vs. ChatGPT subscription
 

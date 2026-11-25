@@ -34,8 +34,11 @@ the operator configures the role/model IDs returned by discovery:
 ```
 
 A writer can instead receive `models: ["writer"]`, `connectors: []`, `tools: []`
-and the researcher's findings as explicit context. The context is text in this
-version; parent conversation history, persona and attachments are not copied.
+and the researcher's findings as explicit text context. To include an attachment,
+pass its ID in `task.attachment_ids`. IDs are resolved in the current conversation
+with the owner's authority. Images are supplied directly to a vision-capable
+model in the assigned pool. The child receives the selected files in order and
+its own task context.
 
 Spawn returns a `run_id`. Other actions:
 
@@ -80,7 +83,11 @@ Native tools are individually selected by name, independently of connector
 access. Available tools include scratchpad tools, skill discovery/application,
 `read` and `write`, and the configured memory backend's verbs. Embedded memory
 exposes its local verbs and, when enabled, cloud verbs; MCP memory exposes its
-available adapter tools. None are installed unless explicitly granted.
+available adapter tools. These tools require explicit grants. A child given
+`attachment_ids` gets `get_attachment` by default in permanent conversations
+when its model supports tools. The tool can materialize only the selected IDs
+into the run directory. Other file types require a tool-capable model. Images in
+a temporary conversation can be supplied to the model directly from RAM.
 An explicitly granted memory tool uses the configured shared memory backend.
 Skill instructions do not grant the connectors needed to execute them.
 

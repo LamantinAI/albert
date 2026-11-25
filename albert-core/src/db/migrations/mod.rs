@@ -1,10 +1,13 @@
 //! Canonical migration union and exact legacy admin-ledger reconciliation.
+mod attachments;
+
 use sha2::{Digest, Sha256};
 use sqlx::{query, query_as, query_scalar, raw_sql, SqlitePool};
 
-use crate::{db::error::DatabaseError, db::error::DatabaseResult};
+use self::attachments::extract_attachments;
+use crate::{db::error::DatabaseError, db::error::DatabaseResult, media::AttachmentFiles};
 
-pub(super) const SCHEMA_VERSION: i64 = 14;
+pub(super) const SCHEMA_VERSION: i64 = 16;
 const MIGRATIONS: &[(i64, &str)] = &[
     (
         1,
@@ -53,6 +56,14 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("../../../migrations/0013_memory_setup.sql"),
     ),
     (14, include_str!("../../../migrations/0014_model_usage.sql")),
+    (
+        15,
+        include_str!("../../../migrations/0015_attachment_hashes.sql"),
+    ),
+    (
+        16,
+        include_str!("../../../migrations/0016_attachment_files.sql"),
+    ),
 ];
 fn checksum(sql: &str) -> String {
     format!("{:x}", Sha256::digest(sql.as_bytes()))
@@ -88,10 +99,13 @@ fn validate(rows: &[(i64, String)]) -> DatabaseResult<bool> {
     }
     Ok(false)
 }
-pub(super) async fn migrate(pool: &SqlitePool) -> DatabaseResult<()> {
+pub(super) async fn migrate(
+    pool: &SqlitePool,
+    files: Option<&AttachmentFiles>,
+) -> DatabaseResult<()> {
     // Never claim octo-history's registry. Reconciliation and all schema/data
     // upgrades share ONE transaction; unknown/mixed ledgers are never rewritten.
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     query("CREATE TABLE IF NOT EXISTS albert_schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL)").execute(&mut *tx).await?;
     let rows: Vec<(i64, String)> =
         query_as("SELECT version,checksum FROM albert_schema_migrations ORDER BY version")
@@ -120,6 +134,9 @@ pub(super) async fn migrate(pool: &SqlitePool) -> DatabaseResult<()> {
             }
             Some(_) => {}
             None => {
+                if version == 16 {
+                    extract_attachments(&mut tx, files).await?;
+                }
                 raw_sql(sql).execute(&mut *tx).await?;
                 if version == 13 {
                     query(
@@ -147,6 +164,8 @@ pub(super) async fn migrate(pool: &SqlitePool) -> DatabaseResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::{read, remove_file};
+
     use octo_history::{
         AppendRequest, CreateSession, PageRequest, SessionId, SessionJournal, SessionStore,
         SqliteHistory, Turn,
@@ -155,7 +174,7 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::{checksum, MIGRATIONS};
-    use crate::{db::error::DatabaseError, db::Database};
+    use crate::{db::error::DatabaseError, db::Database, media::AttachmentFiles};
 
     struct Fixture {
         _dir: TempDir,
@@ -228,6 +247,95 @@ mod tests {
             .await
             .unwrap()
     }
+    #[tokio::test]
+    async fn file_migration_preserves_journal_and_resumes_after_an_unverified_payload() {
+        let fixture = fixture().await;
+        seed(&fixture.pool, &MIGRATIONS[..14]).await;
+        let root = fixture._dir.path().join("attachment-fixture");
+        let files = AttachmentFiles::new(root.clone());
+        let mut ids = [SessionId::new().to_string(), SessionId::new().to_string()];
+        ids.sort();
+        for id in &ids {
+            query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,bytes) VALUES (?,?,'shared-name.bin','application/octet-stream',3,?)")
+                .bind(id).bind(fixture.session.as_str()).bind(b"abc".as_slice()).execute(&fixture.pool).await.unwrap();
+        }
+        files
+            .store(fixture.session.as_str(), &ids[1], b"bad")
+            .unwrap();
+        assert!(
+            Database::with_attachment_files(fixture.pool.clone(), Some(&files))
+                .await
+                .is_err()
+        );
+        assert_eq!(ledger(&fixture.pool).await.len(), 14);
+        assert_eq!(
+            query_scalar::<_, i64>("SELECT COUNT(*) FROM albert_media_assets WHERE bytes=?")
+                .bind(b"abc".as_slice())
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap(),
+            2
+        );
+        let directory = root.join(fixture.session.as_str());
+        assert_eq!(read(directory.join(&ids[0])).unwrap(), b"abc");
+        remove_file(directory.join(&ids[1])).unwrap();
+        Database::with_attachment_files(fixture.pool.clone(), Some(&files))
+            .await
+            .unwrap();
+        assert_complete_with_files(&fixture, &files, &ids).await;
+        Database::with_attachment_files(fixture.pool.clone(), Some(&files))
+            .await
+            .unwrap();
+        assert_eq!(
+            ledger(&fixture.pool).await.len(),
+            Database::schema_version() as usize
+        );
+        assert_eq!(count(&fixture.pool, "albert_media_assets_next").await, 0);
+    }
+
+    async fn assert_complete_with_files(
+        fixture: &Fixture,
+        files: &AttachmentFiles,
+        ids: &[String],
+    ) {
+        let rows: Vec<(String, String, String, i64, String)> = query_as(
+            "SELECT id,session_id,filename,size,sha256 FROM albert_media_assets ORDER BY id",
+        )
+        .fetch_all(&fixture.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        for (row, id) in rows.iter().zip(ids) {
+            assert_eq!(
+                (&row.0, row.1.as_str(), row.2.as_str(), row.3),
+                (id, fixture.session.as_str(), "shared-name.bin", 3)
+            );
+            assert_eq!(row.4, checksum("abc"));
+            assert_eq!(
+                files.slice(fixture.session.as_str(), id, 3, 0, 3).unwrap(),
+                b"abc"
+            );
+        }
+        assert_eq!(
+            query_scalar::<_, i64>(
+                "SELECT count(*) FROM pragma_table_info('albert_media_assets') WHERE name='bytes'"
+            )
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap(),
+            0
+        );
+        let page = fixture
+            .history
+            .session_page(
+                &SessionJournal::Root(fixture.session.clone()),
+                PageRequest::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.records[0].turn.content, "retained journal payload");
+    }
+
     async fn assert_complete(fixture: &Fixture) {
         assert_eq!(
             ledger(&fixture.pool).await,

@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use tokio::{sync::OwnedRwLockReadGuard, sync::RwLock};
 use tracing::warn;
 
-use crate::media::{format_assets, Asset, MediaLimits, MediaStore};
+use crate::media::{format_assets, Asset, MediaStore};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
@@ -36,8 +36,11 @@ pub struct SessionHistory {
 }
 
 impl SessionHistory {
-    pub fn new(durable: Arc<SqliteHistory>, limits: MemoryLimits) -> HistoryResult<Self> {
-        let media = MediaStore::new(durable.pool().clone(), MediaLimits::default());
+    pub fn new(
+        durable: Arc<SqliteHistory>,
+        limits: MemoryLimits,
+        media: Arc<MediaStore>,
+    ) -> HistoryResult<Self> {
         Ok(Self {
             durable,
             media,
@@ -47,11 +50,6 @@ impl SessionHistory {
             writer_epoch: format!("{:032x}", random::<u128>()),
             sequence: AtomicU64::new(0),
         })
-    }
-
-    pub fn with_media_limits(mut self, limits: MediaLimits) -> Self {
-        self.media = MediaStore::new(self.durable.pool().clone(), limits);
-        self
     }
 
     pub fn temporary(&self) -> &Arc<RetainedMemoryHistory> {
@@ -294,7 +292,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::{spawn, time::timeout};
 
-    use super::{parse_journal, Backend, SessionHistory};
+    use super::{parse_journal, Backend, MediaStore, SessionHistory};
 
     #[test]
     fn child_parser_preserves_the_entire_opaque_run_id() {
@@ -318,7 +316,12 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let router = SessionHistory::new(durable.clone(), MemoryLimits::default()).unwrap();
+        let router = SessionHistory::new(
+            durable.clone(),
+            MemoryLimits::default(),
+            MediaStore::new(durable.pool().clone(), Default::default(), None),
+        )
+        .unwrap();
         let mut request = CreateSession::private("owner");
         request.kind = SessionKind::Temporary;
         let session = router.temporary().create_session(request).await.unwrap();
@@ -358,7 +361,14 @@ mod tests {
             .create_session(CreateSession::private("owner"))
             .await
             .unwrap();
-        let router = Arc::new(SessionHistory::new(durable, MemoryLimits::default()).unwrap());
+        let router = Arc::new(
+            SessionHistory::new(
+                durable.clone(),
+                MemoryLimits::default(),
+                MediaStore::new(durable.pool().clone(), Default::default(), None),
+            )
+            .unwrap(),
+        );
         let handle = router.handle(&session.id).await;
         let mut exclusive = handle.write_owned().await;
         let writer = router.clone();

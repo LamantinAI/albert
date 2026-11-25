@@ -3,6 +3,8 @@ use std::result::Result as StdResult;
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 
+use crate::media::MediaError;
+
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("internal database: {0}")]
@@ -13,6 +15,10 @@ pub enum DatabaseError {
     SchemaVersion(i64),
     #[error("internal database migration ledger is not a supported lineage")]
     MigrationLedger,
+    #[error("internal database attachment migration could not be verified")]
+    AttachmentMigration,
+    #[error("internal database attachment migration: {0}")]
+    AttachmentStorage(#[from] MediaError),
     #[error("external identity is already bound to a different user")]
     IdentityConflict,
     #[error("internal metadata changed; reload and retry")]

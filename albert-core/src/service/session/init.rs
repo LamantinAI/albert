@@ -1,16 +1,25 @@
 use crate::usage::UsageLedger;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use octo_history::{MemoryLimits, SessionId, SqliteHistory};
 use rand::random;
 
 use super::{native_routes::NativeSeen, SessionService};
 use crate::{
-    accounts::AccountAuthority, confirmations::ConfirmationGuard, credentials::CredentialGuard,
-    db::entity::MarkerState, db::error::DatabaseError, db::repo::excursion::discard_expired_in,
-    db::repo::marker::all, db::repo::marker::expire_previous_runtime, db::Database,
-    history::sessions::SessionHistory, sessions::error::SessionResult,
-    sessions::lease::ScopeRegistry, sessions::settings::SessionSettings,
+    accounts::AccountAuthority,
+    confirmations::ConfirmationGuard,
+    credentials::CredentialGuard,
+    db::entity::MarkerState,
+    db::error::DatabaseError,
+    db::repo::excursion::discard_expired_in,
+    db::repo::marker::all,
+    db::repo::marker::expire_previous_runtime,
+    db::Database,
+    history::sessions::SessionHistory,
+    media::{AttachmentFiles, MediaStore},
+    sessions::error::SessionResult,
+    sessions::lease::ScopeRegistry,
+    sessions::settings::SessionSettings,
 };
 
 impl SessionService {
@@ -18,20 +27,39 @@ impl SessionService {
         history: Arc<SqliteHistory>,
         settings: SessionSettings,
     ) -> SessionResult<Self> {
+        let files = AttachmentFiles::beside_database(history.pool())
+            .await
+            .map_err(DatabaseError::from)?;
+        Self::initialize(history, settings, files).await
+    }
+
+    pub async fn from_history_with_attachment_root(
+        history: Arc<SqliteHistory>,
+        settings: SessionSettings,
+        root: PathBuf,
+    ) -> SessionResult<Self> {
+        Self::initialize(history, settings, Some(AttachmentFiles::new(root))).await
+    }
+
+    async fn initialize(
+        history: Arc<SqliteHistory>,
+        settings: SessionSettings,
+        files: Option<AttachmentFiles>,
+    ) -> SessionResult<Self> {
         settings.validate()?;
-        let database = Database::from_pool(history.pool().clone()).await?;
+        let database =
+            Database::with_attachment_files(history.pool().clone(), files.as_ref()).await?;
+        let media = MediaStore::new(history.pool().clone(), settings.media.clone(), files);
         let limits = &settings.limits;
-        let router = Arc::new(
-            SessionHistory::new(
-                history.clone(),
-                MemoryLimits {
-                    max_sessions: limits.temporary_max_sessions,
-                    max_turns: limits.temporary_max_turns,
-                    max_bytes: limits.temporary_max_bytes,
-                },
-            )?
-            .with_media_limits(settings.media.clone()),
-        );
+        let router = Arc::new(SessionHistory::new(
+            history.clone(),
+            MemoryLimits {
+                max_sessions: limits.temporary_max_sessions,
+                max_turns: limits.temporary_max_turns,
+                max_bytes: limits.temporary_max_bytes,
+            },
+            media,
+        )?);
         let runtime_epoch = format!("{:032x}", random::<u128>());
         let mut tx = history.begin_journal().await?;
         expire_previous_runtime(&mut tx, &runtime_epoch).await?;

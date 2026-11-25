@@ -26,7 +26,14 @@ pub(crate) async fn open_sessions(
         info!(path = %backup.display(), "consistent internal database backup created before migrations");
     }
     let history = Arc::new(SqliteHistory::open_retained(&path).await?);
-    let service = Arc::new(SessionService::from_history(history, config.sessions.clone()).await?);
+    let service = Arc::new(
+        SessionService::from_history_with_attachment_root(
+            history,
+            config.sessions.clone(),
+            config.attachment_root.clone(),
+        )
+        .await?,
+    );
     attach_configured_owner(&service, &config.connectors_manifest).await?;
     if let Err(error) =
         import_verified(&service, &config.connectors_manifest, telegram_enabled).await

@@ -117,12 +117,14 @@ pub(super) struct RawHistory {
     pub(super) backend: String,
     #[serde(default = "default_backup_dir")]
     pub(super) backup_dir: String,
+    pub(super) attachment_root: Option<String>,
 }
 impl Default for RawHistory {
     fn default() -> Self {
         Self {
             backend: d_backend(),
             backup_dir: default_backup_dir(),
+            attachment_root: None,
         }
     }
 }

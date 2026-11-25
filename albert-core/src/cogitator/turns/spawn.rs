@@ -223,7 +223,10 @@ impl AlbertCogitator {
         } else {
             info!(source = %incoming.source, %channel, "← {}", input.transcript());
         }
-        messages.push(input.prompt_with_source(&incoming));
+        messages.push(
+            self.attachment_prompt(&incoming, &input, &channel, boundary.map(|id| id + 1))
+                .await,
+        );
         let scope = format!(
             "{}/{}-{}",
             self.id,

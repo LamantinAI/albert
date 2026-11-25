@@ -82,6 +82,7 @@ pub struct Config {
     pub stream_status: bool,
     pub history: Option<String>,
     pub history_backup_dir: PathBuf,
+    pub attachment_root: PathBuf,
     pub scheduler_state_path: PathBuf,
     pub reflection_secs: u64,
     pub soul_path: PathBuf,

@@ -70,10 +70,7 @@ pub fn project(text: &str) -> String {
         ));
     }
     for asset in record.attachments {
-        text.push_str(&format!(
-            "\n[Attached file: {:?}, {}, {} bytes]",
-            asset.filename, asset.content_type, asset.size
-        ));
+        text.push_str(&attachment_note(&asset));
         if let Some(file) = record
             .workspace_files
             .iter()
@@ -83,6 +80,12 @@ pub fn project(text: &str) -> String {
         }
     }
     text
+}
+pub(crate) fn attachment_note(asset: &Asset) -> String {
+    format!(
+        "\n[Attached file: {:?}, {}, {} bytes, attachment ID {}]",
+        asset.filename, asset.content_type, asset.size, asset.id
+    )
 }
 pub fn workspace_note(asset: &Asset, file: &WorkspaceFile) -> String {
     if let Some(path) = &file.path {

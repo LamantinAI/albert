@@ -58,6 +58,7 @@ period_secs = 21600   # base memory-reflection routine cadence (6h)
 backend = "sqlite:state/history.db"
 # Consistent snapshots before internal history/control schema upgrades (WAL included).
 backup_dir = "state/history-backups"
+attachment_root = "state/attachments" # retained files, keyed by session and asset ID
 
 [sessions.limits]
 temporary_max_sessions = 32

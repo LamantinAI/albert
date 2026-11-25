@@ -7,6 +7,8 @@ pub struct Task {
     pub task: String,
     #[serde(default)]
     pub context: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachment_ids: Vec<String>,
     #[serde(default)]
     pub models: Vec<String>,
     #[serde(default)]

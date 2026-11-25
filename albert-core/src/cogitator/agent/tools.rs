@@ -11,7 +11,8 @@ use rig::{
 use tracing::debug;
 
 use crate::cogitator::{
-    retention::fence_tools, retention::permitted_memory, retention::temporary, AlbertCogitator,
+    attachment_tool::GetAttachment, retention::fence_tools, retention::permitted_memory,
+    retention::temporary, AlbertCogitator,
 };
 use crate::status::StatusFeed;
 
@@ -91,6 +92,17 @@ impl AlbertCogitator {
         }
         if let Some(tool) = messaging {
             tools.push(Box::new(tool));
+        }
+        if pad_scope.owner && !volatile {
+            if let (Some(service), Some(session)) = (self.session_service.clone(), session.clone())
+            {
+                tools.push(Box::new(GetAttachment {
+                    service,
+                    session,
+                    workspace: self.config.code_workspace.clone(),
+                    allowed_ids: None,
+                }));
+            }
         }
         if let Some(tool) = send_file {
             tools.push(Box::new(tool));

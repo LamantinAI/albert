@@ -1,5 +1,7 @@
 use crate::subagents::SubagentTool;
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
+
+use octo_core::ConnectorInfo;
 
 use rig::tool::ToolDyn;
 
@@ -12,6 +14,28 @@ use crate::{
 };
 
 impl AlbertCogitator {
+    pub(super) fn child_connectors(
+        &self,
+        tool: &SubagentTool,
+        names: &[String],
+    ) -> Result<Vec<ConnectorInfo>, String> {
+        let allowed: HashSet<_> = names.iter().map(String::as_str).collect();
+        let connectors: Vec<_> = tool
+            .ctx
+            .connectors()
+            .iter()
+            .filter(|connector| {
+                allowed.contains(connector.id.as_str())
+                    && connector.capabilities.description.is_some()
+            })
+            .cloned()
+            .collect();
+        if connectors.len() != allowed.len() {
+            return Err("Unknown or unadvertised connector grant.".into());
+        }
+        Ok(connectors)
+    }
+
     pub(super) fn validate_child_tools(
         &self,
         tool: &SubagentTool,

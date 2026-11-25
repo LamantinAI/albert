@@ -2,8 +2,18 @@ mod cleanup;
 pub use cleanup::discard_input_file;
 
 use std::{
-    ffi::CString, fs::File, io::Error as IoError, io::ErrorKind, io::Read, io::Write,
-    os::fd::AsRawFd, os::fd::FromRawFd, path::Component, path::Path,
+    ffi::CString,
+    fs::File,
+    fs::Permissions,
+    io::Error as IoError,
+    io::ErrorKind,
+    io::Read,
+    io::Write,
+    os::fd::AsRawFd,
+    os::fd::FromRawFd,
+    os::unix::fs::{MetadataExt, PermissionsExt},
+    path::Component,
+    path::Path,
 };
 
 use libc::{
@@ -69,6 +79,19 @@ pub fn read_workspace_file(root: &Path, relative: &str, limit: usize) -> MediaRe
     Ok(bytes)
 }
 pub fn save_input_file(root: &Path, id: &str, bytes: &[u8]) -> MediaResult<String> {
+    save_input_file_with_mode(root, id, bytes, 0o600)
+}
+
+pub(crate) fn save_script_input_file(root: &Path, id: &str, bytes: &[u8]) -> MediaResult<String> {
+    save_input_file_with_mode(root, id, bytes, 0o640)
+}
+
+fn save_input_file_with_mode(
+    root: &Path,
+    id: &str,
+    bytes: &[u8],
+    mode: u32,
+) -> MediaResult<String> {
     SessionId::parse(id).map_err(|_| MediaError::Workspace)?;
     let name = format!("media-{id}");
     let directory = File::open(root).map_err(|_| MediaError::Workspace)?;
@@ -92,6 +115,8 @@ pub fn save_input_file(root: &Path, id: &str, bytes: &[u8]) -> MediaResult<Strin
     let mut file = unsafe { File::from_raw_fd(fd) };
     let outcome = (|| {
         file.write_all(bytes).map_err(|_| MediaError::Workspace)?;
+        file.set_permissions(Permissions::from_mode(mode))
+            .map_err(|_| MediaError::Workspace)?;
         file.sync_all().map_err(|_| MediaError::Workspace)?;
         // Publishing the complete inode with linkat is exclusive: an existing
         // workspace file, directory or symlink is never replaced or followed.
@@ -139,6 +164,19 @@ pub fn save_input_file(root: &Path, id: &str, bytes: &[u8]) -> MediaResult<Strin
                 != 0
             {
                 return Err(MediaError::Workspace);
+            }
+            if mode == 0o640 && metadata.mode() & 0o040 == 0 {
+                let staging_owner = file.metadata().map_err(|_| MediaError::Workspace)?;
+                if metadata.nlink() != 1
+                    || metadata.uid() != staging_owner.uid()
+                    || metadata.gid() != staging_owner.gid()
+                {
+                    return Err(MediaError::Workspace);
+                }
+                existing
+                    .set_permissions(Permissions::from_mode(mode))
+                    .map_err(|_| MediaError::Workspace)?;
+                existing.sync_all().map_err(|_| MediaError::Workspace)?;
             }
         }
         Ok(())

@@ -39,6 +39,7 @@ use crate::{
 
 mod agent;
 mod alarms;
+mod attachment_tool;
 mod build;
 mod child;
 mod compaction;

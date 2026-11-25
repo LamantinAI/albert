@@ -41,6 +41,7 @@ pub(super) fn fixture() -> (Arc<AlbertCogitator>, CogitatorContext, Arc<InMemory
         stream_status: false,
         history: None,
         history_backup_dir: path.join("history-backups"),
+        attachment_root: path.join("attachments"),
         scheduler_state_path: path.join("scheduler"),
         reflection_secs: 0,
         soul_path: path.join("soul.md"),

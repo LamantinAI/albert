@@ -1,8 +1,8 @@
 mod budget;
 use self::budget::budget;
 use std::{
-    collections::HashSet, fs::create_dir_all, future::pending, panic::AssertUnwindSafe,
-    sync::atomic::Ordering, sync::Arc, time::Duration,
+    fs::create_dir_all, future::pending, panic::AssertUnwindSafe, sync::atomic::Ordering,
+    sync::Arc, time::Duration,
 };
 
 use futures::FutureExt;
@@ -14,7 +14,10 @@ use serde_json::{json, Value};
 use tokio::{select, spawn, time::sleep};
 use tracing::{info, warn};
 
-use super::{super::scratchpad_scope, super::AlbertCogitator, planning::LinkedStage};
+use super::{
+    super::scratchpad_scope, super::AlbertCogitator, attachments::ChildAttachments,
+    planning::LinkedStage,
+};
 use crate::{
     connector_catalog::ConnectorCatalog, context::DiagnosticScope, history::tool_trace,
     history::Turn, scratchpad::Reservation, sessions::output::output_scope,
@@ -26,10 +29,12 @@ impl AlbertCogitator {
         self: &Arc<Self>,
         tool: &SubagentTool,
         mut task: Task,
+        attachments: ChildAttachments,
     ) -> Result<Value, String> {
         let limits = &self.config.subagents;
         let (max_turns, seconds) = budget(tool, &task, limits)?;
         let (snapshot, assignment) = self.resolve_child_task(tool, &mut task)?;
+        attachments.validate_models(&snapshot, &task)?;
         if tool.ingress.is_none()
             && (!task.sql_stores.is_empty() || task.sql_write || task.sql_schema)
         {
@@ -44,17 +49,7 @@ impl AlbertCogitator {
                     .map(|child| child.limit_lifetime(Duration::from_secs(seconds)))
             })
             .transpose()?;
-        let allowed: HashSet<_> = task.connectors.iter().cloned().collect();
-        let connectors: Vec<_> = tool
-            .ctx
-            .connectors()
-            .iter()
-            .filter(|c| allowed.contains(c.id.as_str()) && c.capabilities.description.is_some())
-            .cloned()
-            .collect();
-        if connectors.len() != allowed.len() {
-            return Err("Unknown or unadvertised connector grant.".into());
-        }
+        let connectors = self.child_connectors(tool, &task.connectors)?;
         self.validate_child_tools(tool, &task.tools)?;
         let workspace = self
             .config
@@ -238,6 +233,7 @@ impl AlbertCogitator {
                 let execution = AssertUnwindSafe(me.run_child(
                     &owned_run,
                     task,
+                    attachments,
                     snapshot,
                     tools,
                     max_turns,

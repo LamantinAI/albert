@@ -177,6 +177,23 @@ pub(super) async fn buffered_completion(
             }}]}),
             "tool_calls",
         )
+    } else if model == "attachment-child" && count == 1 {
+        let messages = body["messages"].to_string();
+        let selected_id = messages
+            .split_once("attachment ID ")
+            .unwrap()
+            .1
+            .split(']')
+            .next()
+            .unwrap();
+        let other_id = &messages.split_once("UNGRANTED_ID:").unwrap().1[..36];
+        (
+            json!({"role":"assistant","content":null,"tool_calls":[
+                {"id":"selected-file","type":"function","function":{"name":"get_attachment","arguments":json!({"attachment_id":selected_id}).to_string()}},
+                {"id":"ungranted-file","type":"function","function":{"name":"get_attachment","arguments":json!({"attachment_id":other_id}).to_string()}}
+            ]}),
+            "tool_calls",
+        )
     } else if model == "delegates" && count == 1 {
         (
             json!({"role":"assistant","content":null,"tool_calls":[{"id":"spawn-child","type":"function","function":{

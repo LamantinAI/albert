@@ -10,7 +10,7 @@ mod migrations;
 use sqlx::SqlitePool;
 
 use self::{migrations::migrate, migrations::SCHEMA_VERSION};
-use crate::db::error::DatabaseResult;
+use crate::{db::error::DatabaseResult, media::AttachmentFiles};
 
 #[derive(Clone)]
 pub struct Database {
@@ -23,17 +23,20 @@ impl Database {
     }
 
     pub async fn from_pool(pool: SqlitePool) -> DatabaseResult<Self> {
-        let db = Self { pool };
-        db.migrate().await?;
-        Ok(db)
+        let files = AttachmentFiles::beside_database(&pool).await?;
+        Self::with_attachment_files(pool, files.as_ref()).await
     }
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
-    async fn migrate(&self) -> DatabaseResult<()> {
-        migrate(&self.pool).await
+    pub(crate) async fn with_attachment_files(
+        pool: SqlitePool,
+        files: Option<&AttachmentFiles>,
+    ) -> DatabaseResult<Self> {
+        migrate(&pool, files).await?;
+        Ok(Self { pool })
     }
 }
 

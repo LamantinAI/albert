@@ -67,7 +67,7 @@ pub async fn accept(pool: &SqlitePool, expected_revision: i64) -> DatabaseResult
 #[cfg(test)]
 mod tests {
     use octo_history::{HistoryStore, SqliteHistory, Turn};
-    use sqlx::query;
+    use sqlx::{query, raw_sql};
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -151,6 +151,16 @@ mod tests {
             .execute(db.pool())
             .await
             .unwrap();
+        query("DROP TABLE albert_media_assets")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        raw_sql(include_str!(
+            "../../../../migrations/0010_session_media.sql"
+        ))
+        .execute(db.pool())
+        .await
+        .unwrap();
         query("DELETE FROM albert_schema_migrations WHERE version>=13")
             .execute(db.pool())
             .await

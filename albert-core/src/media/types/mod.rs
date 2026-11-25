@@ -62,6 +62,10 @@ pub enum MediaError {
     Type,
     #[error("This attachment belongs to another conversation.")]
     Scope,
+    #[error("Attachment storage operation failed.")]
+    Storage(#[from] std::io::Error),
+    #[error("Attachment storage content or identity did not verify.")]
+    StorageIntegrity,
     #[error("The workspace file is unavailable.")]
     Workspace,
     #[error(transparent)]

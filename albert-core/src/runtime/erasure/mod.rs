@@ -44,6 +44,11 @@ impl AgentRuntime {
         .await
         .map_err(|_| "Conversation cleanup was interrupted.")??;
         self.sessions
+            .media()
+            .erase_durable_files(id.as_str())
+            .await
+            .map_err(|_| "Attachment payload cleanup is still pending.")?;
+        self.sessions
             .acknowledge_erasure(id)
             .await
             .map_err(|_| "Cleanup completion could not be recorded.".to_owned())
@@ -87,8 +92,8 @@ mod tests {
         create_dir_all(&changed).unwrap();
         let session = service.web_create(&actor, "Files", false).await.unwrap();
         let asset = SessionId::new().to_string();
-        query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,bytes) VALUES (?,?,'fixture.bin','application/octet-stream',3,?)")
-            .bind(&asset).bind(session.id.as_str()).bind(b"abc".as_slice()).execute(service.database().pool()).await.unwrap();
+        query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,sha256) VALUES (?,?,'fixture.bin','application/octet-stream',3,?)")
+            .bind(&asset).bind(session.id.as_str()).bind("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad").execute(service.database().pool()).await.unwrap();
         let name = format!("media-{asset}");
         write(original.join(&name), "abc").unwrap();
         write(original.join("independent.txt"), "keep").unwrap();
@@ -133,8 +138,8 @@ mod tests {
             .await
             .unwrap();
         let asset = SessionId::new().to_string();
-        query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,bytes) VALUES (?,?,'fixture.bin','application/octet-stream',3,?)")
-            .bind(&asset).bind(session.id.as_str()).bind(b"abc".as_slice()).execute(service.database().pool()).await.unwrap();
+        query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,sha256) VALUES (?,?,'fixture.bin','application/octet-stream',3,?)")
+            .bind(&asset).bind(session.id.as_str()).bind("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad").execute(service.database().pool()).await.unwrap();
         let managed = root.join(format!("media-{asset}"));
         create_dir_all(&managed).unwrap();
         write(managed.join("keep.txt"), "keep").unwrap();

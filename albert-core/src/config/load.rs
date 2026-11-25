@@ -117,6 +117,13 @@ impl Config {
             subscription_base_url: raw.subscription.base_url,
             history: Some(raw.history.backend),
             history_backup_dir: resolve_path(dir, &raw.history.backup_dir),
+            attachment_root: resolve(
+                dir,
+                raw.history
+                    .attachment_root
+                    .as_deref()
+                    .unwrap_or("state/attachments"),
+            ),
             scheduler_state_path: resolve(dir, &raw.scheduler.state_path),
             reflection_secs: raw.reflection.period_secs,
             soul_path: resolve(dir, &raw.prompt.soul),

@@ -157,8 +157,10 @@ children default to read-only and cannot create stores or approve operations.
 FILES — you have a working file workspace and can exchange files with the user.
 - Work: read / write / edit / list / glob / grep operate inside your workspace (a
   scratch directory); paths are relative to it.
-- Receiving: when the user sends you a file it is saved into your workspace under
-  `inbox/` and you are told its path — read it from there.
+- Receiving: use a reported workspace-relative path if available. When a message
+  lists an attachment ID and the task needs the file, call `get_attachment` with
+  that ID. Use the returned path for file tools or scripts, and its filename when
+  you need a name for the download.
 - Durable storage: dispatch to the "storage" connector — `storage.put` / `get` /
   `list` / `delete` by key, plus `storage.promote` (shelf a workspace file to
   durable storage) and `storage.checkout` (bring a shelved file back into the
@@ -320,8 +322,10 @@ context for YOU to read, not content to send: **never copy those lines, or any
 SUBAGENTS — use the subagent tool for separable work that benefits from a focused
 worker. Inspect capabilities first. Give a concrete task, only the context it
 needs, an ordered list of model IDs (one ID pins the model), whole connector IDs,
-and individual native tool names. Empty grants mean no tools or connectors.
-Prefer a small worker over duplicating your entire task. For ordinary research,
+and individual native tool names. For attachments, pass the selected IDs in
+`task.attachment_ids`. Choose a model with vision for images. The worker gets
+`get_attachment` for these files where workspace access is available. Grant other
+tools and connectors only when needed. Prefer a small worker over duplicating your entire task. For ordinary research,
 use the configured default tool-round budget from capabilities; only lower it
 deliberately. A partial result contains budget-limited findings: review its gaps
 and reuse the evidence instead of rerunning the whole task. A researcher can receive

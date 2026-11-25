@@ -1,3 +1,4 @@
+mod attachments;
 mod inspection;
 mod launch;
 mod native;
@@ -33,6 +34,7 @@ impl AlbertCogitator {
                 "connectors":tool.ctx.connectors().iter().filter(|c| c.capabilities.description.is_some())
                     .map(|c| c.id.as_str()).collect::<Vec<_>>(),
                 "tools":self.child_tools_for(PathBuf::new(), tool.session.as_ref()).iter().map(|t| t.name()).chain(tool.mcp.iter().map(|t|t.name())).collect::<Vec<_>>(),
+                "default_attachment_tool":"get_attachment",
                 "max_concurrent":self.config.subagents.max_concurrent,
                 "max_tool_turns":self.config.subagents.max_tool_turns,
                 "default_tool_turns":self.config.subagents.default_tool_turns.min(self.config.subagents.max_tool_turns),
@@ -46,7 +48,10 @@ impl AlbertCogitator {
                 Ok(capabilities)
             }
             Args::Spawn { task } => {
-                let result = self.spawn_child(tool, task)?;
+                let attachments = self
+                    .prepare_child_attachments(tool, &task.attachment_ids)
+                    .await?;
+                let result = self.spawn_child(tool, task, attachments)?;
                 if let Some(id) = result.get("run_id").and_then(Value::as_str) {
                     tool.progress
                         .progress_child(
@@ -149,7 +154,10 @@ impl AlbertCogitator {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::atomic::Ordering, sync::Arc, time::Duration};
+    use std::{fs::read, path::Path, sync::atomic::Ordering, sync::Arc, time::Duration};
+
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use octo_history::{AppendRequest, HistoryStore, Turn};
 
     use octo_core::{
         CogitatorContext, ConnectorCapabilities, ConnectorId, ConnectorInfo, Envelope, EventBus,
@@ -161,7 +169,15 @@ mod tests {
     use tokio::{spawn, time::timeout};
 
     use super::{super::provider_fixture::setup, *};
-    use crate::{status::StatusFeed, subagents::Task};
+    use crate::{
+        media::{encode, Asset},
+        models::ModelPool,
+        service::session::web::tests::fixture,
+        service::session::SessionService,
+        sessions::SessionContext,
+        status::StatusFeed,
+        subagents::Task,
+    };
 
     fn tool(host: &Arc<AlbertCogitator>, ctx: CogitatorContext) -> SubagentTool {
         SubagentTool::new(
@@ -250,6 +266,185 @@ mod tests {
         assert!(!wire.contains("parent history secret"));
         assert!(!wire.contains("root persona secret"));
         assert!(!wire.contains("config_set_secret"));
+    }
+
+    async fn stage_fixture_image(
+        service: &SessionService,
+        context: &SessionContext,
+        name: &str,
+        bytes: &[u8],
+    ) -> Asset {
+        let asset = service
+            .media()
+            .stage("fixture", bytes.to_vec(), "image/png", name)
+            .await
+            .unwrap();
+        service
+            .journal_router()
+            .append_journal(
+                &context.root_history_key(),
+                &AppendRequest {
+                    namespace: "attachment-child-fixture".into(),
+                    idempotency_key: asset.id.clone(),
+                    digest: asset.id.clone(),
+                    turns: vec![Turn::user(encode(String::new(), vec![asset.clone()]))],
+                },
+            )
+            .await
+            .unwrap();
+        asset
+    }
+
+    #[tokio::test]
+    async fn image_child_gets_only_selected_bytes_and_a_default_scoped_file_tool() {
+        let (mut host, ctx, server) = setup("attachment-child").await;
+        let (dir, service, _, owner) = fixture().await;
+        let service = Arc::new(service);
+        let me = Arc::get_mut(&mut host).unwrap();
+        me.config.code_workspace = dir.path().join("workspace");
+        me.session_service = Some(service.clone());
+        let chat = service.web_create(&owner, "Pictures", false).await.unwrap();
+        let context = service.web_context(&owner, &chat.id).await.unwrap();
+        let other_chat = service
+            .web_create(&owner, "Other pictures", false)
+            .await
+            .unwrap();
+        let other_context = service.web_context(&owner, &other_chat.id).await.unwrap();
+        let selected_bytes = b"\x89PNG\r\n\x1a\nselected-image";
+        let hidden_bytes = b"\x89PNG\r\n\x1a\nprivate-sibling-image";
+        let selected =
+            stage_fixture_image(&service, &context, "selected.png", selected_bytes).await;
+        let hidden = stage_fixture_image(&service, &context, "hidden.png", hidden_bytes).await;
+        let foreign =
+            stage_fixture_image(&service, &other_context, "foreign.png", hidden_bytes).await;
+        let tool = tool(&host, ctx).with_session(Some(context));
+        let mut child = task("attachment-child");
+        child.context = format!("UNGRANTED_ID:{}", hidden.id);
+        child.attachment_ids = vec![foreign.id];
+        assert!(host
+            .subagent_command(
+                &tool,
+                Args::Spawn {
+                    task: child.clone()
+                }
+            )
+            .await
+            .is_err());
+        assert!(server.requests.lock().unwrap().is_empty());
+        child.attachment_ids = vec![selected.id.clone()];
+        let run = host
+            .subagent_command(&tool, Args::Spawn { task: child })
+            .await
+            .unwrap();
+        let finished = wait(&host, &tool, &run["run_id"]).await;
+        assert_eq!(finished["result"]["outcome"]["status"], "completed");
+        let workspace = Path::new(finished["result"]["workspace"].as_str().unwrap());
+        assert_eq!(
+            read(workspace.join(format!("media-{}", selected.id))).unwrap(),
+            selected_bytes
+        );
+        assert!(!workspace.join(format!("media-{}", hidden.id)).exists());
+        let requests = server.requests.lock().unwrap();
+        let first = &requests[0];
+        let payload = first["messages"].to_string();
+        assert!(payload.contains(&STANDARD.encode(selected_bytes)));
+        assert!(!payload.contains(&STANDARD.encode(hidden_bytes)));
+        assert_eq!(first["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(first["tools"][0]["function"]["name"], "get_attachment");
+        let tool_output = requests[1]["messages"].to_string();
+        assert!(tool_output.contains("selected.png"));
+        assert!(tool_output.contains("not supplied to this run"));
+    }
+
+    #[tokio::test]
+    async fn image_child_checks_vision_before_launch_and_supports_a_toolless_vision_model() {
+        let (mut host, ctx, server) = setup("text-only").await;
+        let (dir, service, _, owner) = fixture().await;
+        let service = Arc::new(service);
+        let me = Arc::get_mut(&mut host).unwrap();
+        me.config.code_workspace = dir.path().join("workspace");
+        me.session_service = Some(service.clone());
+        let models = &mut me.config.models.as_mut().unwrap().models;
+        models
+            .iter_mut()
+            .find(|m| m.id == "text-only")
+            .unwrap()
+            .vision = false;
+        models.iter_mut().find(|m| m.id == "healthy").unwrap().tools = false;
+        me.models = ModelPool::new(&me.config);
+        let chat = service.web_create(&owner, "Pictures", false).await.unwrap();
+        let context = service.web_context(&owner, &chat.id).await.unwrap();
+        let image =
+            stage_fixture_image(&service, &context, "picture.png", b"\x89PNG\r\n\x1a\nimage").await;
+        let tool = tool(&host, ctx).with_session(Some(context));
+        let mut child = task("text-only");
+        child.attachment_ids = vec![image.id];
+        assert!(host
+            .subagent_command(
+                &tool,
+                Args::Spawn {
+                    task: child.clone()
+                }
+            )
+            .await
+            .unwrap_err()
+            .contains("No model in the assigned child pool"));
+        assert!(server.requests.lock().unwrap().is_empty());
+        child.models.push("healthy".into());
+        let run = host
+            .subagent_command(&tool, Args::Spawn { task: child })
+            .await
+            .unwrap();
+        let finished = wait(&host, &tool, &run["run_id"]).await;
+        assert_eq!(finished["result"]["outcome"]["status"], "completed");
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["model"], "healthy");
+        assert!(
+            requests[0]["tools"].is_null()
+                || requests[0]["tools"].as_array().is_some_and(Vec::is_empty)
+        );
+    }
+
+    #[tokio::test]
+    async fn temporary_attachment_is_visible_as_vision_without_opening_a_workspace_copy() {
+        let (mut host, ctx, server) = setup("healthy").await;
+        let (dir, service, _, owner) = fixture().await;
+        let service = Arc::new(service);
+        let me = Arc::get_mut(&mut host).unwrap();
+        me.config.code_workspace = dir.path().join("workspace");
+        me.session_service = Some(service.clone());
+        let chat = service
+            .web_create(&owner, "Temporary pictures", true)
+            .await
+            .unwrap();
+        let context = service.web_context(&owner, &chat.id).await.unwrap();
+        let pixels = b"\x89PNG\r\n\x1a\nvolatile-image";
+        let asset = stage_fixture_image(&service, &context, "temporary.png", pixels).await;
+        let tool = tool(&host, ctx).with_session(Some(context));
+        let mut child = task("healthy");
+        child.attachment_ids.push(asset.id.clone());
+        let run = host
+            .subagent_command(&tool, Args::Spawn { task: child })
+            .await
+            .unwrap();
+        let finished = wait(&host, &tool, &run["run_id"]).await;
+        assert_eq!(finished["result"]["outcome"]["status"], "completed");
+        let workspace = Path::new(finished["result"]["workspace"].as_str().unwrap());
+        assert!(!workspace.join(format!("media-{}", asset.id)).exists());
+        assert!(service
+            .media()
+            .metadata(chat.id.as_str(), &asset.id, false)
+            .await
+            .is_err());
+        let requests = server.requests.lock().unwrap();
+        assert!(requests[0]["messages"]
+            .to_string()
+            .contains(&STANDARD.encode(pixels)));
+        assert!(
+            requests[0]["tools"].is_null()
+                || requests[0]["tools"].as_array().is_some_and(Vec::is_empty)
+        );
     }
 
     #[tokio::test]

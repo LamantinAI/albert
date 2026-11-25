@@ -1,17 +1,20 @@
 //! Immutable session attachments. Journal records own ordered references; bytes
 //! follow the same durable/temporary lifecycle as the journal.
+mod files;
 mod format;
 mod store;
 mod types;
 mod workspace;
 
-pub(crate) use format::assets as format_assets;
+pub use files::AttachmentFiles;
+pub(crate) use format::{assets as format_assets, attachment_note};
 pub use format::{
     decode, encode, encode_prepared, encode_selected, input_digest, project, workspace_note,
     MediaRecord, WorkspaceFile, MEDIA_MARKER,
 };
 pub use store::{MediaStore, PreparedMedia};
 pub use types::{Asset, MediaError, MediaLimits, MediaResult};
+pub(crate) use workspace::save_script_input_file;
 pub use workspace::{discard_input_file, read_workspace_file, save_input_file};
 
 use octo_core::Blob;
@@ -249,25 +252,26 @@ mod tests {
             .stage(&actor.account_id, PNG.to_vec(), "image/png", "test.png")
             .await
             .unwrap();
+        let session = SessionId::new();
         let reserved = service
             .media()
-            .reserve_durable("session-one", &[asset.clone()])
+            .reserve_durable(session.as_str(), &[asset.clone()])
             .await
             .unwrap();
         let mut tx = service.database().pool().begin().await.unwrap();
         service
             .media()
-            .persist_in(&mut tx, "session-one", &[asset.clone()])
+            .persist_in(&mut tx, session.as_str(), &[asset.clone()])
             .await
             .unwrap();
         tx.rollback().await.unwrap();
         service
             .media()
-            .rollback_temporary("session-one", &reserved)
+            .rollback_temporary(session.as_str(), &reserved)
             .await;
         assert!(service
             .media()
-            .metadata("session-one", &asset.id, false)
+            .metadata(session.as_str(), &asset.id, false)
             .await
             .is_err());
         assert!(service
@@ -433,7 +437,7 @@ mod tests {
     }
     #[tokio::test]
     async fn attachment_quotas_bound_files_bytes_and_durable_retention() {
-        let (_dir, service, _actor) = fixture().await;
+        let (dir, service, _actor) = fixture().await;
         let limits = MediaLimits {
             max_file_bytes: 64,
             max_attachments: 1,
@@ -446,7 +450,11 @@ mod tests {
             ..MediaLimits::default()
         };
         assert!(limits.valid());
-        let store = MediaStore::new(service.database().pool().clone(), limits);
+        let store = MediaStore::new(
+            service.database().pool().clone(),
+            limits,
+            Some(super::AttachmentFiles::new(dir.path().join("payloads"))),
+        );
         let first = store
             .stage("one", PNG.to_vec(), "image/png", "one.png")
             .await
@@ -473,30 +481,34 @@ mod tests {
                 .await,
             Err(MediaError::Limit)
         ));
+        let first_session = SessionId::new();
+        let second_session = SessionId::new();
         store
-            .reserve_durable("session-one", &[first.clone()])
+            .reserve_durable(first_session.as_str(), &[first.clone()])
             .await
             .unwrap();
         let mut tx = service.database().pool().begin().await.unwrap();
         store
-            .persist_in(&mut tx, "session-one", &[first.clone()])
+            .persist_in(&mut tx, first_session.as_str(), &[first.clone()])
             .await
             .unwrap();
         tx.commit().await.unwrap();
         store.release_durable(&[first]).await;
         let reserved = store
-            .reserve_durable("session-two", &[second.clone()])
+            .reserve_durable(second_session.as_str(), &[second.clone()])
             .await
             .unwrap();
         let mut tx = service.database().pool().begin().await.unwrap();
         assert!(matches!(
             store
-                .persist_in(&mut tx, "session-two", &[second.clone()])
+                .persist_in(&mut tx, second_session.as_str(), &[second.clone()])
                 .await,
             Err(MediaError::Limit)
         ));
         tx.rollback().await.unwrap();
-        store.rollback_temporary("session-two", &reserved).await;
+        store
+            .rollback_temporary(second_session.as_str(), &reserved)
+            .await;
         assert!(store.prepare("two", None, &[second.id]).await.is_ok());
     }
 }

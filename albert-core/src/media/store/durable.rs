@@ -1,6 +1,8 @@
 use super::MediaStore;
 use crate::media::{Asset, MediaError, MediaResult};
+use sha2::{Digest, Sha256};
 use sqlx::{query, query_as, query_scalar, Sqlite, Transaction};
+use tokio::task::spawn_blocking;
 impl MediaStore {
     pub async fn reserve_durable(
         &self,
@@ -78,8 +80,14 @@ impl MediaStore {
             {
                 return Err(MediaError::Limit);
             }
-            query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,bytes) VALUES(?,?,?,?,?,?)")
-                .bind(&asset.id).bind(session).bind(&asset.filename).bind(&asset.content_type).bind(asset.size as i64).bind(e.blob.bytes().as_ref()).execute(&mut **tx).await?;
+            let files = self.files.clone().ok_or(MediaError::StorageIntegrity)?;
+            let session_id = session.to_owned();
+            let file_id = asset.id.clone();
+            let sha256 = spawn_blocking(move || files.store(&session_id, &file_id, e.blob.bytes()))
+                .await
+                .map_err(|_| MediaError::StorageIntegrity)??;
+            query("INSERT INTO albert_media_assets(id,session_id,filename,content_type,size,sha256) VALUES(?,?,?,?,?,?)")
+                .bind(&asset.id).bind(session).bind(&asset.filename).bind(&asset.content_type).bind(asset.size as i64).bind(sha256).execute(&mut **tx).await?;
         }
         Ok(())
     }
@@ -98,6 +106,16 @@ impl MediaStore {
             .collect();
         self.persist_in(tx, session, &assets).await
     }
+    pub(crate) async fn erase_durable_files(&self, session: &str) -> MediaResult<()> {
+        let Some(files) = self.files.clone() else {
+            return Ok(());
+        };
+        let session = session.to_owned();
+        spawn_blocking(move || files.discard_session(&session))
+            .await
+            .map_err(|_| MediaError::StorageIntegrity)?
+    }
+
     pub async fn release_durable(&self, assets: &[Asset]) {
         let mut entries = self.entries.lock().await;
         for asset in assets {
@@ -142,15 +160,24 @@ impl MediaStore {
                 .map(<[u8]>::to_vec)
                 .ok_or(MediaError::NotFound);
         }
-        query_scalar(
-            "SELECT substr(bytes,?,?) FROM albert_media_assets WHERE id=? AND session_id=?",
-        )
-        .bind(offset as i64 + 1)
-        .bind(len as i64)
-        .bind(id)
-        .bind(session)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or(MediaError::NotFound)
+        let (size, hash): (i64, String) =
+            query_as("SELECT size,sha256 FROM albert_media_assets WHERE id=? AND session_id=?")
+                .bind(id)
+                .bind(session)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or(MediaError::NotFound)?;
+        let files = self.files.clone().ok_or(MediaError::StorageIntegrity)?;
+        let (session, id) = (session.to_owned(), id.to_owned());
+        spawn_blocking(move || {
+            let size = usize::try_from(size).map_err(|_| MediaError::StorageIntegrity)?;
+            let bytes = files.slice(&session, &id, size, offset, len)?;
+            if offset == 0 && len == size && format!("{:x}", Sha256::digest(&bytes)) != hash {
+                return Err(MediaError::StorageIntegrity);
+            }
+            Ok(bytes)
+        })
+        .await
+        .map_err(|_| MediaError::StorageIntegrity)?
     }
 }
