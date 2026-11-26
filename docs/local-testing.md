@@ -54,7 +54,7 @@ python3 docker/local-e2e/run.py --cleanup /path/to/run-artifacts
 The cleanup command targets only that run's generated project and volume. It
 refuses nonlocal Docker contexts. Do not use global Docker prune commands.
 
-Changes to an unpublished Octo credential component can be tested with a private
+Changes to an unpublished Octo component can be tested with a private
 external Cargo patch configuration. Keep local paths and generated lockfile
 overrides out of commits; publish and pin the dependency before shipping Albert.
 For that unpublished development case, use `cargo --config /path/to/local-patch.toml

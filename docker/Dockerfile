@@ -1,11 +1,7 @@
 # Albert — multi-stage build, both stages on Ubuntu 24.04.
 #
-# Why one base for both: the release binary dynamically links the system libcurl
-# (the search connector's DuckDuckGo backend fetches through it, and DDG's anti-bot
-# keys on that libcurl's TLS fingerprint — see connectors/search docs). Building and
-# running on the same Ubuntu 24.04 means the same libcurl 8.5 / libcurl.so.4 at both
-# ends, no cross-distro skew. Ubuntu 24.04 also ships python3.12 natively — what the
-# forkd skill scripts (e.g. avito's vendored parser) expect.
+# Use the same glibc ABI for the build and runtime. Ubuntu 24.04 also provides
+# Python 3.12 for skill scripts.
 #
 # Build for the server's arch: `docker build --platform linux/amd64 …`.
 
@@ -21,13 +17,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Pin the toolchain (Ubuntu's apt rustc is too old for edition 2024).
 ARG RUST_VERSION=1.97.0
 
-# cozo/rocksdb: clang + libclang for bindgen, cmake for the C/C++ deps. pkg-config +
-# libssl-dev for TLS. libcurl4-openssl-dev so the search connector's `curl` crate links
-# the SYSTEM libcurl — WITHOUT it curl-sys silently vendors its own build, whose TLS
-# handshake DuckDuckGo drops. git + curl bootstrap rustup.
+# cozo/rocksdb uses clang, libclang and cmake. pkg-config and libssl-dev support
+# TLS builds. git and curl bootstrap rustup and fetch Cargo dependencies.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential clang libclang-dev cmake pkg-config \
-        libssl-dev libcurl4-openssl-dev \
+        libssl-dev \
         git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -sSf https://sh.rustup.rs | sh -s -- -y \
@@ -38,13 +32,10 @@ COPY . .
 # --locked: build exactly Cargo.lock. BuildKit cache mounts keep the cargo registry/git
 # and target dir warm across image builds, so only what changed recompiles. First build
 # is the full ~15+ min (cozo/rocksdb dominate); on a 2 GB host add swap (see
-# contrib/deploy/README.md). The binary is copied out because cache mounts aren't in the
-# image. `cargo clean -p curl-sys` guards the trap where a build-script decision cached
-# from before libcurl-dev was present would keep a vendored libcurl.
+# contrib/deploy/README.md). Copy the binary out of the build cache mount.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
-    cargo clean -p curl-sys --release 2>/dev/null; \
     npm --prefix web/albert-panel ci \
     && npm --prefix web/albert-panel run build:embedded \
     && cargo build --release --locked \
@@ -55,26 +46,17 @@ FROM ubuntu:24.04 AS runtime-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 # Runtime libraries + tools:
-#  - ca-certificates, libssl3, libcurl4: TLS + the libcurl the binary links (and the
-#    search backend uses).
+#  - ca-certificates and libssl3: TLS.
 #  - curl, wget, python3: what the forkd sandbox runs skill scripts with (python3 is
 #    3.12 on Ubuntu 24.04, which the avito vendored parser targets).
 #  - ffmpeg (with ffprobe): the transcribe connector measures a long recording (or a
 #    video), finds its silences and cuts it into audio chunks the dictation endpoint
 #    won't truncate; the `video` / `video-link` skills use it too.
-#  - Chrome's shared libraries: the browser connector downloads Chrome-for-Testing on
-#    its first fetch, but that binary links against the system NSS/NSPR, ATK, AT-SPI,
-#    CUPS and X libraries, which a slim base doesn't have. Without them Chrome dies at
-#    load ("libnspr4.so: cannot open shared object file") and every browser.fetch fails
-#    — silently, since the connector doesn't log the launch error. The last line is
-#    what Chrome dlopen()s at runtime (GBM, ALSA, xkbcommon — ldd doesn't list those)
-#    plus its text rendering stack and a base font.
+#  - libfontconfig1 and fonts-liberation support Moli's text rendering.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates libssl3 libcurl4 \
+        ca-certificates libssl3 \
         curl wget python3 ffmpeg \
-        libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 \
-        libcups2t64 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libdrm2 \
-        libgbm1 libasound2t64 libxkbcommon0 libpango-1.0-0 libcairo2 fonts-liberation \
+        libfontconfig1 libstdc++6 fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \
     # Two users, mirroring the systemd deploy: `albert` runs the service; `albert-scripts`
     # is the lower-privileged user forkd drops skill scripts to. albert-scripts' PRIMARY
@@ -85,6 +67,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --uid 10002 --no-create-home --gid albert --shell /usr/sbin/nologin albert-scripts \
     # Runtime state lives on the /data volume; a fresh named volume inherits this owner.
     && mkdir -p /data && chown albert:albert /data
+
+# Moli is shared by browser.fetch and DuckDuckGo.
+ARG MOLI_VERSION=v1.1.27
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        amd64) moli_arch=x86_64; moli_sha=2ede138ca107f16313183be06ef137c0760eaeb83598570d7f4a4263595cd1a6 ;; \
+        arm64) moli_arch=aarch64; moli_sha=f33ce375155f36beea672f9f45785a09ab8913c69955b166c7a479712b8456ad ;; \
+        *) echo "Unsupported Moli architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/moli.tar.gz \
+        "https://github.com/lexmount/moli/releases/download/${MOLI_VERSION}/moli-${moli_arch}-unknown-linux-gnu.tar.gz" \
+    && echo "${moli_sha}  /tmp/moli.tar.gz" | sha256sum -c - \
+    && entry="$(tar -tzf /tmp/moli.tar.gz | awk '/(^|\/)moli$/ { print; exit }')" \
+    && test -n "${entry}" \
+    && tar -xOzf /tmp/moli.tar.gz "${entry}" > /usr/local/bin/moli \
+    && chmod 0755 /usr/local/bin/moli \
+    && rm /tmp/moli.tar.gz \
+    && moli --version
 
 # yt-dlp + deno, for the `video-link` skill: pull a video's audio from a link (YouTube,
 # Shorts, VK, Rutube, …) so `transcribe` can read what is said in it. The standalone
@@ -119,6 +119,7 @@ COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/albert-entrypoint
 RUN mkdir -p /data/state \
     && chown albert:albert /data/state /opt/albert \
     && ln -s /data/state /usr/share/albert/defaults/state
+ENV HOME=/data
 USER albert
 ENTRYPOINT ["albert-entrypoint"]
 

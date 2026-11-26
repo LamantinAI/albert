@@ -197,7 +197,7 @@ demand.
 
 ## Scripts (forkd) and executable skills
 
-The **forkd** connector runs scripts in a sandbox: `forkd.run { script | path |
+The **forkd** connector runs Linux subprocesses. `forkd.run { script | path |
 skill_path, interpreter?, args?, stdin?, timeout_secs? }` → `{ exit_code, stdout,
 stderr, timed_out }`. It is the *doing* half of a task (fetch a page, transform a
 file, a quick computation) while the file tools handle reading and writing. An
@@ -214,11 +214,17 @@ guards a different boundary; none replaces another:
   unprivileged `albert` user under systemd hardening (`ProtectSystem=strict`,
   `ProtectHome`, `PrivateTmp`, a bounded capability set). Its own code/config/skills
   are read-only at runtime; only its state is writable.
-- **L2 — agent ← scripts** (forkd v0): a script runs as a **separate, lower-privileged
-  user** (`albert-scripts`, dropped via setuid from the service's `CAP_SETUID`), with a
-  cleared environment (no agent secrets; only `PATH`/`HOME`/`TMPDIR`/`LANG` kept), cwd
-  jailed to the workspace, a wall-clock timeout that SIGKILLs the whole process group,
-  and CPU/file-size rlimits. (A future stage adds a bwrap mount-namespace.)
+- **L2 — agent ← scripts** (forkd): the packaged manifest selects the
+  `albert-scripts` account when the service has effective permissions to
+  change UID and GID. A child receives runner defaults and variables named in
+  `env_passthrough`. It runs with the workspace as its working directory, CPU
+  and file-size limits, and a wall-clock deadline.
+  Timeout and cancellation terminate the process group. The subprocess
+  inherits network access and follows OS filesystem permissions and the
+  deployment's sandbox. If the configured UID cannot be used, forkd logs
+  a warning and runs under the current account. The systemd unit grants ambient
+  capabilities. In a non-root Docker container, Compose's `cap_add` entries
+  can be present while the service's effective set lacks those capabilities.
 - **L3 — per-skill capabilities** (future): a skill declaring what it may touch.
 
 The workspace is the deliberate **handoff surface** between L1 and L2: agent writes
@@ -272,15 +278,13 @@ the factory in the application assembly, point the builder at `config/octo.toml`
 - **Scheduler** — alarms (interval / oneshot), persisted to disk; the time organ
   behind reminders and routines.
 - **Storage** — the durable object store (see Files).
-- **forkd** — the sandboxed script runner (see Scripts).
-- **search** — web search: `search.web { query, limit?, engine? }` → a clean
-  `[{ title, url, snippet }]` list (never raw HTML). It fronts **several engines at
-  once**: the manifest declares them (`[connector.engines.*]`) with a `default_engine`,
-  and the agent overrides per call with `engine` — DuckDuckGo now (no account/key),
-  Yandex Search API next, behind one trait. **The DDG engine links the system libcurl**
-  (`libcurl4-openssl-dev` to build, `libcurl.so.4` to run) — DDG's anti-bot rejects
-  reqwest's TLS fingerprint with a 202 challenge, and a vendored libcurl's handshake
-  outright, while the system one passes.
+- **forkd** — the Linux process runner for executable skills (see Scripts).
+- **search** — `search.web { query, limit?, engine?, page? }` returns ranked
+  `{ title, url, snippet }` results. DuckDuckGo exposes pagination and
+  shares Albert's Moli process with `browser.fetch`. Albert starts it during
+  startup when a configured connector uses it. The paginated search and
+  each fetch have separate browser contexts. The manifest declares
+  alternative search providers, and the agent can select one per request.
 - **jira** — a **configurable** (`type = "http"`) organ: the whole Jira REST v2 surface
   as `jira.cmd.*` commands from a manifest alone, no code (Bearer PAT via `JIRA_TOKEN`).
   The generic `http` connector; `base_url` is a per-deployment placeholder in git. Paired
@@ -296,7 +300,7 @@ the factory in the application assembly, point the builder at `config/octo.toml`
 Settled today: the working-first cogitator; kaeru memory (local, with optional cloud
 sharing); reminders + the reflection routine; the scratchpad; the file workspace +
 durable storage + file exchange; declarative **and** executable skills over a
-sandboxed forkd runner (three isolation layers, L1+L2 in place); owner-gated
+forkd runner with process limits and deployment-level isolation; owner-gated
 self-restart; SQLite-persisted history; config-driven Telegram account access + calendar +
 scheduler + storage + forkd; TOML config + hot-reloaded prompts; API-key **or**
 ChatGPT-subscription auth.

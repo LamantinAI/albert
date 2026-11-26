@@ -16,7 +16,7 @@ wrong edit can break a connector or lock you out.
 Your memory of your own layout is unreliable — **check with the tools before editing.**
 Start with `config_list` (no path = the top level, or a dir like
 `config/connectors`). Then `config_read` the file you intend to change. Do not write a
-path you haven't confirmed exists.
+path you haven't confirmed. To create a manifest, confirm its containing directory.
 
 ## The real layout
 
@@ -111,6 +111,37 @@ model. With roles, omitting both role and models still uses only that primary;
 explicit role selection uses its ordered subpool. Roles grant **no connectors or
 native tools**. A role's explicit model override must stay within that role.
 Each running child retains its model/effort snapshot after a reload.
+
+## Web search
+
+Inspect `config/connectors/search/search.toml` and the live search capability.
+DuckDuckGo is the default on fresh deployments. It shares a Moli process with
+`browser.fetch`. The Docker image includes Moli. For an existing installation,
+enable `[connector.engines.ddg]` and set `default_engine = "ddg"` to adopt the
+default. A configured `webdriver_url` selects a private WebDriver service.
+
+Tavily in keyless mode is available as an alternative. For the other providers,
+enable the engine table after the owner supplies its settings.
+
+For Yandex, save the API key and Folder ID in the Credentials panel using
+`YANDEX_SEARCH_API_KEY` and `YANDEX_SEARCH_FOLDER_ID`. Use a key for a service
+account authorized to search in that folder.
+
+Tell the owner where to find the Folder ID in Yandex AI Studio:
+
+- Fastest: open Web Search in AI Studio. In the address bar, the part between
+  `/folders/` and `/search-api/web` is the Folder ID:
+  `https://aistudio.yandex.ru/platform/folders/<your folder id>/search-api/web`.
+- Or hover over the organization selector at the top left, then click the
+  three-dot menu next to its catalog (usually `default`). The dialog shows
+  the Folder ID.
+
+For Brave, save a key with LLM Context access as `BRAVE_API_KEY`.
+
+Set `enabled = true` in the corresponding engine table. Change
+`default_engine` only if requested. Apply
+with a process restart so Albert loads the manifest and environment variables.
+Check that `search` advertises the newly enabled engine.
 
 ## SQL connector
 

@@ -1,16 +1,25 @@
 //! The HTTP control plane can start without provider credentials or working
 //! memory. Invalid agent-only configuration is reported by runtime activation.
 
-use std::{env::current_dir, fs::read_to_string, path::Path, path::PathBuf};
+use std::{
+    env::current_dir,
+    fs::read_to_string,
+    path::{Path, PathBuf},
+};
 
 use albert_connector_web::settings::WebSettings;
-use albert_core::{config::config_path, config::Config, error::Result};
+use albert_core::{
+    config::{config_path, Config},
+    error::{Error, Result},
+};
+use octo_connector_browser::MoliSettings;
 use toml::{from_str, Table};
 
 pub(crate) struct ControlSettings {
     pub path: PathBuf,
     pub base: Config,
     pub web: WebSettings,
+    pub browser_runtime: MoliSettings,
 }
 
 impl ControlSettings {
@@ -32,8 +41,30 @@ impl ControlSettings {
         let document: Table = from_str(&text)?;
         let web = WebSettings::from_document(&document)?;
         let base = Config::parse_control_document(&document, &path)?;
-        Ok(Self { path, base, web })
+        let browser_runtime = browser_settings(&document, &path)?;
+        Ok(Self {
+            path,
+            base,
+            web,
+            browser_runtime,
+        })
     }
+}
+
+fn browser_settings(document: &Table, path: &Path) -> Result<MoliSettings> {
+    let mut settings: MoliSettings = document
+        .get("browser_runtime")
+        .cloned()
+        .map(|section| section.try_into())
+        .transpose()?
+        .unwrap_or_default();
+    settings.validate().map_err(Error::Config)?;
+    let executable = &settings.executable;
+    if executable.is_relative() && executable.file_name() != Some(executable.as_os_str()) {
+        let directory = path.parent().unwrap_or_else(|| Path::new("."));
+        settings.executable = directory.join(executable);
+    }
+    Ok(settings)
 }
 
 #[cfg(test)]
@@ -43,7 +74,7 @@ mod tests {
     use tempfile::tempdir;
     use toml::{from_str, Table};
 
-    use super::{ControlSettings, WebSettings};
+    use super::{browser_settings, ControlSettings, WebSettings};
 
     #[test]
     fn unconfigured_or_invalid_provider_does_not_prevent_control_startup() {
@@ -84,6 +115,37 @@ mod tests {
             let doc: Table = from_str(&format!("[web]\nbind='{bind}'")).unwrap();
             let settings = WebSettings::from_document(&doc).unwrap();
             assert!(settings.public_origin.is_none());
+        }
+    }
+
+    #[test]
+    fn browser_runtime_settings_default_and_resolve_paths() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("albert.toml");
+        let defaults = browser_settings(&Table::new(), &path).unwrap();
+        assert_eq!(defaults.executable.to_str(), Some("moli"));
+        assert_eq!(defaults.bind.to_string(), "127.0.0.1:0");
+        assert_eq!(defaults.startup_timeout_secs, 8);
+
+        let document = from_str(
+            "[browser_runtime]\nexecutable='bin/moli'\nbind='127.0.0.1:4500'\nstartup_timeout_secs=3",
+        )
+        .unwrap();
+        let settings = browser_settings(&document, &path).unwrap();
+        assert_eq!(settings.executable, dir.path().join("bin/moli"));
+        assert_eq!(settings.bind.port(), 4500);
+        assert_eq!(settings.startup_timeout_secs, 3);
+    }
+
+    #[test]
+    fn browser_runtime_rejects_nonlocal_bind_and_zero_startup_timeout() {
+        for sample in [
+            "bind='0.0.0.0:4500'",
+            "startup_timeout_secs=0",
+            "executable=''",
+        ] {
+            let document = from_str(&format!("[browser_runtime]\n{sample}")).unwrap();
+            assert!(browser_settings(&document, std::path::Path::new("albert.toml")).is_err());
         }
     }
 }

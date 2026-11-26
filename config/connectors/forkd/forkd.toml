@@ -1,4 +1,4 @@
-# forkd — sandboxed runner for skill scripts (v0). Reached via the dispatch tool:
+# forkd — Linux subprocess runner for skill scripts. Reached via the dispatch tool:
 # forkd.run { path?|script?, interpreter?, args?, stdin?, timeout_secs? }.
 [connector]
 id   = "forkd"

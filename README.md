@@ -83,7 +83,7 @@ pricier each reply gets. Albert is built the other way round:
   its own parts to apply a config change. Not a request→response wrapper around a few
   functions.
 - **Real hands.** A jailed file workspace (read/write/edit/glob/grep) with durable
-  storage and file send/receive, plus a sandboxed script runner (forkd) for executable
+  storage and file send/receive, plus the forkd process runner for executable
   skills. It doesn't only talk — it fetches, transforms, and produces files.
 - **Scoped access.** Account and channel policy determine which tools are available.
   Telegram guests can address Albert in groups with no tool access. Scripts run as
@@ -106,9 +106,10 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   (promote/checkout), and file exchange (send a file to you / receive one from you) —
   bytes move by reference, never pasted through the chat.
 - **Skills** — a folder of `SKILL.md` recipes Albert sees as a catalog and applies on
-  demand; **executable** skills bundle a script it runs in the forkd sandbox.
-- **Scripts (forkd)** — run python3 / bash (with curl / wget) in a sandbox: jailed to
-  the workspace, dropped privileges, clean environment, wall-clock timeout.
+  demand. **Executable** skills bundle a script that forkd runs in place.
+- **Scripts (forkd)** — run Python, Bash and installed system tools on Linux.
+  The workspace is the working directory. The runner clears the child
+  environment, applies process limits and can use a dedicated OS account.
 - **Loop scratchpad** — a super-operational, per-task working object the agent authors
   (`scratchpad_goal/step/mark/note`) and sees each turn, so multi-step work is
   **verifiable**: a task is done only when every step is `verified`.
@@ -119,10 +120,9 @@ because knowledge lives in memory it recalls, not in a prompt it re-reads.
   capabilities and bounded fallback without automatically replaying tool actions.
 - **Config-driven connectors** — Telegram (account-bound token login, `/chatinfo`,
   replies only when addressed in groups), a generic **CalDAV calendar** (Yandex/Fastmail/Nextcloud/iCloud/Google),
-  a **scheduler**, **storage**, **forkd**, **search** (web search over several engines —
-  DuckDuckGo now, Yandex next; the manifest sets the default and Albert can pick per
-  query), and an optional **mail** organ (IMAP/SMTP, off by default) — each assembled
-  from a small manifest.
+  a **scheduler**, **storage**, **forkd**, **search** (DuckDuckGo via Moli by
+  default, with Tavily, Yandex and Brave available), and optional **mail** (IMAP/SMTP).
+  Each connector is configured by a small manifest.
 - **Two brains, your call** — an **API key** (OpenRouter / any OpenAI-compatible
   endpoint; the default) or a **ChatGPT subscription** (via the Codex backend).
 - **Choose where memory lives** — embedded kaeru or your own kaeru MCP server

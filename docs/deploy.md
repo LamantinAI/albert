@@ -1,40 +1,28 @@
 # Deploy
 
-This guide installs Albert on a host with systemd. Build the executable on a
+This guide installs Albert on a Linux host with systemd. Build the executable on a
 compatible machine and ship it with its configuration, prompts and skills. The
 build must match the target architecture and system library ABI.
 
 For a container deployment, use the production Compose stack. It mounts Albert's
 editable configuration and uses separate volumes for Albert and Kaeru. Both API
 keys and ChatGPT subscriptions can be configured in the panel. [Docker Compose guide](../contrib/deploy/README.md)
+For a standalone `docker run`, pass `--init` to reap child processes.
 
 ## Host prerequisites
 
 Install the system libraries and tools used by your enabled connectors.
 
-- **`curl` on `PATH`** — the forkd sandbox runs scripts that fetch with `curl`/`wget`.
-- **`libcurl.so.4`** — the **search** connector's DuckDuckGo engine links the system
-  libcurl (see [configuration.md](configuration.md#connectorssearchsearchtoml) for why
-  reqwest can't be used). It ships in the same package as the `curl` command, so a host
-  with curl already has it. Verify with `curl -V` and
-  `ls /usr/lib/*/libcurl.so.4`.
+- **`curl` on `PATH`** — executable skills can invoke system tools through forkd.
+- **`moli` on the service's `PATH`** — DuckDuckGo and page fetch share a Moli
+  process. The Docker image includes Moli. For a native deployment install
+  the matching release and ensure the service can reach the web. Albert starts
+  the process during service startup when either connector uses it.
+  [Moli releases](https://github.com/lexmount/moli/releases)
 
 - **`ffmpeg` (with `ffprobe`)** — the transcribe connector cuts a long recording or a
   video on its pauses before uploading it (`sudo apt install ffmpeg`). Without it a
   file is uploaded whole: fine for short clips, but a long one can come back truncated.
-
-**On the build host** you additionally need the libcurl headers:
-
-```sh
-sudo apt install libcurl4-openssl-dev     # then: cargo clean -p curl-sys (see below)
-```
-
-Without them `curl-sys` silently vendors its own libcurl, whose TLS handshake DuckDuckGo
-drops — search then fails at runtime. Cargo caches that build-script decision, so if a
-build ran before the headers were installed, run `cargo clean -p curl-sys` and rebuild.
-Albert logs the linked libcurl version at startup (`search ready … libcurl=…`), so a
-vendored build is visible immediately. Build host and target need compatible libcurl,
-the same way they already need compatible glibc.
 
 ## Layout on the target
 

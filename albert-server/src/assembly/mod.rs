@@ -42,7 +42,9 @@ pub(crate) async fn run(settings: ControlSettings) -> Result<bool> {
         authority,
         runtime.subscription.clone(),
         has_telegram,
-    )?
+        &settings.browser_runtime,
+    )
+    .await?
     .cogitator(Arc::new(RuntimeCogitator(runtime.clone())))
     .add_connector(Scheduler::with_timezone(
         "scheduler",

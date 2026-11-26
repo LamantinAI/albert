@@ -1,37 +1,26 @@
-# Search connector — web search as an env-as-tools organ. Reached via the dispatch
-# tool: search.web { query, limit?, engine? } -> { engine, query, count,
-# results: [{ title, url, snippet }] }. Returns a clean hit list (never raw HTML),
-# so the model spends context on results rather than markup.
-#
-# Choosing the search system happens at BOTH levels: this manifest declares which
-# engines exist and which answers by default; Albert overrides per call with `engine`.
+# DuckDuckGo shares Albert's Moli process with browser.fetch.
+# Enable additional engines after configuring their connection settings.
 
 [connector]
-id   = "search"
+id = "search"
 type = "search"
-
-# Which engine answers when a call omits `engine`.
 default_engine = "ddg"
-
-timeout_secs  = 15   # per-search wall clock
-default_limit = 10   # hits per search when the caller doesn't say — the useful base
-max_limit     = 25   # ceiling; the agent may ask for more than the default, up to this
-
-# --- Engines: one table per search system, each with its own settings -------------
-# Add `enabled = false` to keep an engine declared but out of service.
+timeout_secs = 15
+default_limit = 10
+max_limit = 25
 
 [connector.engines.ddg]
-# DuckDuckGo. No account or key. It fetches through the SYSTEM libcurl (in-process):
-# DDG's anti-bot serves reqwest/hyper a 202 challenge page with no results, and drops a
-# vendored libcurl's handshake, while the system libcurl gets a full page. So the host
-# needs `libcurl.so.4` — present wherever `curl` is, which the forkd sandbox already
-# requires — and the BUILD host needs `libcurl4-openssl-dev`.
-#
-# DuckDuckGo locale (`kl`), e.g. "ru-ru" or "us-en". Omitted = DDG's global default,
-# which keeps mixed-language queries honest. Set it to bias results to one region.
-# region = "ru-ru"
 
-# [connector.engines.yandex]
-# Yandex Search API — planned. Needs a Yandex Cloud service account (role
-# `search-api.executor`) with its API key + folder id named by env var, and the
-# connector gains a `yandex` arm. Until then, leave this commented out.
+[connector.engines.tavily]
+
+[connector.engines.yandex]
+enabled = false
+api_key_env = "YANDEX_SEARCH_API_KEY"
+folder_id_env = "YANDEX_SEARCH_FOLDER_ID"
+search_type = "ru"  # Use "com" for international results.
+# region = "225"
+
+[connector.engines.brave]
+enabled = false
+api_key_env = "BRAVE_API_KEY"
+# search_lang = "ru"

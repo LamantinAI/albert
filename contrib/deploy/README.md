@@ -30,6 +30,13 @@ For an older source-build deployment using `albert.local.toml`, put the live
 file at `./albert/albert.toml` and carry over custom manifests and prompts before
 starting with the new Compose file.
 
+To adopt the packaged browser on an existing installation, set
+`engine = "moli"` in `config/connectors/browser/browser.toml`. To make
+DuckDuckGo the default, enable `[connector.engines.ddg]` and set
+`default_engine = "ddg"` in `config/connectors/search/search.toml`. An explicit
+`webdriver_url` continues to use its configured service. Both default web
+tools use the Moli bundled in the image. [Web connector settings](../../docs/configuration.md#connectorssearchsearchtoml)
+
 ```sh
 docker compose logs -f
 docker compose restart albert
@@ -46,6 +53,17 @@ An image update preserves `./albert/system.md` and `./albert/soul.md`. To adopt
 shipped prompt changes on an existing deployment, merge them into the mounted
 files or edit the corresponding documents in the web workspace.
 Treat `.env`, auth stores and backups as private.
+
+The packaged forkd manifest selects `albert-scripts` when the service can
+change UID and GID. Check the forkd startup log for the selected identity.
+If the service's effective capabilities lack `SETUID` and `SETGID`, forkd
+logs a warning and launches scripts under Albert's account. The subprocess
+inherits the container's filesystem and network permissions.
+[Process isolation](../../docs/architecture.md#isolation-three-layers)
+
+If the container needs a proxy to reach the web, provide its runtime proxy
+environment through the service's Compose configuration. The development
+build argument `ALBERT_DEV_BUILD_PROXY` applies to build-time downloads.
 
 ## Development
 

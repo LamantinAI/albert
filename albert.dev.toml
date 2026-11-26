@@ -96,6 +96,11 @@ max_hops = 8
 [scheduler]
 state_path = "state/scheduler.json"
 
+[browser_runtime]
+executable = "moli"
+bind = "127.0.0.1:0"
+startup_timeout_secs = 8
+
 [agent]
 max_tool_turns = 30
 

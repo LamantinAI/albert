@@ -333,8 +333,8 @@ config/
     ├── telegram/telegram.toml         # account-authenticated chat channel
     ├── calendar/calendar.toml         # CalDAV calendar
     ├── storage/storage.toml           # durable object store
-    ├── forkd/forkd.toml               # sandboxed script runner
-    ├── search/search.toml             # web search (DuckDuckGo; links the system libcurl)
+    ├── forkd/forkd.toml               # Linux script runner
+    ├── search/search.toml             # web search providers
     ├── jira/jira.toml                 # Jira via the generic http connector (placeholder base_url)
     └── mail/mail.toml.example         # IMAP/SMTP organ — off by default (.example, not loaded)
 ```
@@ -444,8 +444,7 @@ root    = "../../../state/artifacts"
 [connector]
 id   = "forkd"
 type = "forkd"
-# `workspace` omitted -> inherits $OCTO_CODE_WORKSPACE (the file-tool jail), so a
-# script edits the very files the agent wrote.
+# `workspace` omitted defaults to $OCTO_CODE_WORKSPACE as the working directory.
 
 run_as    = "albert-scripts"   # scripts run setuid to this unprivileged user (when Albert can);
                                # missing on the host -> forkd warns and runs as the current user
@@ -454,62 +453,91 @@ run_group = "albert"           # child's PRIMARY group = the workspace-sharing g
 
 timeout_secs     = 30          # default per-run wall-clock limit
 max_timeout_secs = 300         # ceiling a command may request
-max_output_bytes = 65536       # stdout/stderr each capped to this
+max_output_bytes = 65536       # maximum returned bytes each for stdout and stderr
 fsize_mb         = 64          # a script may not write a file larger than this
 # mem_mb         = 512         # optional RLIMIT_AS (leave unset: too low breaks interpreters)
 ```
 
-The isolation these knobs implement, and why `run_group` matters, is in
-[architecture.md](architecture.md#isolation-three-layers).
+The runner truncates output after collection. The output setting controls the
+reply size. Filesystem and network access follow the OS deployment settings.
+[Isolation and workspace sharing](architecture.md#isolation-three-layers)
 
 ### `connectors/search/search.toml`
 
-Web search as an env-as-tools organ — `search.web { query, limit?, engine? }` →
-`{ engine, query, count, results: [{ title, url, snippet }] }` (a clean hit list,
-never raw HTML).
+`search.web { query, limit?, engine?, page? }` returns ranked hits with `title`, `url`
+and `snippet`. Each `[connector.engines.<name>]` table enables one backend.
+`default_engine` answers calls that omit `engine`. Fresh deployments use
+DuckDuckGo. Existing deployments can adopt it by enabling the DDG engine and
+setting `default_engine = "ddg"` in their saved manifest.
 
-**The search system is chosen at two levels.** The manifest declares which engines
-exist (one `[connector.engines.<name>]` table each, with its own settings) and which
-is the `default_engine`; Albert overrides per call with `engine`. So one connector can
-front several systems — DuckDuckGo today, Yandex next — and the model picks per query
-with no config change.
+Set `enabled = true` in the corresponding engine table after supplying its
+settings. Store API credentials in the Credentials panel or deployment environment.
+Restart Albert to load the manifest and credentials.
+
+- DuckDuckGo shares a Moli process with `browser.fetch`. Albert starts it
+  during startup when either connector uses it. An existing `webdriver_url`
+  continues to select a
+  private WebDriver service. Each page contains up to ten links with their
+  original snippets. To continue, pass the returned
+  `next_page` as `page` with the same `query`, `engine`, and `limit`. A null
+  `next_page` marks the end. A CAPTCHA is reported as a provider error.
+  If the site serves the search page without loading its results, the
+  connector reports a timeout and lists alternatives.
+  [Moli documentation](https://github.com/lexmount/moli#start-the-automation-server)
+- Tavily runs in keyless mode and can return up to 20 hits per request.
+  [Tavily keyless search](https://docs.tavily.com/documentation/keyless)
+- Yandex uses `YANDEX_SEARCH_API_KEY` and `YANDEX_SEARCH_FOLDER_ID`. Create a key
+  with scope `yc.search-api.execute` for a service account with
+  `search-api.webSearch.user` in the request folder.
+  [Yandex Search API setup](https://aistudio.yandex.ru/ru/docs/search-api/operations/web-search-sync)
+- Brave uses `BRAVE_API_KEY` with access to the LLM Context endpoint. The optional
+  `country` and `search_lang` settings localize results.
+  [Brave LLM Context](https://api-dashboard.search.brave.com/documentation/services/llm-context)
+
+On provider failure the connector returns
+`{ engine, error, alternatives, setup_options }`. `alternatives` lists enabled
+engines available for an immediate retry. `setup_options` lists supported
+providers the owner can enable, each with an `engine` and a short `setup`
+description. Albert can offer either option after explaining what failed.
+
+### `connectors/browser/browser.toml`
+
+`browser.fetch { url, html?, timeout_secs? }` runs page JavaScript in Moli and
+returns the visible text, title and final URL. Request `html: true` to also get
+the serialized DOM. Each fetch uses its own browser context. `status` reports
+`ok`, `timeout`, or `error`. On success, `extraction_status` distinguishes
+visible text from an empty page. The per-request deadline includes text
+extraction and any browser restart needed to serve the request.
+
+Moli reads the DOM with approximate element geometry. Pages that load content
+based on the viewport or scroll position may show different text. A successful
+fetch confirms extraction and can still contain a site's access or error page.
+
+For an existing installation, set `engine = "moli"` to select the shared
+browser explicitly. A Chrome executable, version pin, `headless = false`, or
+`sandbox = true` in a manifest without an engine selects Chrome. Old cache
+and update settings are used only when Chrome is selected. To keep Chrome,
+select `engine = "chrome"` and provide its runtime libraries on the host or in
+a custom image. The stock Albert image bundles Moli. [Octo browser connector](https://github.com/LamantinAI/octo/tree/main/connectors/browser)
+
+### Shared browser runtime
+
+`[browser_runtime]` in `albert.toml` configures the single Moli process used
+by the web connectors. These are the defaults.
 
 ```toml
-[connector]
-id   = "search"
-type = "search"
-
-default_engine = "ddg"   # answers when a call omits `engine`
-timeout_secs   = 15      # per-search wall clock
-default_limit  = 10      # hits per search when the caller doesn't say
-max_limit      = 25      # ceiling; a call may ask for more than the default, up to this
-
-[connector.engines.ddg]  # DuckDuckGo — no account or key
-# region = "ru-ru"       # DDG `kl` locale; omitted = DDG's global default
-
-# [connector.engines.yandex]   # planned; `enabled = false` shelves an engine
+[browser_runtime]
+executable = "moli"
+bind = "127.0.0.1:0"
+startup_timeout_secs = 8
 ```
 
-A single-engine deployment can still use the shorthand `backend = "ddg"` on
-`[connector]`. A manifest with no engines, or a `default_engine` that isn't enabled,
-fails at **startup** rather than at query time.
-
-> **⚠ The `ddg` engine links the *system* libcurl.** Build hosts need
-> `libcurl4-openssl-dev`; run hosts need `libcurl.so.4` — which is present wherever the
-> `curl` command is (same package), so Albert's deployments already satisfy it (the
-> forkd sandbox requires curl). The reason is measured, not incidental: DuckDuckGo's
-> anti-bot answers reqwest/hyper with a `202` challenge page and zero results (with
-> rustls *and* native-tls, over HTTP/1.1 *and* HTTP/2, with browser-like headers), and
-> drops a **vendored** libcurl's handshake outright, while the system libcurl — the
-> library the working `curl` command is a shell over — gets `200` and a full page. The
-> block keys on the TLS fingerprint, which hyper cannot spoof, so every ready-made DDG
-> crate wraps reqwest and hits the same wall.
->
-> **Build trap:** `curl-sys` links the system library only if pkg-config finds it, else
-> it silently vendors its own — and cargo caches that decision, so installing the dev
-> package *after* a build needs `cargo clean -p curl-sys` before rebuilding. The
-> connector logs the linked libcurl version at startup so a vendored build is visible
-> immediately. An engine talking to a real API (Yandex) carries no such requirement.
+A bare executable name uses the service's PATH. Relative paths with directories
+resolve from the configuration file. The CDP listener accepts loopback
+addresses, and port `0` lets the OS choose a free port. The startup deadline
+covers starting the process and connecting over CDP. If startup fails, Albert
+logs the error, starts its other services, and retries on a browser tool call.
+Apply changes with an Albert restart.
 
 ### Subscription organs — `connectors/{transcribe,speak,imagegen}/*.toml`
 

@@ -1,5 +1,6 @@
 x-development-image: &development-image
   image: albert:dev
+  init: true
   build:
     context: .
     dockerfile: docker/Dockerfile

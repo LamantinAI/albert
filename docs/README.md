@@ -9,7 +9,7 @@ deeper reference.
 - **[architecture.md](architecture.md)** — the assembly: Octo as the Reaction
   skeleton, kaeru as deliberate memory (a tool, not a bulk blob), the cogitator's
   perceive → tool-loop → reply cycle, the three context tiers (chat / scratchpad /
-  memory), the file workspace + storage + file exchange, skills, the sandboxed forkd
+  memory), the file workspace + storage + file exchange, skills, the forkd process
   script runner and its three isolation layers, owner-gated self-restart, reminders +
   proactive routines, and the config-driven connectors. Plus what is settled vs. future.
 - **[configuration.md](configuration.md)** — the config reference: `albert.toml`
@@ -53,7 +53,7 @@ plugs in as the cognition layer: it perceives two event kinds (`chat.message`,
 turn); the **scheduler** + **calendar** for reminders and self-scheduled routines; a
 **file workspace** (read/write/edit/glob/grep) with durable **storage** and file
 exchange (`send_file`); **skills** (a catalog in the preamble, bodies loaded on
-demand); a sandboxed **forkd** script runner for executable skills; and — on an owner
+demand); a Linux **forkd** script runner for executable skills; and — on an owner
 turn — a **restart** tool to apply its own config changes. Three context tiers stay
 distinct — the chat transcript (a log, Octo history, SQLite-persisted), the scratchpad
 (super-operational task state), and kaeru (durable memory). Persona and a deliberately
