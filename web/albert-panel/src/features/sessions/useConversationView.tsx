@@ -20,7 +20,7 @@ export type ConversationProps = {
   startingText?: string;
   onCancelStart?: () => Promise<void>;
   onReady?: () => void;
-  onSessionChange: (session: Session) => void;
+  onSessionChange: (session: Session, published?: boolean) => void;
   onRemoved?: () => void;
   inDirectory: boolean;
   initialText?: string;

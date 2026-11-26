@@ -198,6 +198,23 @@ export interface Paths4 {
         patch?: never;
         trace?: never;
     };
+"/sessions/{id}/forks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fork a saved private conversation */
+        post: operations["sessions_post_sessions_id_forks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 "/sessions/{id}/messages": {
         parameters: {
             query?: never;
@@ -210,23 +227,6 @@ export interface Paths4 {
         put?: never;
         /** Create sessions messages */
         post: operations["sessions_post_sessions_id_messages"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-"/sessions/{id}/messages/{request_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get sessions messages receipt */
-        get: operations["sessions_get_sessions_id_messages_request_id"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;

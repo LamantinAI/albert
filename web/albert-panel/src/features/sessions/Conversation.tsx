@@ -238,6 +238,11 @@ export function Conversation(props: ConversationProps) {
             .at(-1)?.id
         }
         hasSession={!provisional}
+        canFork={
+          !provisional &&
+          session?.kind === "permanent" &&
+          session.state === "active"
+        }
         onCommand={commands.command}
         hostBusy={commands.hostBusy}
         commandNotice={commands.notice}

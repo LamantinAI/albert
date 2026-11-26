@@ -12,6 +12,7 @@ export function ComposerMenu({
   onFiles,
   onCommand,
   hasSession,
+  canFork = false,
   hostBusy = false,
   chatDisabled = false,
   reload,
@@ -24,6 +25,7 @@ export function ComposerMenu({
   onFiles: () => void;
   onCommand?: (command: ComposerCommand) => void;
   hasSession: boolean;
+  canFork?: boolean;
   hostBusy?: boolean;
   chatDisabled?: boolean;
   reload: () => void;
@@ -247,6 +249,7 @@ export function ComposerMenu({
                 <ComposerCommands
                   policy={policy}
                   hasSession={hasSession}
+                  canFork={canFork}
                   hostBusy={hostBusy}
                   chatDisabled={chatDisabled}
                   onChoose={(kind) => {

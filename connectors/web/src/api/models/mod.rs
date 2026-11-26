@@ -52,7 +52,7 @@ pub use progress::{ProgressDelta, ProgressItem, ProgressSnapshot};
 mod progress_activity;
 pub use progress_activity::ProgressActivity;
 pub use session::{
-    AttemptView, CancelRequest, EventQuery, MessageCreate, MessageList, MessageReceipt,
+    AttemptView, CancelRequest, EventQuery, ForkCreate, MessageCreate, MessageList, MessageReceipt,
     MessageSource, MessageView, PageQuery, SessionCreate, SessionEvent, SessionList, SessionState,
     SessionUpdate, SessionView,
 };

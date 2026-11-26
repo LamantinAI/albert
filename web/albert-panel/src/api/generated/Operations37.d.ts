@@ -2,24 +2,22 @@
 import type { components, operations } from '../schema'
 
 export interface Operations37 {
-sessions_post_sessions_id_messages: {
+sessions_get_sessions_id_messages: {
         parameters: {
-            query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
+            query?: {
+                after?: string;
+                limit?: number;
+                order?: string;
+                through_id?: string;
             };
+            header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MessageCreate"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -27,7 +25,7 @@ sessions_post_sessions_id_messages: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageReceipt"];
+                    "application/json": components["schemas"]["MessageList"];
                 };
             };
             /** @description Invalid request */
@@ -113,19 +111,24 @@ sessions_post_sessions_id_messages: {
             };
         };
     };
-sessions_get_sessions_id_messages_request_id: {
+sessions_post_sessions_id_messages: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
             path: {
                 /** @description Resource identifier */
                 id: string;
-                /** @description Resource identifier */
-                request_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {

@@ -2,24 +2,17 @@
 import type { components, operations } from '../schema'
 
 export interface Operations40 {
-skills_put_skills_id: {
+skills_get_skills_id: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
-            };
+            header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SkillWrite"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -113,12 +106,10 @@ skills_put_skills_id: {
             };
         };
     };
-skills_delete_skills_id: {
+skills_put_skills_id: {
         parameters: {
             query?: never;
             header: {
-                /** @description Exact configuration revision */
-                "If-Match"?: string | null;
                 /** @description Current browser CSRF value */
                 "x-albert-csrf": string;
             };
@@ -128,7 +119,11 @@ skills_delete_skills_id: {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillWrite"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -136,7 +131,7 @@ skills_delete_skills_id: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmptyObject"];
+                    "application/json": components["schemas"]["SkillView"];
                 };
             };
             /** @description Invalid request */

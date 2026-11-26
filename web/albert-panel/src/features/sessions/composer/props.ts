@@ -24,6 +24,7 @@ export type ComposerProps = {
   policyKey?: string;
   onCommand?: (command: ComposerCommand) => void;
   hasSession?: boolean;
+  canFork?: boolean;
   locked?: boolean;
   hostBusy?: boolean;
   commandNotice?: string;

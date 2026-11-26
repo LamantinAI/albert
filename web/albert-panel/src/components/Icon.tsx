@@ -43,6 +43,7 @@ export type IconName =
   | "logout"
   | "temporary"
   | "copy"
+  | "fork"
   | "terminal"
   | "tool"
   | "spark"
@@ -103,6 +104,7 @@ const paths: Record<IconName, string> = {
   temporary:
     "M8 3h8M8 21h8M7 4c0 5 1 6 5 8-4 2-5 3-5 8M17 4c0 5-1 6-5 8 4 2 5 3 5 8",
   copy: "M8 8h12v13H8zM4 16V3h12",
+  fork: "M6 7v10m12-10v2a6 6 0 0 1-6 6H6M8 5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm12 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM8 19a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
   terminal: "M3 4h18v16H3zM7 9l3 3-3 3M13 15h4",
   tool: "m14 6 4 4 3-3a7 7 0 0 1-9 9l-6 6-4-4 6-6a7 7 0 0 1 9-9l-3 3Z",
   spark: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z",

@@ -2,13 +2,15 @@
 import type { components, operations } from '../schema'
 
 export interface Operations38 {
-sessions_get_sessions_id_state: {
+sessions_get_sessions_id_messages_request_id: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Resource identifier */
                 id: string;
+                /** @description Resource identifier */
+                request_id: string;
             };
             cookie?: never;
         };
@@ -20,7 +22,7 @@ sessions_get_sessions_id_state: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionState"];
+                    "application/json": components["schemas"]["MessageReceipt"];
                 };
             };
             /** @description Invalid request */
@@ -106,21 +108,17 @@ sessions_get_sessions_id_state: {
             };
         };
     };
-skills_post_skill_imports: {
+sessions_get_sessions_id_state: {
         parameters: {
             query?: never;
-            header: {
-                /** @description Current browser CSRF value */
-                "x-albert-csrf": string;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                id: string;
             };
-            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SkillImport"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -128,7 +126,7 @@ skills_post_skill_imports: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkillView"];
+                    "application/json": components["schemas"]["SessionState"];
                 };
             };
             /** @description Invalid request */

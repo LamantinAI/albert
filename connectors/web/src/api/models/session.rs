@@ -29,6 +29,11 @@ pub struct SessionCreate {
 }
 #[derive(Clone, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ForkCreate {
+    pub client_request_id: String,
+}
+#[derive(Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SessionUpdate {
     pub revision: i64,
     pub title: Option<String>,

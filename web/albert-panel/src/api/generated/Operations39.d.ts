@@ -2,14 +2,21 @@
 import type { components, operations } from '../schema'
 
 export interface Operations39 {
-skills_get_skills: {
+skills_post_skill_imports: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Current browser CSRF value */
+                "x-albert-csrf": string;
+            };
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillImport"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -17,7 +24,7 @@ skills_get_skills: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkillList"];
+                    "application/json": components["schemas"]["SkillView"];
                 };
             };
             /** @description Invalid request */
@@ -103,14 +110,11 @@ skills_get_skills: {
             };
         };
     };
-skills_get_skills_id: {
+skills_get_skills: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                /** @description Resource identifier */
-                id: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -121,7 +125,7 @@ skills_get_skills_id: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkillView"];
+                    "application/json": components["schemas"]["SkillList"];
                 };
             };
             /** @description Invalid request */

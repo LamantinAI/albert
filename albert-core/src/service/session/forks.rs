@@ -1,8 +1,15 @@
-//! Private chat selection and persistent native command replay for session forks.
-use octo_history::{HistoryError, RequestAlias, Session, SessionKind, SessionState};
-use sqlx::{query, query_scalar, Sqlite, Transaction};
+//! Shared-prefix forks for web resources and native private selectors.
+use octo_history::{
+    HistoryError, RequestAlias, Session, SessionAccess, SessionId, SessionKind, SessionState,
+};
+use sha2::{Digest, Sha256};
+use sqlx::{query, query_as, query_scalar, Sqlite, Transaction};
 
-use super::{route_key, selected, SessionService};
+use super::{
+    route_key, selected,
+    web::{verify_actor, WebActor},
+    SessionService,
+};
 use crate::{
     db::{
         error::DatabaseError,
@@ -52,11 +59,7 @@ impl SessionService {
             .catalog_session_in(&mut tx, context.session_id())
             .await?;
         context.check(&parent)?;
-        if parent.kind != SessionKind::Permanent || parent.state != SessionState::Active {
-            return Err(SessionError::InvalidInput(
-                "open a saved private chat before using /fork",
-            ));
-        }
+        require_saved_chat(&parent)?;
         let key = route_key(context)?;
         let route = find_in(&mut tx, &key)
             .await?
@@ -71,15 +74,7 @@ impl SessionService {
                 "use /end before selecting another chat",
             ));
         }
-        let title = if title.is_empty() {
-            next_fork_title(&mut tx, &parent).await?
-        } else {
-            title.into()
-        };
-        let child = self
-            .history
-            .fork_session_in(&mut tx, &parent.id, None, title)
-            .await?;
+        let child = self.create_fork_in(&mut tx, &parent, title).await?;
         let revision = set(&mut tx, &key, child.id.as_str(), None, Some(route.revision)).await?;
         let lease = self.lease_for_in(&mut tx, &child.id).await?;
         query("INSERT INTO albert_fork_receipts(namespace, request_key, request_digest) VALUES (?,?,?)")
@@ -90,6 +85,86 @@ impl SessionService {
             .record(&key, &parent.id, route.revision, &child.id, revision);
         Ok(Some(selected(context, child, revision, lease, None)))
     }
+
+    /// Fork an explicit web session without changing a native channel selector.
+    pub async fn web_fork(
+        &self,
+        actor: &WebActor,
+        source: &SessionId,
+        request_id: &str,
+    ) -> SessionResult<Session> {
+        let _lifecycle = self.router.lifecycle_gate().write_owned().await;
+        let mut tx = self.history.begin_journal().await?;
+        verify_actor(&mut tx, actor).await?;
+        let parent = self.catalog_session_in(&mut tx, source).await?;
+        let access = SessionAccess::Private {
+            owner: actor.user_id.as_str().into(),
+        };
+        if parent.access != access {
+            return Err(SessionError::Denied);
+        }
+        let namespace = format!("web:fork:{}", actor.account_id);
+        let digest = format!("{:x}", Sha256::digest(source.as_str().as_bytes()));
+        let receipt: Option<(String, Option<String>)> = query_as(
+            "SELECT request_digest, fork_session_id FROM albert_fork_receipts WHERE namespace=? AND request_key=?",
+        )
+        .bind(&namespace)
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(DatabaseError::from)?;
+        let child = if let Some((stored_digest, child_id)) = receipt {
+            if stored_digest != digest {
+                return Err(HistoryError::IdempotencyConflict.into());
+            }
+            let id = child_id.ok_or(SessionError::NotFound)?;
+            let child = self
+                .catalog_session_in(&mut tx, &SessionId::parse(&id)?)
+                .await?;
+            if child.access != access {
+                return Err(SessionError::Denied);
+            }
+            child
+        } else {
+            require_saved_chat(&parent)?;
+            let child = self.create_fork_in(&mut tx, &parent, "").await?;
+            query("INSERT INTO albert_fork_receipts(namespace,request_key,request_digest,fork_session_id) VALUES (?,?,?,?)")
+                .bind(&namespace)
+                .bind(request_id)
+                .bind(&digest)
+                .bind(child.id.as_str())
+                .execute(&mut *tx).await.map_err(DatabaseError::from)?;
+            child
+        };
+        tx.commit().await.map_err(DatabaseError::from)?;
+        Ok(child)
+    }
+
+    async fn create_fork_in(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        parent: &Session,
+        title: &str,
+    ) -> SessionResult<Session> {
+        let title = if title.is_empty() {
+            next_fork_title(tx, parent).await?
+        } else {
+            title.into()
+        };
+        Ok(self
+            .history
+            .fork_session_in(tx, &parent.id, None, title)
+            .await?)
+    }
+}
+
+fn require_saved_chat(session: &Session) -> SessionResult<()> {
+    if session.kind != SessionKind::Permanent || session.state != SessionState::Active {
+        return Err(SessionError::InvalidInput(
+            "open a saved private chat before using /fork",
+        ));
+    }
+    Ok(())
 }
 
 async fn next_fork_title(

@@ -68,30 +68,30 @@ sessions_subscribe: {
             };
         };
     };
-sessions_get_sessions_id_messages: {
+sessions_post_sessions_id_forks: {
         parameters: {
-            query?: {
-                after?: string;
-                limit?: number;
-                order?: string;
-                through_id?: string;
+            query?: never;
+            header: {
+                "x-albert-csrf": string;
             };
-            header?: never;
             path: {
-                /** @description Resource identifier */
                 id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkCreate"];
+            };
+        };
         responses: {
-            /** @description Success */
+            /** @description Forked conversation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageList"];
+                    "application/json": components["schemas"]["SessionView"];
                 };
             };
             /** @description Invalid request */
@@ -132,42 +132,6 @@ sessions_get_sessions_id_messages: {
             };
             /** @description Conflicting state */
             409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorBody"];
-                };
-            };
-            /** @description Revision changed */
-            412: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorBody"];
-                };
-            };
-            /** @description Body too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorBody"];
-                };
-            };
-            /** @description Internal failure */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorBody"];
-                };
-            };
-            /** @description Service unavailable */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };

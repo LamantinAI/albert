@@ -13,12 +13,14 @@ type Row = {
 export function ComposerCommands({
   policy,
   hasSession,
+  canFork,
   hostBusy,
   chatDisabled,
   onChoose,
 }: {
   policy: ComposerPolicy | null;
   hasSession: boolean;
+  canFork: boolean;
   hostBusy: boolean;
   chatDisabled: boolean;
   onChoose: (command: ComposerCommand) => void;
@@ -37,6 +39,14 @@ export function ComposerCommands({
       label: "Compact conversation",
       description: "Summarize context and continue working",
       available: hasSession && !!policy?.can_compact,
+      disabled: chatDisabled,
+    },
+    {
+      id: "fork",
+      icon: "fork",
+      label: "Fork conversation",
+      description: "Start a new chat with this conversation’s context",
+      available: canFork,
       disabled: chatDisabled,
     },
     {

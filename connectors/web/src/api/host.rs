@@ -128,6 +128,10 @@ pub enum SessionOperation {
     },
     List(PageQuery),
     Create(SessionCreate),
+    Fork {
+        id: String,
+        input: super::models::ForkCreate,
+    },
     Get {
         id: String,
     },

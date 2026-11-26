@@ -183,6 +183,7 @@ export function Composer(props: ComposerProps) {
                 onCommand={command}
                 hostBusy={hostBusy}
                 hasSession={hasSession}
+                canFork={props.canFork}
               />
             )}
             {capturing ? (

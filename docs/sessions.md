@@ -145,6 +145,9 @@ running after End; cleanup does not cancel or mute its later permanent output.
 
 ## Session forks
 
+In the web workspace, open **Commands → Fork conversation** in an active saved
+chat. Albert opens the new branch with the source's committed context.
+
 `/fork` uses the committed head and applicable compact of the current saved
 private chat. It opens a new session in the requesting channel. Omit the title to
 use the parent's name and the next automatic suffix, such as `Research-f1` or

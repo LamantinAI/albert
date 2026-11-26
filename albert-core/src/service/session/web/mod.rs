@@ -72,6 +72,93 @@ pub(crate) mod tests {
         (dir, service, first, second)
     }
     #[tokio::test]
+    async fn web_fork_requires_ownership_and_replays_the_same_child() {
+        let (dir, service, first, second) = fixture().await;
+        let source = service.web_create(&first, "Research", false).await.unwrap();
+        let other = service.web_create(&first, "Other", false).await.unwrap();
+        let temporary = service.web_create(&first, "Temporary", true).await.unwrap();
+        assert!(matches!(
+            service.web_fork(&second, &source.id, "first-fork").await,
+            Err(SessionError::Denied)
+        ));
+        assert!(matches!(
+            service.web_fork(&first, &temporary.id, "first-fork").await,
+            Err(SessionError::InvalidInput(_))
+        ));
+        let source_context = service.web_context(&first, &source.id).await.unwrap();
+        let journal = service.journal_router();
+        let request = |key: &str| AppendRequest {
+            namespace: "web-fork-test".into(),
+            idempotency_key: key.into(),
+            digest: key.into(),
+            turns: vec![Turn::user(key)],
+        };
+        journal
+            .append_journal(&source_context.root_history_key(), &request("inherited"))
+            .await
+            .unwrap();
+        let fork = service
+            .web_fork(&first, &source.id, "first-fork")
+            .await
+            .unwrap();
+        assert_eq!(fork.title, "Research-f1");
+        assert_ne!(fork.id, source.id);
+        journal
+            .append_journal(&source_context.root_history_key(), &request("later"))
+            .await
+            .unwrap();
+        let fork_context = service.web_context(&first, &fork.id).await.unwrap();
+        assert_eq!(
+            journal
+                .strict_load(&source_context.root_history_key())
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            journal
+                .strict_load(&fork_context.root_history_key())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            service
+                .web_fork(&first, &source.id, "first-fork")
+                .await
+                .unwrap()
+                .id,
+            fork.id
+        );
+        assert!(service
+            .web_fork(&first, &other.id, "first-fork")
+            .await
+            .is_err());
+        assert!(service.web_context(&first, &fork.id).await.is_ok());
+        service
+            .web_delete(&first, &fork.id, fork.revision, dir.path())
+            .await
+            .unwrap();
+        assert!(matches!(
+            service.web_fork(&first, &source.id, "first-fork").await,
+            Err(SessionError::Ended)
+        ));
+        let next = service
+            .web_fork(&first, &source.id, "second-fork")
+            .await
+            .unwrap();
+        assert_eq!(next.title, "Research-f2");
+        assert_eq!(
+            query_scalar::<_, i64>("SELECT COUNT(*) FROM albert_private_session_routes")
+                .fetch_one(service.history().pool())
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    #[tokio::test]
     async fn explicit_resource_context_never_creates_defaults_or_bypasses_private_group_access() {
         let (_dir, service, first, second) = fixture().await;
         let session = service.web_create(&first, "Own chat", false).await.unwrap();

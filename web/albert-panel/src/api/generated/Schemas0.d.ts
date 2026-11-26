@@ -219,6 +219,9 @@ CredentialView: {
             id: string;
         };
 EmptyObject: Record<string, never>;
+ForkCreate: {
+            client_request_id: string;
+        };
 IdentityList: {
             items: components["schemas"]["IdentityView"][];
         };

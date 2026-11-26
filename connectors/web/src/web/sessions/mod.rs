@@ -131,6 +131,19 @@ impl SessionHost {
                     .map_err(session_error)?;
                 Ok(HostResponse::Session(view(&session)))
             }
+            SessionOperation::Fork { id, input } => {
+                let id =
+                    SessionId::parse(&id).map_err(|_| ApiError::invalid("Invalid Session ID."))?;
+                let request = send::request_id(&input.client_request_id)
+                    .map_err(|_| ApiError::invalid("client_request_id must be a UUID."))?;
+                let session = self
+                    .runtime
+                    .sessions
+                    .web_fork(&actor, &id, &request)
+                    .await
+                    .map_err(session_error)?;
+                Ok(HostResponse::Session(view(&session)))
+            }
             SessionOperation::Get { id } => {
                 let context = self.resource(&actor, &id).await?;
                 Ok(HostResponse::Session(view(context.session())))

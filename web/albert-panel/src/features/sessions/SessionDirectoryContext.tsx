@@ -46,7 +46,7 @@ export interface Directory {
   setQuery: (value: string) => void;
   hasMore: boolean;
   reload: () => Promise<void>;
-  updateKnown: (session: Session) => void;
+  updateKnown: (session: Session, published?: boolean) => void;
   refreshSession: (id: string, published?: boolean) => Promise<Session | null>;
   removeSession: (id: string) => void;
   older: () => Promise<void>;
@@ -124,9 +124,9 @@ export function SessionDirectoryProvider({
       }
     }
   }, [canChat]);
-  const updateKnown = useCallback((session: Session) => {
+  const updateKnown = useCallback((session: Session, published = false) => {
     if (!mounted.current) return;
-    setSessions((items) => mergeDirectorySession(items, session));
+    setSessions((items) => mergeDirectorySession(items, session, published));
   }, []);
   const removeSession = useCallback((id: string) => {
     if (!mounted.current) return;

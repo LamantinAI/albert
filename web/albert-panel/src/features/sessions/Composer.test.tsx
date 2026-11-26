@@ -2,8 +2,37 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Composer } from "./Composer";
+import { ComposerCommands } from "./composer/ComposerCommands";
 
 describe("message composer", () => {
+  it("offers Fork conversation for an eligible chat", () => {
+    const choose = vi.fn();
+    const { rerender } = render(
+      <ComposerCommands
+        policy={null}
+        hasSession
+        canFork
+        hostBusy={false}
+        chatDisabled={false}
+        onChoose={choose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Fork conversation/ }));
+    expect(choose).toHaveBeenCalledWith("fork");
+    rerender(
+      <ComposerCommands
+        policy={null}
+        hasSession
+        canFork={false}
+        hostBusy={false}
+        chatDisabled={false}
+        onChoose={choose}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Fork conversation/ }),
+    ).toBeNull();
+  });
   it("does not send during IME composition or Shift+Enter and clears only accepted input", async () => {
     const send = vi
       .fn()

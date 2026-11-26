@@ -7,7 +7,7 @@ use super::super::{
     input::ApiQuery,
 };
 use crate::api::models::{
-    ApiErrorBody, PageQuery, SessionCreate, SessionList, SessionUpdate, SessionView,
+    ApiErrorBody, ForkCreate, PageQuery, SessionCreate, SessionList, SessionUpdate, SessionView,
 };
 use crate::api::{errors::ApiResult, host::HostOperation, host::SessionOperation, state::ApiState};
 
@@ -15,6 +15,7 @@ pub(super) fn router() -> OpenApiRouter<ApiState> {
     OpenApiRouter::new()
         .routes(routes!(get_sessions))
         .routes(routes!(post_sessions))
+        .routes(routes!(post_session_fork))
         .routes(routes!(get_sessions_id))
         .routes(routes!(patch_sessions_id))
 }
@@ -64,6 +65,34 @@ async fn post_sessions(
 ) -> ApiResult<Json<SessionView>> {
     let operation = HostOperation::Session(SessionOperation::Create(input));
     run(&state, &caller, operation).await
+}
+
+#[utoipa::path(post, operation_id = "sessions_post_sessions_id_forks", path = "/sessions/{id}/forks",
+    summary = "Fork a saved private conversation", tag = "sessions", request_body = ForkCreate,
+    params(("id" = String, Path), ("x-albert-csrf" = String, Header)),
+    security(("browserCookie" = [])),
+    responses((status = 200, description = "Forked conversation", body = SessionView),
+        (status = 400, description = "Invalid request", body = ApiErrorBody),
+        (status = 401, description = "Sign-in required", body = ApiErrorBody),
+        (status = 403, description = "Insufficient authority", body = ApiErrorBody),
+        (status = 404, description = "Resource unavailable", body = ApiErrorBody),
+        (status = 409, description = "Conflicting state", body = ApiErrorBody))
+)]
+async fn post_session_fork(
+    State(state): State<ApiState>,
+    BrowserActor(caller): BrowserActor,
+    ApiPath(id): ApiPath<String>,
+    ApiJson(input): ApiJson<ForkCreate>,
+) -> ApiResult<Json<SessionView>> {
+    run(
+        &state,
+        &caller,
+        HostOperation::Session(SessionOperation::Fork {
+            id: resource(id)?,
+            input,
+        }),
+    )
+    .await
 }
 
 #[utoipa::path(get, operation_id = "sessions_get_sessions_id", path = "/sessions/{id}", summary = "Get sessions", tag = "sessions",
