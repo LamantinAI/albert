@@ -36,6 +36,8 @@ pub enum MemoryError {
     Protocol(String),
     #[error("memory MCP operation timed out")]
     Timeout,
+    #[error("memory MCP session expired")]
+    SessionExpired,
     #[error("memory MCP tool failed: {0}")]
     Tool(String),
     #[error("memory task: {0}")]

@@ -2,10 +2,12 @@
 
 use std::{collections::HashMap, collections::HashSet, sync::Arc, time::Duration};
 
+use mcp_http::Error as HttpError;
 use rig::tool::ToolDyn;
 use rmcp::{
     model::CallToolRequestParams, model::CallToolResult, model::ClientInfo, model::JsonObject,
-    model::Tool, service::RoleClient, service::RunningService,
+    model::Tool, service::RoleClient, service::RunningService, service::ServiceError,
+    transport::streamable_http_client::StreamableHttpError,
 };
 use serde_json::Value;
 use tokio::{sync::Mutex, time::timeout};
@@ -96,14 +98,28 @@ impl McpMemory {
         name: &str,
         arguments: JsonObject,
     ) -> Result<CallToolResult, MemoryError> {
+        let first = self.call_once(name, arguments.clone()).await;
+        if matches!(first, Err(MemoryError::SessionExpired)) {
+            // An HTTP session rejection precedes tool admission. Revalidate the
+            // tool schemas on the new connection, then send the request once.
+            return self.call_once(name, arguments).await;
+        }
+        first
+    }
+
+    async fn call_once(
+        &self,
+        name: &str,
+        arguments: JsonObject,
+    ) -> Result<CallToolResult, MemoryError> {
         let session = self.session().await?;
         let result = call(&session, self.timeout, name, arguments).await;
         if matches!(
             result,
-            Err(MemoryError::Connection(_) | MemoryError::Timeout)
+            Err(MemoryError::Connection(_) | MemoryError::Timeout | MemoryError::SessionExpired)
         ) {
-            // An interrupted write may already have committed. Never replay it.
-            // Reconnect for the NEXT call, without disturbing a newer connection.
+            // Invalidate only the connection that failed. An interrupted write
+            // may have committed, so only explicit expiry is eligible for retry.
             let mut current = self.session.lock().await;
             if current
                 .as_ref()
@@ -210,7 +226,7 @@ async fn call(
     let result = timeout(duration, session.call_tool(request))
         .await
         .map_err(|_| MemoryError::Timeout)?
-        .map_err(|e| MemoryError::Connection(e.to_string()))?;
+        .map_err(tool_transport_error)?;
     if result.is_error == Some(true) {
         let text = result
             .content
@@ -222,6 +238,22 @@ async fn call(
         return Err(MemoryError::Tool(text));
     }
     Ok(result)
+}
+
+fn tool_transport_error(error: ServiceError) -> MemoryError {
+    match error {
+        ServiceError::TransportSend(ref transport)
+            if matches!(
+                transport
+                    .error
+                    .downcast_ref::<StreamableHttpError<HttpError>>(),
+                Some(StreamableHttpError::SessionExpired)
+            ) =>
+        {
+            MemoryError::SessionExpired
+        }
+        _ => MemoryError::Connection(error.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -243,13 +275,21 @@ mod tests {
     };
     use rig::tool::ToolDyn;
     use rmcp::{
-        model::CallToolRequestParams, model::CallToolResult, model::Content, model::JsonObject,
-        model::ListToolsResult, model::PaginatedRequestParams, model::ServerCapabilities,
-        model::ServerInfo, model::Tool, service::RequestContext, service::RoleServer,
-        transport::streamable_http_server::session::local::LocalSessionManager,
+        model::CallToolRequestParams,
+        model::CallToolResult,
+        model::Content,
+        model::JsonObject,
+        model::ListToolsResult,
+        model::PaginatedRequestParams,
+        model::ServerCapabilities,
+        model::ServerInfo,
+        model::Tool,
+        service::RequestContext,
+        service::RoleServer,
+        transport::streamable_http_server::session::{local::LocalSessionManager, SessionManager},
         transport::streamable_http_server::StreamableHttpServerConfig,
-        transport::streamable_http_server::StreamableHttpService, ErrorData, ServerHandler,
-        ServiceExt,
+        transport::streamable_http_server::StreamableHttpService,
+        ErrorData, ServerHandler, ServiceExt,
     };
     use serde_json::{from_str, json, Value};
     use tokio::{io::duplex, net::TcpListener, spawn, time::sleep};
@@ -534,6 +574,53 @@ mod tests {
         fake.0.lock().unwrap().omit_reflect = true;
         assert!(verb(&memory, "kaeru_read").call("{}".into()).await.is_err());
         drop(memory);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn expired_http_session_reconnects_before_delivering_the_first_tool_call() {
+        let fake = FakeMemory::default();
+        let manager = Arc::new(LocalSessionManager::default());
+        let factory = fake.clone();
+        let service = StreamableHttpService::new(
+            move || Ok(factory.clone()),
+            manager.clone(),
+            StreamableHttpServerConfig::default(),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = spawn(async move {
+            serve(listener, Router::new().nest_service("/mcp", service))
+                .await
+                .unwrap();
+        });
+        let memory = McpMemory::open(
+            McpTransport::Http {
+                url,
+                token_env: None,
+            },
+            2,
+        )
+        .await
+        .unwrap();
+        let old = manager.sessions.read().await.keys().next().unwrap().clone();
+        manager.close_session(&old).await.unwrap();
+        assert!(!manager.has_session(&old).await.unwrap());
+
+        verb(&memory, "kaeru_note")
+            .call(r#"{"name":"after-expiry"}"#.into())
+            .await
+            .unwrap();
+        let state = fake.0.lock().unwrap();
+        assert_eq!(state.creates, 1);
+        assert_eq!(
+            state
+                .calls
+                .iter()
+                .filter(|(name, args)| { name == "note" && args["name"] == "after-expiry" })
+                .count(),
+            1
+        );
         server.abort();
     }
 
